@@ -1,412 +1,56 @@
-# ==========================================================
-
-# HYBRID TERRAFORM + CLOUDFORMATION + DOCKER + KUBERNETES
-
-# AWS LAB — MAIN DEPLOYMENT WORKFLOW
-
-# ==========================================================
-
-#
-
-# Purpose:
-
-# Central deployment workflow for the AWS Hybrid IaC Lab.
-
-#
-
-# This workflow calls three reusable workflows:
-
-#
-
-# 1. terraform.yml
-
-# 2. docker.yml
-
-# 3. kubernetes.yml
-
-#
-
-# Deployment order:
-
-#
-
-# GitHub
-
-# |
-
-# v
-
-# Main Deployment
-
-# |
-
-# v
-
-# Terraform + CloudFormation
-
-# |
-
-# v
-
-# Docker + Amazon ECR
-
-# |
-
-# v
-
-# Kubernetes + Amazon EKS
-
-# |
-
-# v
-
-# Application
-
-#
-
-# ==========================================================
-
-# ==========================================================
-
-# WORKFLOW NAME
-
-# ==========================================================
-
 name: Main Deployment
 
 # ==========================================================
-
 # GITHUB ACTIONS PERMISSIONS
-
-# ==========================================================
-
-#
-
-# GitHub OIDC is used for AWS authentication.
-
-#
-
-# id-token: write
-
-# Allows GitHub Actions to request an OIDC token.
-
-#
-
-# contents: read
-
-# Allows the workflow to read repository files.
-
-#
-
-# This is required when the reusable workflows authenticate
-
-# to AWS using GitHub OIDC and AWS STS.
-
-#
-
 # ==========================================================
 
 permissions:
-contents: read
-id-token: write
+  contents: read
+  id-token: write
 
 # ==========================================================
-
 # WORKFLOW TRIGGERS
-
 # ==========================================================
 
 on:
+  push:
+    branches:
+      - main
 
-# --------------------------------------------------------
-
-# AUTOMATIC DEPLOYMENT
-
-# --------------------------------------------------------
-
-#
-
-# Runs automatically whenever code is pushed to main.
-
-#
-
-push:
-branches:
-- main
-
-# --------------------------------------------------------
-
-# MANUAL DEPLOYMENT
-
-# --------------------------------------------------------
-
-#
-
-# Allows deployment from:
-
-#
-
-# GitHub
-
-# -> Actions
-
-# -> Main Deployment
-
-# -> Run workflow
-
-#
-
-workflow_dispatch:
+  workflow_dispatch:
 
 # ==========================================================
-
 # JOBS
-
 # ==========================================================
 
 jobs:
 
-# ========================================================
+  # ========================================================
+  # TERRAFORM + CLOUDFORMATION
+  # ========================================================
+
+  terraform:
+    uses: ./.github/workflows/terraform.yml
+    secrets: inherit
+
+  # ========================================================
+  # DOCKER + AMAZON ECR
+  # ========================================================
+
+  docker:
+    needs:
+      - terraform
+    uses: ./.github/workflows/docker.yml
+    secrets: inherit
+
+  # ========================================================
+  # KUBERNETES + AMAZON EKS
+  # ========================================================
+
+  kubernetes:
+    needs:
+      - terraform
+      - docker
+    uses: ./.github/workflows/kubernetes.yml
+    secrets: inherit
 
-# 1. TERRAFORM + CLOUDFORMATION
-
-# ========================================================
-
-#
-
-# Terraform is the first deployment stage.
-
-#
-
-# It creates/updates the AWS infrastructure required by
-
-# the rest of the lab.
-
-#
-
-# The actual Terraform commands are inside terraform.yml.
-
-#
-
-# ========================================================
-
-terraform:
-
-
-# ------------------------------------------------------
-# CALL REUSABLE TERRAFORM WORKFLOW
-# ------------------------------------------------------
-#
-# File:
-#
-# .github/workflows/terraform.yml
-#
-uses: ./.github/workflows/terraform.yml
-
-# ------------------------------------------------------
-# PASS REPOSITORY SECRETS
-# ------------------------------------------------------
-#
-# Pass available secrets to terraform.yml.
-#
-secrets: inherit
-
-
-# ========================================================
-
-# 2. DOCKER + AMAZON ECR
-
-# ========================================================
-
-#
-
-# Docker runs AFTER Terraform.
-
-#
-
-# Terraform should create the infrastructure required by
-
-# the Docker/ECR deployment.
-
-#
-
-# The actual Docker commands are inside docker.yml.
-
-#
-
-# ========================================================
-
-docker:
-
-
-# ------------------------------------------------------
-# WAIT FOR TERRAFORM
-# ------------------------------------------------------
-#
-# Docker starts only when Terraform succeeds.
-#
-needs:
-  - terraform
-
-# ------------------------------------------------------
-# CALL REUSABLE DOCKER WORKFLOW
-# ------------------------------------------------------
-#
-# File:
-#
-# .github/workflows/docker.yml
-#
-uses: ./.github/workflows/docker.yml
-
-# ------------------------------------------------------
-# PASS REPOSITORY SECRETS
-# ------------------------------------------------------
-
-secrets: inherit
-
-
-# ========================================================
-
-# 3. KUBERNETES + AMAZON EKS
-
-# ========================================================
-
-#
-
-# Kubernetes is the final deployment stage.
-
-#
-
-# Kubernetes waits for:
-
-#
-
-# 1. Terraform
-
-# 2. Docker/ECR
-
-#
-
-# This means:
-
-#
-
-# Infrastructure exists
-
-# +
-
-# Docker image exists in ECR
-
-# +
-
-# EKS deployment can start
-
-#
-
-# The actual Kubernetes commands are inside
-
-# kubernetes.yml.
-
-#
-
-# ========================================================
-
-kubernetes:
-
-
-# ------------------------------------------------------
-# WAIT FOR TERRAFORM AND DOCKER
-# ------------------------------------------------------
-#
-needs:
-  - terraform
-  - docker
-
-# ------------------------------------------------------
-# CALL REUSABLE KUBERNETES WORKFLOW
-# ------------------------------------------------------
-#
-# File:
-#
-# .github/workflows/kubernetes.yml
-#
-uses: ./.github/workflows/kubernetes.yml
-
-# ------------------------------------------------------
-# PASS REPOSITORY SECRETS
-# ------------------------------------------------------
-
-secrets: inherit
-
-
-# ==========================================================
-
-# FINAL DEPLOYMENT FLOW
-
-# ==========================================================
-
-#
-
-# GitHub
-
-# |
-
-# v
-
-# +-------------------+
-
-# | Main Deployment   |
-
-# | main-deploy.yaml  |
-
-# +---------+---------+
-
-# |
-
-# v
-
-# +-------------------+
-
-# | Terraform         |
-
-# | + CloudFormation  |
-
-# +---------+---------+
-
-# |
-
-# v
-
-# +-------------------+
-
-# | Docker            |
-
-# | + Amazon ECR      |
-
-# +---------+---------+
-
-# |
-
-# v
-
-# +-------------------+
-
-# | Kubernetes        |
-
-# | + Amazon EKS      |
-
-# +---------+---------+
-
-# |
-
-# v
-
-# Application
-
-#
-
-# ==========================================================
-
-# END OF WORKFLOW
-
-# ==========================================================
