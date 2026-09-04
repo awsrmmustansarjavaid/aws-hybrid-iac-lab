@@ -1,0 +1,425 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+# ============================================================
+# HYBRID IaC AWS DEVOPS LAB
+# ============================================================
+#
+# File:
+#   infrastructure/cloudformation/main.yaml
+#
+# Purpose:
+#   This is the ROOT CloudFormation stack for the lab.
+#
+#   The root stack does NOT directly create the AWS resources.
+#   Instead, it calls multiple nested CloudFormation stacks.
+#
+# Architecture:
+#
+#   main.yaml
+#       |
+#       +----> nested/vpc.yaml
+#       |
+#       +----> nested/s3.yaml
+#       |
+#       +----> nested/dynamodb.yaml
+#       |
+#       +----> nested/ecr.yaml
+#
+# This gives us a modular CloudFormation architecture.
+#
+# The CloudFormation templates are stored in an S3 bucket.
+# CloudFormation downloads the nested templates from S3
+# using TemplateURL.
+#
+# ============================================================
+
+
+# ============================================================
+# TEMPLATE DESCRIPTION
+# ============================================================
+
+Description: >
+  Root CloudFormation stack for the Hybrid Terraform +
+  CloudFormation AWS DevOps Lab.
+
+
+# ============================================================
+# PARAMETERS
+# ============================================================
+#
+# Parameters allow values to be supplied when the stack is
+# deployed instead of hard-coding them inside the template.
+#
+# ============================================================
+
+Parameters:
+
+  # ----------------------------------------------------------
+  # ProjectName
+  # ----------------------------------------------------------
+  #
+  # Common name used by the nested CloudFormation stacks.
+  #
+  # Example:
+  #   HybridIaCLab
+  #
+  ProjectName:
+    Type: String
+
+    Default: HybridIaCLab
+
+    Description: >
+      Name of the project used by the nested CloudFormation
+      stacks for resource naming and tagging.
+
+
+  # ----------------------------------------------------------
+  # Environment
+  # ----------------------------------------------------------
+  #
+  # Identifies the deployment environment.
+  #
+  # Example:
+  #   dev
+  #   test
+  #   prod
+  #
+  Environment:
+    Type: String
+
+    Default: dev
+
+    Description: >
+      Deployment environment for the lab.
+
+
+  # ----------------------------------------------------------
+  # TemplateBucket
+  # ----------------------------------------------------------
+  #
+  # S3 bucket containing the CloudFormation nested templates.
+  #
+  # Example:
+  #
+  #   hybrid-iac-lab-cfn-templates
+  #
+  # CloudFormation uses this bucket to download:
+  #
+  #   nested/vpc.yaml
+  #   nested/s3.yaml
+  #   nested/dynamodb.yaml
+  #   nested/ecr.yaml
+  #
+  TemplateBucket:
+    Type: String
+
+    Description: >
+      S3 bucket containing the CloudFormation nested stack
+      templates.
+
+
+  # ----------------------------------------------------------
+  # TemplatePrefix
+  # ----------------------------------------------------------
+  #
+  # Optional S3 prefix/folder before the nested directory.
+  #
+  # If the templates are stored like this:
+  #
+  #   s3://bucket/nested/vpc.yaml
+  #
+  # then TemplatePrefix should be:
+  #
+  #   ""
+  #
+  # If they are stored like this:
+  #
+  #   s3://bucket/cloudformation/nested/vpc.yaml
+  #
+  # then TemplatePrefix should be:
+  #
+  #   cloudformation/
+  #
+  TemplatePrefix:
+    Type: String
+
+    Default: ""
+
+    Description: >
+      Optional S3 key prefix used before the nested template
+      directory.
+
+
+# ============================================================
+# RESOURCES
+# ============================================================
+#
+# The root stack creates four nested CloudFormation stacks.
+#
+# Nested stacks allow us to divide infrastructure into smaller,
+# reusable CloudFormation templates.
+#
+# ============================================================
+
+Resources:
+
+
+  # ==========================================================
+  # VPC NESTED STACK
+  # ==========================================================
+  #
+  # Responsible for networking infrastructure.
+  #
+  # The actual resources are defined inside:
+  #
+  #   nested/vpc.yaml
+  #
+  # Possible resources created by that template include:
+  #
+  #   - VPC
+  #   - Internet Gateway
+  #   - Subnets
+  #   - Route Tables
+  #   - Security Groups
+  #
+  # ==========================================================
+
+  VPCStack:
+
+    # Tell CloudFormation that this resource is another
+    # CloudFormation stack.
+    Type: AWS::CloudFormation::Stack
+
+    Properties:
+
+      # --------------------------------------------------------
+      # TemplateURL
+      # --------------------------------------------------------
+      #
+      # CloudFormation downloads the nested template from S3.
+      #
+      # !Sub allows us to dynamically insert:
+      #
+      #   ${TemplateBucket}
+      #   ${AWS::Region}
+      #   ${TemplatePrefix}
+      #
+      # Example resulting URL:
+      #
+      # https://my-bucket.s3.us-east-1.amazonaws.com/nested/vpc.yaml
+      #
+      TemplateURL: !Sub >
+        https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/
+        ${TemplatePrefix}nested/vpc.yaml
+
+
+      # --------------------------------------------------------
+      # PARAMETERS PASSED TO VPC STACK
+      # --------------------------------------------------------
+      #
+      # These values are sent from the root stack to the
+      # nested VPC template.
+      #
+      Parameters:
+
+        # Pass the project name to nested/vpc.yaml
+        ProjectName: !Ref ProjectName
+
+        # Pass the environment name to nested/vpc.yaml
+        Environment: !Ref Environment
+
+
+  # ==========================================================
+  # S3 NESTED STACK
+  # ==========================================================
+  #
+  # Responsible for S3 infrastructure.
+  #
+  # The actual resources are defined inside:
+  #
+  #   nested/s3.yaml
+  #
+  # Depending on the lab design, this stack can contain:
+  #
+  #   - S3 bucket
+  #   - Bucket policies
+  #   - Versioning
+  #   - Encryption
+  #
+  # ==========================================================
+
+  S3Stack:
+
+    # Create a nested CloudFormation stack.
+    Type: AWS::CloudFormation::Stack
+
+    Properties:
+
+      # Location of the S3 nested template.
+      TemplateURL: !Sub >
+        https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/
+        ${TemplatePrefix}nested/s3.yaml
+
+
+      # Parameters passed from the root stack to the S3 stack.
+      Parameters:
+
+        # Project name used by the S3 template.
+        ProjectName: !Ref ProjectName
+
+        # Environment used by the S3 template.
+        Environment: !Ref Environment
+
+
+  # ==========================================================
+  # DYNAMODB NESTED STACK
+  # ==========================================================
+  #
+  # Responsible for DynamoDB infrastructure.
+  #
+  # The actual resources are defined inside:
+  #
+  #   nested/dynamodb.yaml
+  #
+  # This keeps database-related infrastructure separate from
+  # networking and storage infrastructure.
+  #
+  # ==========================================================
+
+  DynamoDBStack:
+
+    # Create a nested CloudFormation stack.
+    Type: AWS::CloudFormation::Stack
+
+    Properties:
+
+      # Location of the DynamoDB nested template.
+      TemplateURL: !Sub >
+        https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/
+        ${TemplatePrefix}nested/dynamodb.yaml
+
+
+      # Parameters passed from the root stack to DynamoDB.
+      Parameters:
+
+        # Project name used by the DynamoDB template.
+        ProjectName: !Ref ProjectName
+
+        # Environment used by the DynamoDB template.
+        Environment: !Ref Environment
+
+
+  # ==========================================================
+  # ECR NESTED STACK
+  # ==========================================================
+  #
+  # Responsible for Amazon ECR infrastructure.
+  #
+  # The actual resources are defined inside:
+  #
+  #   nested/ecr.yaml
+  #
+  # ECR will store Docker container images used by the lab.
+  #
+  # Example future flow:
+  #
+  #   Developer
+  #       |
+  #       v
+  #   GitHub
+  #       |
+  #       v
+  #   Docker Build
+  #       |
+  #       v
+  #   Amazon ECR
+  #       |
+  #       v
+  #   ECS / Kubernetes
+  #
+  # ==========================================================
+
+  ECRStack:
+
+    # Create a nested CloudFormation stack.
+    Type: AWS::CloudFormation::Stack
+
+    Properties:
+
+      # Location of the ECR nested template.
+      TemplateURL: !Sub >
+        https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/
+        ${TemplatePrefix}nested/ecr.yaml
+
+
+      # Parameters passed from the root stack to ECR.
+      Parameters:
+
+        # Project name used by the ECR template.
+        ProjectName: !Ref ProjectName
+
+        # Environment used by the ECR template.
+        Environment: !Ref Environment
+
+
+# ============================================================
+# OUTPUTS
+# ============================================================
+#
+# Outputs allow us to retrieve useful information after the
+# root CloudFormation stack has been deployed.
+#
+# The values below expose the nested stack resources.
+#
+# ============================================================
+
+Outputs:
+
+
+  # ----------------------------------------------------------
+  # VPC STACK OUTPUT
+  # ----------------------------------------------------------
+
+  VPCStackId:
+
+    Description: >
+      ID of the nested VPC CloudFormation stack.
+
+    Value: !Ref VPCStack
+
+
+  # ----------------------------------------------------------
+  # S3 STACK OUTPUT
+  # ----------------------------------------------------------
+
+  S3StackId:
+
+    Description: >
+      ID of the nested S3 CloudFormation stack.
+
+    Value: !Ref S3Stack
+
+
+  # ----------------------------------------------------------
+  # DYNAMODB STACK OUTPUT
+  # ----------------------------------------------------------
+
+  DynamoDBStackId:
+
+    Description: >
+      ID of the nested DynamoDB CloudFormation stack.
+
+    Value: !Ref DynamoDBStack
+
+
+  # ----------------------------------------------------------
+  # ECR STACK OUTPUT
+  # ----------------------------------------------------------
+
+  ECRStackId:
+
+    Description: >
+      ID of the nested ECR CloudFormation stack.
+
+    Value: !Ref ECRStack
+

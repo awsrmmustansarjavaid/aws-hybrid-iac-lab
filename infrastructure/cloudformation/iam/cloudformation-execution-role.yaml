@@ -1,0 +1,1099 @@
+# ============================================================
+
+# AWS HYBRID IaC LAB
+
+# CLOUDFORMATION EXECUTION ROLE
+
+# ============================================================
+
+#
+
+# File:
+
+# infrastructure/cloudformation/cloudformation-execution-role.yaml
+
+#
+
+# Purpose:
+
+# Creates an IAM role that CloudFormation can assume when
+
+# creating and managing resources for the Hybrid IaC Lab.
+
+#
+
+#
+
+# ============================================================
+
+# WHY DO WE NEED THIS ROLE?
+
+# ============================================================
+
+#
+
+# Normally, when you run:
+
+#
+
+# aws cloudformation deploy ...
+
+#
+
+# CloudFormation operates using your AWS identity unless you
+
+# explicitly provide a CloudFormation service role.
+
+#
+
+# This template creates a dedicated service role so that
+
+# CloudFormation can be given its own permissions.
+
+#
+
+#
+
+# Architecture:
+
+#
+
+# Developer
+
+# |
+
+# | AWS CLI
+
+# v
+
+# CloudFormation
+
+# |
+
+# | AssumeRole
+
+# v
+
+# CloudFormationExecutionRole
+
+# |
+
+# +--------------------+
+
+# |                    |
+
+# v                    v
+
+# AWS Services       IAM PassRole
+
+# |
+
+# +--> VPC
+
+# +--> EC2
+
+# +--> S3
+
+# +--> Lambda
+
+# +--> API Gateway
+
+# +--> RDS
+
+# +--> DynamoDB
+
+# +--> ECR
+
+# +--> ECS
+
+# +--> EKS
+
+# +--> CloudWatch Logs
+
+# +--> CloudFront
+
+#
+
+#
+
+# ============================================================
+
+# IMPORTANT SECURITY NOTE
+
+# ============================================================
+
+#
+
+# This is a LAB execution role.
+
+#
+
+# Some permissions below use:
+
+#
+
+# Resource: "*"
+
+#
+
+# and:
+
+#
+
+# iam:PassRole
+
+#
+
+# This makes the lab easier to build and troubleshoot.
+
+#
+
+# DO NOT copy this permission model directly into a production
+
+# environment.
+
+#
+
+# Production best practice:
+
+#
+
+# - Least privilege
+
+# - Resource-level permissions
+
+# - Restricted iam:PassRole
+
+# - Separate roles per workload
+
+# - Permission boundaries where appropriate
+
+#
+
+#
+
+# ============================================================
+
+# AWS CLI COMMANDS
+
+# ============================================================
+
+#
+
+# Run commands from:
+
+#
+
+# infrastructure/cloudformation/
+
+#
+
+#
+
+# ============================================================
+
+# 1. CHECK AWS CLI
+
+# ============================================================
+
+#
+
+# aws --version
+
+#
+
+#
+
+# ============================================================
+
+# 2. CHECK CURRENT AWS IDENTITY
+
+# ============================================================
+
+#
+
+# aws sts get-caller-identity
+
+#
+
+#
+
+# ============================================================
+
+# 3. CHECK AWS REGION
+
+# ============================================================
+
+#
+
+# aws configure get region
+
+#
+
+#
+
+# ============================================================
+
+# 4. VALIDATE TEMPLATE
+
+# ============================================================
+
+#
+
+# aws cloudformation validate-template \
+
+# --template-body file://cloudformation-execution-role.yaml \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 5. DEPLOY EXECUTION ROLE
+
+# ============================================================
+
+#
+
+# aws cloudformation deploy \
+
+# --template-file cloudformation-execution-role.yaml \
+
+# --stack-name HybridIaCLab-CFN-ExecutionRole \
+
+# --parameter-overrides \
+
+# ProjectName=HybridIaCLab \
+
+# Environment=dev \
+
+# --capabilities CAPABILITY_NAMED_IAM \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 6. CHECK STACK
+
+# ============================================================
+
+#
+
+# aws cloudformation describe-stacks \
+
+# --stack-name HybridIaCLab-CFN-ExecutionRole \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 7. VIEW STACK EVENTS
+
+# ============================================================
+
+#
+
+# aws cloudformation describe-stack-events \
+
+# --stack-name HybridIaCLab-CFN-ExecutionRole \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 8. GET ROLE ARN FROM CLOUDFORMATION
+
+# ============================================================
+
+#
+
+# aws cloudformation describe-stacks \
+
+# --stack-name HybridIaCLab-CFN-ExecutionRole \
+
+# --query "Stacks[0].Outputs[?OutputKey=='ExecutionRoleArn'].OutputValue" \
+
+# --output text \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 9. CHECK IAM ROLE
+
+# ============================================================
+
+#
+
+# aws iam get-role \
+
+# --role-name HybridIaCLab-dev-CFNExecutionRole
+
+#
+
+#
+
+# ============================================================
+
+# 10. LIST INLINE POLICIES
+
+# ============================================================
+
+#
+
+# aws iam list-role-policies \
+
+# --role-name HybridIaCLab-dev-CFNExecutionRole
+
+#
+
+#
+
+# ============================================================
+
+# 11. GET INLINE POLICY
+
+# ============================================================
+
+#
+
+# aws iam get-role-policy \
+
+# --role-name HybridIaCLab-dev-CFNExecutionRole \
+
+# --policy-name HybridIaCLabProvisioning
+
+#
+
+#
+
+# ============================================================
+
+# USING THIS ROLE WITH CLOUDFORMATION
+
+# ============================================================
+
+#
+
+# After creating the role, you can tell CloudFormation to use
+
+# it through:
+
+#
+
+# --role-arn
+
+#
+
+#
+
+# Example:
+
+#
+
+# aws cloudformation deploy \
+
+# --template-file lambda.yaml \
+
+# --stack-name HybridIaCLab-Lambda \
+
+# --parameter-overrides \
+
+# ProjectName=HybridIaCLab \
+
+# Environment=dev \
+
+# --capabilities CAPABILITY_NAMED_IAM \
+
+# --role-arn arn:aws:iam::123456789012:role/HybridIaCLab-dev-CFNExecutionRole \
+
+# --region us-east-1
+
+#
+
+#
+
+# IMPORTANT:
+
+#
+
+# Replace:
+
+#
+
+# 123456789012
+
+#
+
+# with your AWS account ID.
+
+#
+
+#
+
+# ============================================================
+
+# 12. GET AWS ACCOUNT ID
+
+# ============================================================
+
+#
+
+# aws sts get-caller-identity \
+
+# --query Account \
+
+# --output text
+
+#
+
+#
+
+# ============================================================
+
+# CLEANUP
+
+# ============================================================
+
+#
+
+# Delete the execution-role stack only after all CloudFormation
+
+# stacks that depend on this service role have been removed or
+
+# are no longer using it.
+
+#
+
+#
+
+# ============================================================
+
+# 13. DELETE STACK
+
+# ============================================================
+
+#
+
+# aws cloudformation delete-stack \
+
+# --stack-name HybridIaCLab-CFN-ExecutionRole \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# CLOUDFORMATION TEMPLATE
+
+# ============================================================
+
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: >
+CloudFormation execution role for the Hybrid IaC Lab.
+This role allows AWS CloudFormation to provision and manage
+the AWS resources used throughout the lab.
+
+# ============================================================
+
+# PARAMETERS
+
+# ============================================================
+
+Parameters:
+
+# ----------------------------------------------------------
+
+# Project Name
+
+# ----------------------------------------------------------
+
+#
+
+# Used as part of the IAM role name.
+
+#
+
+# Example:
+
+#
+
+# HybridIaCLab
+
+#
+
+# ----------------------------------------------------------
+
+ProjectName:
+
+```
+Type: String
+
+Default: HybridIaCLab
+
+Description: Project name used to construct resource names.
+```
+
+# ----------------------------------------------------------
+
+# Environment
+
+# ----------------------------------------------------------
+
+#
+
+# Example:
+
+#
+
+# dev
+
+# test
+
+# prod
+
+#
+
+# ----------------------------------------------------------
+
+Environment:
+
+```
+Type: String
+
+Default: dev
+
+Description: Deployment environment.
+```
+
+# ============================================================
+
+# RESOURCES
+
+# ============================================================
+
+Resources:
+
+# ==========================================================
+
+# CLOUDFORMATION EXECUTION ROLE
+
+# ==========================================================
+
+#
+
+# CloudFormation assumes this role when it needs to create,
+
+# update, or delete resources.
+
+#
+
+# ==========================================================
+
+CloudFormationExecutionRole:
+
+```
+Type: AWS::IAM::Role
+
+Properties:
+
+
+  # ------------------------------------------------------
+  # Explicit IAM Role Name
+  # ------------------------------------------------------
+  #
+  # Example:
+  #
+  #   HybridIaCLab-dev-CFNExecutionRole
+  #
+  # ------------------------------------------------------
+
+  RoleName:
+
+    !Sub "${ProjectName}-${Environment}-CFNExecutionRole"
+
+
+  # ======================================================
+  # TRUST POLICY
+  # ======================================================
+  #
+  # This policy answers:
+  #
+  #   "WHO is allowed to assume this role?"
+  #
+  # In this case:
+  #
+  #   CloudFormation
+  #
+  # ======================================================
+
+  AssumeRolePolicyDocument:
+
+    Version: "2012-10-17"
+
+    Statement:
+
+      - Effect: Allow
+
+        Principal:
+
+          Service:
+
+            - cloudformation.amazonaws.com
+
+        Action:
+
+          - sts:AssumeRole
+
+
+  # ======================================================
+  # PERMISSIONS
+  # ======================================================
+  #
+  # These permissions answer:
+  #
+  #   "WHAT can CloudFormation do after assuming the role?"
+  #
+  # ======================================================
+
+  Policies:
+
+
+    # ====================================================
+    # MAIN LAB PROVISIONING POLICY
+    # ====================================================
+
+    - PolicyName: HybridIaCLabProvisioning
+
+      PolicyDocument:
+
+        Version: "2012-10-17"
+
+        Statement:
+
+
+          # =================================================
+          # NETWORKING / EC2
+          # =================================================
+          #
+          # Used by templates such as:
+          #
+          #   - VPC
+          #   - EC2
+          #   - EKS networking
+          #   - Security Groups
+          #   - Route Tables
+          #
+          # =================================================
+
+          - Effect: Allow
+
+            Action:
+
+              - ec2:Describe*
+
+              - ec2:CreateVpc
+              - ec2:DeleteVpc
+
+              - ec2:CreateSubnet
+              - ec2:DeleteSubnet
+
+              - ec2:CreateRouteTable
+              - ec2:DeleteRouteTable
+
+              - ec2:CreateRoute
+              - ec2:DeleteRoute
+
+              - ec2:CreateInternetGateway
+              - ec2:DeleteInternetGateway
+
+              - ec2:AttachInternetGateway
+              - ec2:DetachInternetGateway
+
+              - ec2:AssociateRouteTable
+              - ec2:DisassociateRouteTable
+
+              - ec2:CreateSecurityGroup
+              - ec2:DeleteSecurityGroup
+
+              - ec2:AuthorizeSecurityGroupIngress
+              - ec2:AuthorizeSecurityGroupEgress
+
+              - ec2:RevokeSecurityGroupIngress
+              - ec2:RevokeSecurityGroupEgress
+
+              - ec2:RunInstances
+              - ec2:TerminateInstances
+
+              - ec2:CreateTags
+
+            Resource: "*"
+
+
+          # =================================================
+          # S3
+          # =================================================
+          #
+          # Used for:
+          #
+          #   - Application buckets
+          #   - Static website assets
+          #   - CloudFront origins
+          #
+          # =================================================
+
+          - Effect: Allow
+
+            Action:
+
+              - s3:CreateBucket
+              - s3:DeleteBucket
+
+              - s3:GetBucket*
+              - s3:PutBucket*
+
+              - s3:DeleteBucketPolicy
+              - s3:PutBucketPolicy
+
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+
+            Resource: "*"
+
+
+          # =================================================
+          # LAMBDA
+          # =================================================
+          #
+          # Allows CloudFormation to create and manage
+          # Lambda functions.
+          #
+          # =================================================
+
+          - Effect: Allow
+
+            Action:
+
+              - lambda:CreateFunction
+              - lambda:DeleteFunction
+
+              - lambda:GetFunction
+
+              - lambda:UpdateFunctionCode
+              - lambda:UpdateFunctionConfiguration
+
+              - lambda:AddPermission
+              - lambda:RemovePermission
+
+              - lambda:TagResource
+
+            Resource: "*"
+
+
+          # =================================================
+          # API GATEWAY
+          # =================================================
+          #
+          # Used by api-gateway.yaml.
+          #
+          # =================================================
+
+          - Effect: Allow
+
+            Action:
+
+              - apigateway:*
+
+            Resource: "*"
+
+
+          # =================================================
+          # RDS
+          # =================================================
+          #
+          # Used by rds.yaml.
+          #
+          # =================================================
+
+          - Effect: Allow
+
+            Action:
+
+              - rds:CreateDBInstance
+              - rds:DeleteDBInstance
+              - rds:ModifyDBInstance
+
+              - rds:DescribeDBInstances
+
+              - rds:CreateDBSubnetGroup
+              - rds:DeleteDBSubnetGroup
+
+              - rds:DescribeDBSubnetGroups
+
+              - rds:AddTagsToResource
+              - rds:ListTagsForResource
+
+            Resource: "*"
+
+
+          # =================================================
+          # DYNAMODB
+          # =================================================
+
+          - Effect: Allow
+
+            Action:
+
+              - dynamodb:CreateTable
+              - dynamodb:DeleteTable
+
+              - dynamodb:DescribeTable
+              - dynamodb:UpdateTable
+
+              - dynamodb:TagResource
+              - dynamodb:UntagResource
+
+            Resource: "*"
+
+
+          # =================================================
+          # ECR
+          # =================================================
+          #
+          # Used by the container portion of the lab.
+          #
+          # NOTE:
+          # Docker image push operations are normally performed
+          # by Docker/GitHub Actions/ECR clients rather than
+          # CloudFormation itself. These permissions allow
+          # CloudFormation to manage ECR resources used by the
+          # infrastructure.
+          #
+          # =================================================
+
+          - Effect: Allow
+
+            Action:
+
+              - ecr:CreateRepository
+              - ecr:DeleteRepository
+
+              - ecr:DescribeRepositories
+
+              - ecr:PutImage
+              - ecr:BatchGetImage
+
+              - ecr:GetRepositoryPolicy
+              - ecr:SetRepositoryPolicy
+              - ecr:DeleteRepositoryPolicy
+
+              - ecr:TagResource
+
+            Resource: "*"
+
+
+          # =================================================
+          # ECS
+          # =================================================
+          #
+          # Used by ecs.yaml.
+          #
+          # =================================================
+
+          - Effect: Allow
+
+            Action:
+
+              - ecs:CreateCluster
+              - ecs:DeleteCluster
+              - ecs:DescribeClusters
+
+              - ecs:RegisterTaskDefinition
+              - ecs:DeregisterTaskDefinition
+
+              - ecs:CreateService
+              - ecs:DeleteService
+              - ecs:UpdateService
+
+              - ecs:DescribeServices
+
+              - ecs:TagResource
+
+            Resource: "*"
+
+
+          # =================================================
+          # EKS
+          # =================================================
+          #
+          # Used by eks.yaml.
+          #
+          # Allows CloudFormation to create and manage:
+          #
+          #   - EKS cluster
+          #   - EKS managed node group
+          #
+          # =================================================
+
+          - Effect: Allow
+
+            Action:
+
+              - eks:CreateCluster
+              - eks:DeleteCluster
+              - eks:DescribeCluster
+
+              - eks:CreateNodegroup
+              - eks:DeleteNodegroup
+              - eks:DescribeNodegroup
+
+              - eks:TagResource
+
+            Resource: "*"
+
+
+          # =================================================
+          # IAM PASSROLE
+          # =================================================
+          #
+          # This is particularly important.
+          #
+          # CloudFormation may create an AWS resource that
+          # itself needs an IAM role.
+          #
+          # Examples:
+          #
+          #   EKS -> EKSClusterRole
+          #   EKS -> EKSNodeRole
+          #   ECS -> ECSTaskExecutionRole
+          #   Lambda -> LambdaExecutionRole
+          #
+          # CloudFormation therefore needs permission to pass
+          # those IAM roles to AWS services.
+          #
+          # =================================================
+
+          - Effect: Allow
+
+            Action:
+
+              - iam:PassRole
+
+            Resource: "*"
+
+
+          # =================================================
+          # CLOUDWATCH LOGS
+          # =================================================
+          #
+          # Used by:
+          #
+          #   - ECS
+          #   - Lambda
+          #   - other application workloads
+          #
+          # =================================================
+
+          - Effect: Allow
+
+            Action:
+
+              - logs:CreateLogGroup
+              - logs:DeleteLogGroup
+
+              - logs:DescribeLogGroups
+
+              - logs:PutRetentionPolicy
+              - logs:DeleteRetentionPolicy
+
+            Resource: "*"
+
+
+          # =================================================
+          # CLOUDFRONT
+          # =================================================
+          #
+          # Used by cloudfront.yaml.
+          #
+          # =================================================
+
+          - Effect: Allow
+
+            Action:
+
+              - cloudfront:CreateDistribution
+              - cloudfront:UpdateDistribution
+              - cloudfront:DeleteDistribution
+
+              - cloudfront:GetDistribution
+
+              - cloudfront:CreateOriginAccessControl
+              - cloudfront:DeleteOriginAccessControl
+
+              - cloudfront:GetOriginAccessControl
+              - cloudfront:UpdateOriginAccessControl
+
+              - cloudfront:TagResource
+
+            Resource: "*"
+```
+
+# ============================================================
+
+# OUTPUTS
+
+# ============================================================
+
+Outputs:
+
+# ==========================================================
+
+# EXECUTION ROLE ARN
+
+# ==========================================================
+
+#
+
+# This ARN can be passed to:
+
+#
+
+# aws cloudformation deploy --role-arn ...
+
+#
+
+# ==========================================================
+
+ExecutionRoleArn:
+
+```
+Description:
+  CloudFormation execution role ARN
+
+Value:
+  !GetAtt CloudFormationExecutionRole.Arn
+```

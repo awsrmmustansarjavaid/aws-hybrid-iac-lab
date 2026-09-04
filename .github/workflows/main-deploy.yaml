@@ -1,0 +1,145 @@
+# ==========================================================
+# HYBRID TERRAFORM + CLOUDFORMATION AWS LAB
+# Main GitHub Actions Deployment Workflow
+# ==========================================================
+#
+# This is the MAIN workflow.
+#
+# It does NOT contain the actual Terraform, Docker, or
+# Kubernetes deployment commands.
+#
+# Instead, it calls three separate reusable workflows:
+#
+#   1. terraform.yml
+#   2. docker.yml
+#   3. kubernetes.yml
+#
+# This gives us one central deployment entry point while
+# keeping every technology in its own workflow.
+#
+# Deployment flow:
+#
+# GitHub
+#   |
+#   v
+# main-deploy.yaml
+#   |
+#   +----> Terraform
+#   |
+#   +----> Docker / ECR
+#   |
+#   +----> Kubernetes / EKS
+#
+# ==========================================================
+
+name: Main Deployment
+
+# ==========================================================
+# TRIGGERS
+# ==========================================================
+
+on:
+
+  # --------------------------------------------------------
+  # Automatic deployment when code is pushed to main.
+  # --------------------------------------------------------
+
+  push:
+    branches:
+      - main
+
+  # --------------------------------------------------------
+  # Allow manual deployment from GitHub Actions.
+  # --------------------------------------------------------
+
+  workflow_dispatch:
+
+
+# ==========================================================
+# JOBS
+# ==========================================================
+
+jobs:
+
+  # ========================================================
+  # 1. TERRAFORM + CLOUDFORMATION
+  # ========================================================
+
+  terraform:
+
+    # ------------------------------------------------------
+    # Call the reusable Terraform workflow.
+    # ------------------------------------------------------
+
+    uses: ./.github/workflows/terraform.yml
+
+    # ------------------------------------------------------
+    # Pass secrets to the reusable workflow.
+    #
+    # This allows terraform.yml to access the GitHub
+    # authentication configuration.
+    # ------------------------------------------------------
+
+    secrets: inherit
+
+
+  # ========================================================
+  # 2. DOCKER + ECR
+  # ========================================================
+
+  docker:
+
+    # ------------------------------------------------------
+    # Docker should run after Terraform.
+    #
+    # Terraform creates the AWS infrastructure including
+    # the ECR repository.
+    # ------------------------------------------------------
+
+    needs:
+      - terraform
+
+    # ------------------------------------------------------
+    # Call the reusable Docker workflow.
+    # ------------------------------------------------------
+
+    uses: ./.github/workflows/docker.yml
+
+    # ------------------------------------------------------
+    # Pass GitHub secrets.
+    # ------------------------------------------------------
+
+    secrets: inherit
+
+
+  # ========================================================
+  # 3. KUBERNETES + EKS
+  # ========================================================
+
+  kubernetes:
+
+    # ------------------------------------------------------
+    # Kubernetes runs after:
+    #
+    # Terraform
+    # Docker
+    #
+    # This ensures that the infrastructure and Docker image
+    # exist before we deploy Kubernetes workloads.
+    # ------------------------------------------------------
+
+    needs:
+      - terraform
+      - docker
+
+    # ------------------------------------------------------
+    # Call the reusable Kubernetes workflow.
+    # ------------------------------------------------------
+
+    uses: ./.github/workflows/kubernetes.yml
+
+    # ------------------------------------------------------
+    # Pass GitHub secrets.
+    # ------------------------------------------------------
+
+    secrets: inherit

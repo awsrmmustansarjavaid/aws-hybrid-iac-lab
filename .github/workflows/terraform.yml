@@ -1,0 +1,182 @@
+# ==========================================================
+# HYBRID TERRAFORM + CLOUDFORMATION AWS LAB
+# Terraform Deployment Workflow
+# ==========================================================
+#
+# This workflow is responsible for:
+#
+#   Terraform
+#       |
+#       +--> S3 CloudFormation template bucket
+#       |
+#       +--> Upload CloudFormation templates
+#       |
+#       +--> CloudFormation execution IAM role
+#       |
+#       +--> Main CloudFormation stack
+#       |
+#       +--> AWS infrastructure
+#
+# This workflow is called by:
+#
+#   main-deploy.yaml
+#
+# It can also be executed manually.
+#
+# ==========================================================
+
+name: Terraform Infrastructure
+
+
+# ==========================================================
+# TRIGGERS
+# ==========================================================
+
+on:
+
+  # --------------------------------------------------------
+  # Allows main-deploy.yaml to call this workflow.
+  # --------------------------------------------------------
+
+  workflow_call:
+
+  # --------------------------------------------------------
+  # Allows you to run this workflow manually.
+  # --------------------------------------------------------
+
+  workflow_dispatch:
+
+
+# ==========================================================
+# PERMISSIONS
+# ==========================================================
+
+permissions:
+
+  # Required when using GitHub OIDC with AWS.
+  id-token: write
+
+  # Required to checkout repository.
+  contents: read
+
+
+# ==========================================================
+# JOB
+# ==========================================================
+
+jobs:
+
+  terraform:
+
+    name: Terraform Infrastructure Deployment
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ----------------------------------------------------
+      # 1. Checkout repository
+      # ----------------------------------------------------
+
+      - name: Checkout Repository
+
+        uses: actions/checkout@v4
+
+
+      # ----------------------------------------------------
+      # 2. Configure AWS credentials
+      # ----------------------------------------------------
+      #
+      # IMPORTANT:
+      #
+      # These values must match the authentication method
+      # you configure for GitHub Actions.
+      #
+      # For the modern approach, use AWS OIDC rather than
+      # long-lived AWS access keys.
+      #
+      # ----------------------------------------------------
+
+      - name: Configure AWS Credentials
+
+        uses: aws-actions/configure-aws-credentials@v4
+
+        with:
+
+          aws-region: ${{ vars.AWS_REGION }}
+
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+
+
+      # ----------------------------------------------------
+      # 3. Setup Terraform
+      # ----------------------------------------------------
+
+      - name: Setup Terraform
+
+        uses: hashicorp/setup-terraform@v3
+
+
+      # ----------------------------------------------------
+      # 4. Terraform Init
+      # ----------------------------------------------------
+
+      - name: Terraform Init
+
+        working-directory: infrastructure/terraform
+
+        run: terraform init
+
+
+      # ----------------------------------------------------
+      # 5. Terraform Format Check
+      # ----------------------------------------------------
+
+      - name: Terraform Format Check
+
+        working-directory: infrastructure/terraform
+
+        run: terraform fmt -check -recursive
+
+
+      # ----------------------------------------------------
+      # 6. Terraform Validate
+      # ----------------------------------------------------
+
+      - name: Terraform Validate
+
+        working-directory: infrastructure/terraform
+
+        run: terraform validate
+
+
+      # ----------------------------------------------------
+      # 7. Terraform Plan
+      # ----------------------------------------------------
+
+      - name: Terraform Plan
+
+        working-directory: infrastructure/terraform
+
+        run: terraform plan
+
+
+      # ----------------------------------------------------
+      # 8. Terraform Apply
+      # ----------------------------------------------------
+      #
+      # Terraform will:
+      #
+      # 1. Create infrastructure
+      # 2. Create CloudFormation template bucket
+      # 3. Upload CloudFormation templates
+      # 4. Create CloudFormation execution role
+      # 5. Deploy main CloudFormation stack
+      #
+      # ----------------------------------------------------
+
+      - name: Terraform Apply
+
+        working-directory: infrastructure/terraform
+
+        run: terraform apply -auto-approve

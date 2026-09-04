@@ -1,0 +1,64 @@
+# ==========================================================
+# Charlie Cafe Docker Ignore File
+# ==========================================================
+#
+# These files/directories are not required inside the
+# Docker image.
+# ==========================================================
+
+
+# Git
+.git
+.gitignore
+
+
+# GitHub Actions
+.github
+
+
+# CloudFormation
+templates
+
+
+# Local AWS configuration
+.aws
+
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+
+# Docker files
+Dockerfile
+docker-compose.yml
+
+
+# Logs
+*.log
+logs/
+
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+
+# Python cache
+__pycache__
+*.pyc
+
+
+# Node modules
+node_modules/
+
+
+# Temporary files
+tmp/
+temp/
+
+
+# IDE files
+.vscode/
+.idea/

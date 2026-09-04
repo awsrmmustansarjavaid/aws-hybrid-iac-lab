@@ -1,0 +1,70 @@
+# ============================================================
+# Terraform Variable Values
+# ============================================================
+#
+# This file contains the actual values used by Terraform
+# variables.
+#
+# The variables themselves should be declared in:
+#
+#     variables.tf
+#
+# This file provides their values for this environment.
+#
+# Current environment:
+#
+#     AWS Region  = us-east-1
+#     Project     = HybridIaCLab
+#     Environment = dev
+#
+# ============================================================
+
+
+# ============================================================
+# AWS Region
+# ============================================================
+#
+# AWS region where Terraform will create the infrastructure.
+#
+# us-east-1 = US East (N. Virginia)
+#
+# You can change this later if you want to deploy the lab
+# into another AWS region.
+#
+aws_region = "us-east-1"
+
+
+# ============================================================
+# Project Name
+# ============================================================
+#
+# Main project/lab name.
+#
+# This value is used throughout the Terraform configuration
+# and is also passed into the CloudFormation root stack.
+#
+# Example resource naming:
+#
+#     HybridIaCLab-dev-...
+#
+project_name = "HybridIaCLab"
+
+
+# ============================================================
+# Environment
+# ============================================================
+#
+# Identifies the deployment environment.
+#
+# Current environment:
+#
+#     dev
+#
+# Other common values are:
+#
+#     staging
+#     prod
+#
+# This value is also passed from Terraform to CloudFormation.
+#
+environment = "dev"

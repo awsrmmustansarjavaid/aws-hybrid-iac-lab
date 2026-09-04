@@ -1,0 +1,1554 @@
+# ============================================================
+
+# AWS HYBRID IaC LAB
+
+# AMAZON EKS KUBERNETES PLATFORM
+
+# ============================================================
+
+#
+
+# File:
+
+# infrastructure/cloudformation/eks.yaml
+
+#
+
+# Purpose:
+
+# Creates an Amazon EKS Kubernetes cluster with an AWS
+
+# managed node group.
+
+#
+
+# Resources created:
+
+#
+
+# 1. EKS Cluster IAM Role
+
+# 2. EKS Node IAM Role
+
+# 3. EKS Kubernetes Cluster
+
+# 4. EKS Managed Node Group
+
+#
+
+#
+
+# Architecture:
+
+#
+
+# AWS VPC
+
+# |
+
+# +--------+--------+
+
+# |                 |
+
+# v                 v
+
+# Private Subnet 1   Private Subnet 2
+
+# |                 |
+
+# +--------+--------+
+
+# |
+
+# v
+
+# Amazon EKS
+
+# Kubernetes
+
+# Cluster
+
+# |
+
+# +--------+--------+
+
+# |                 |
+
+# v                 v
+
+# Worker Node       Worker Node
+
+# t3.medium         t3.medium
+
+# |                 |
+
+# +--------+--------+
+
+# |
+
+# v
+
+# Kubernetes Pods
+
+#
+
+#
+
+# ============================================================
+
+# IMPORTANT
+
+# ============================================================
+
+#
+
+# This template creates an actual EKS control plane and EC2
+
+# worker nodes.
+
+#
+
+# EKS is considerably more expensive than the basic ECS
+
+# Fargate lab.
+
+#
+
+# For cost control, use:
+
+#
+
+# MinSize:     1
+
+# DesiredSize: 1
+
+# MaxSize:     2
+
+#
+
+# and DELETE the stack when you finish practicing.
+
+#
+
+#
+
+# ============================================================
+
+# KUBERNETES VERSION
+
+# ============================================================
+
+#
+
+# This lab uses:
+
+#
+
+# Version: "1.33"
+
+#
+
+# If your AWS region/account does not support this Kubernetes
+
+# version, replace it with an EKS-supported version available
+
+# in your region.
+
+#
+
+#
+
+# ============================================================
+
+# NETWORK DESIGN
+
+# ============================================================
+
+#
+
+# EKS control-plane API endpoint:
+
+#
+
+# Public access  = ENABLED
+
+# Private access = ENABLED
+
+#
+
+# Worker nodes:
+
+#
+
+# PrivateSubnet1Id
+
+# PrivateSubnet2Id
+
+#
+
+# Nodes do not receive public IP addresses.
+
+#
+
+# They therefore need suitable outbound connectivity through
+
+# the VPC, normally using a NAT Gateway, VPC endpoints, or
+
+# another appropriate network design.
+
+#
+
+#
+
+# ============================================================
+
+# AWS CLI / KUBECTL LAB COMMANDS
+
+# ============================================================
+
+#
+
+# Run these commands from:
+
+#
+
+# infrastructure/cloudformation/
+
+#
+
+#
+
+# ============================================================
+
+# 1. VERIFY AWS CLI
+
+# ============================================================
+
+#
+
+# aws --version
+
+#
+
+#
+
+# ============================================================
+
+# 2. VERIFY AWS ACCOUNT
+
+# ============================================================
+
+#
+
+# aws sts get-caller-identity
+
+#
+
+#
+
+# ============================================================
+
+# 3. CHECK AWS REGION
+
+# ============================================================
+
+#
+
+# aws configure get region
+
+#
+
+#
+
+# ============================================================
+
+# 4. CHECK AVAILABLE EKS VERSIONS
+
+# ============================================================
+
+#
+
+# aws eks describe-addon-versions \
+
+# --query "addons[].addonVersions[].compatibilities[].clusterVersion" \
+
+# --output text \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 5. CHECK VPC
+
+# ============================================================
+
+#
+
+# aws ec2 describe-vpcs \
+
+# --query "Vpcs[].{VpcId:VpcId,Cidr:CidrBlock}" \
+
+# --output table \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 6. CHECK PRIVATE SUBNETS
+
+# ============================================================
+
+#
+
+# aws ec2 describe-subnets \
+
+# --query "Subnets[].{SubnetId:SubnetId,VpcId:VpcId,AZ:AvailabilityZone,Cidr:CidrBlock}" \
+
+# --output table \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 7. VALIDATE CLOUDFORMATION TEMPLATE
+
+# ============================================================
+
+#
+
+# aws cloudformation validate-template \
+
+# --template-body file://eks.yaml \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 8. DEPLOY EKS STACK
+
+# ============================================================
+
+#
+
+# Example:
+
+#
+
+# aws cloudformation deploy \
+
+# --template-file eks.yaml \
+
+# --stack-name HybridIaCLab-EKS \
+
+# --parameter-overrides \
+
+# ProjectName=HybridIaCLab \
+
+# Environment=dev \
+
+# VpcId=vpc-xxxxxxxxxxxxxxxxx \
+
+# PrivateSubnet1Id=subnet-xxxxxxxxxxxxxxxxx \
+
+# PrivateSubnet2Id=subnet-yyyyyyyyyyyyyyyyy \
+
+# --capabilities CAPABILITY_NAMED_IAM \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 9. CHECK CLOUDFORMATION STACK
+
+# ============================================================
+
+#
+
+# aws cloudformation describe-stacks \
+
+# --stack-name HybridIaCLab-EKS \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 10. WATCH CLOUDFORMATION EVENTS
+
+# ============================================================
+
+#
+
+# aws cloudformation describe-stack-events \
+
+# --stack-name HybridIaCLab-EKS \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# EKS CLI
+
+# ============================================================
+
+#
+
+# ============================================================
+
+# 11. LIST EKS CLUSTERS
+
+# ============================================================
+
+#
+
+# aws eks list-clusters \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 12. DESCRIBE EKS CLUSTER
+
+# ============================================================
+
+#
+
+# aws eks describe-cluster \
+
+# --name HybridIaCLab-dev-EKS \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 13. CHECK CLUSTER STATUS
+
+# ============================================================
+
+#
+
+# aws eks describe-cluster \
+
+# --name HybridIaCLab-dev-EKS \
+
+# --query "cluster.{Name:name,Status:status,Version:version,Endpoint:endpoint}" \
+
+# --output table \
+
+# --region us-east-1
+
+#
+
+#
+
+# Expected:
+
+#
+
+# Status = ACTIVE
+
+#
+
+#
+
+# ============================================================
+
+# 14. LIST NODE GROUPS
+
+# ============================================================
+
+#
+
+# aws eks list-nodegroups \
+
+# --cluster-name HybridIaCLab-dev-EKS \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 15. DESCRIBE NODE GROUP
+
+# ============================================================
+
+#
+
+# aws eks describe-nodegroup \
+
+# --cluster-name HybridIaCLab-dev-EKS \
+
+# --nodegroup-name HybridIaCLab-dev-NodeGroup \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 16. CHECK NODE GROUP STATUS
+
+# ============================================================
+
+#
+
+# aws eks describe-nodegroup \
+
+# --cluster-name HybridIaCLab-dev-EKS \
+
+# --nodegroup-name HybridIaCLab-dev-NodeGroup \
+
+# --query "nodegroup.{Status:status,Desired:scalingConfig.desiredSize,Min:scalingConfig.minSize,Max:scalingConfig.maxSize}" \
+
+# --output table \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# KUBECTL CONFIGURATION
+
+# ============================================================
+
+#
+
+# Before using kubectl, configure your local kubeconfig.
+
+#
+
+#
+
+# ============================================================
+
+# 17. CHECK KUBECTL
+
+# ============================================================
+
+#
+
+# kubectl version --client
+
+#
+
+#
+
+# ============================================================
+
+# 18. UPDATE KUBECONFIG
+
+# ============================================================
+
+#
+
+# aws eks update-kubeconfig \
+
+# --region us-east-1 \
+
+# --name HybridIaCLab-dev-EKS
+
+#
+
+#
+
+# ============================================================
+
+# 19. CHECK CURRENT KUBECTL CONTEXT
+
+# ============================================================
+
+#
+
+# kubectl config current-context
+
+#
+
+#
+
+# ============================================================
+
+# 20. VIEW KUBERNETES NODES
+
+# ============================================================
+
+#
+
+# kubectl get nodes
+
+#
+
+#
+
+# Expected:
+
+#
+
+# STATUS = Ready
+
+#
+
+#
+
+# ============================================================
+
+# 21. DETAILED NODE INFORMATION
+
+# ============================================================
+
+#
+
+# kubectl get nodes -o wide
+
+#
+
+#
+
+# ============================================================
+
+# 22. DESCRIBE NODE
+
+# ============================================================
+
+#
+
+# kubectl describe nodes
+
+#
+
+#
+
+# ============================================================
+
+# 23. CHECK KUBERNETES SYSTEM PODS
+
+# ============================================================
+
+#
+
+# kubectl get pods -A
+
+#
+
+#
+
+# ============================================================
+
+# 24. CHECK ALL NAMESPACES
+
+# ============================================================
+
+#
+
+# kubectl get namespaces
+
+#
+
+#
+
+# ============================================================
+
+# KUBERNETES PRACTICE
+
+# ============================================================
+
+#
+
+# Create a simple nginx deployment:
+
+#
+
+# kubectl create deployment nginx \
+
+# --image=nginx:alpine
+
+#
+
+#
+
+# ============================================================
+
+# 25. CHECK DEPLOYMENT
+
+# ============================================================
+
+#
+
+# kubectl get deployments
+
+#
+
+#
+
+# ============================================================
+
+# 26. CHECK PODS
+
+# ============================================================
+
+#
+
+# kubectl get pods
+
+#
+
+#
+
+# ============================================================
+
+# 27. EXPOSE DEPLOYMENT
+
+# ============================================================
+
+#
+
+# kubectl expose deployment nginx \
+
+# --port=80 \
+
+# --target-port=80 \
+
+# --type=LoadBalancer
+
+#
+
+#
+
+# ============================================================
+
+# 28. CHECK SERVICE
+
+# ============================================================
+
+#
+
+# kubectl get services
+
+#
+
+#
+
+# ============================================================
+
+# 29. WATCH SERVICE
+
+# ============================================================
+
+#
+
+# kubectl get service nginx -w
+
+#
+
+#
+
+# ============================================================
+
+# 30. SCALE DEPLOYMENT
+
+# ============================================================
+
+#
+
+# kubectl scale deployment nginx \
+
+# --replicas=2
+
+#
+
+#
+
+# ============================================================
+
+# 31. CHECK POD DISTRIBUTION
+
+# ============================================================
+
+#
+
+# kubectl get pods -o wide
+
+#
+
+#
+
+# ============================================================
+
+# 32. CHECK DEPLOYMENT
+
+# ============================================================
+
+#
+
+# kubectl describe deployment nginx
+
+#
+
+#
+
+# ============================================================
+
+# 33. VIEW POD LOGS
+
+# ============================================================
+
+#
+
+# kubectl logs deployment/nginx
+
+#
+
+#
+
+# ============================================================
+
+# 34. DELETE PRACTICE DEPLOYMENT
+
+# ============================================================
+
+#
+
+# kubectl delete service nginx
+
+#
+
+# kubectl delete deployment nginx
+
+#
+
+#
+
+# ============================================================
+
+# EKS ADD-ONS
+
+# ============================================================
+
+#
+
+# EKS commonly uses managed add-ons for cluster functionality.
+
+#
+
+# ============================================================
+
+# 35. LIST ADD-ONS
+
+# ============================================================
+
+#
+
+# aws eks list-addons \
+
+# --cluster-name HybridIaCLab-dev-EKS \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 36. CHECK EKS VPC CNI
+
+# ============================================================
+
+#
+
+# aws eks describe-addon \
+
+# --cluster-name HybridIaCLab-dev-EKS \
+
+# --addon-name vpc-cni \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# IAM ROLE VERIFICATION
+
+# ============================================================
+
+#
+
+# ============================================================
+
+# 37. CHECK CLUSTER ROLE
+
+# ============================================================
+
+#
+
+# aws iam get-role \
+
+# --role-name HybridIaCLab-dev-EKSClusterRole
+
+#
+
+#
+
+# ============================================================
+
+# 38. CHECK NODE ROLE
+
+# ============================================================
+
+#
+
+# aws iam get-role \
+
+# --role-name HybridIaCLab-dev-EKSNodeRole
+
+#
+
+#
+
+# ============================================================
+
+# NETWORK TROUBLESHOOTING
+
+# ============================================================
+
+#
+
+# If worker nodes do not become Ready, check:
+
+#
+
+# 1. Private subnet routing
+
+# 2. NAT Gateway / VPC endpoints
+
+# 3. Route tables
+
+# 4. Security groups
+
+# 5. EKS node IAM role
+
+# 6. EKS VPC CNI
+
+#
+
+#
+
+# Check route tables:
+
+#
+
+# aws ec2 describe-route-tables \
+
+# --query "RouteTables[].{RouteTableId:RouteTableId,VpcId:VpcId}" \
+
+# --output table \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# CLOUDWATCH / EKS LOGGING
+
+# ============================================================
+
+#
+
+# This basic template does not enable all EKS control-plane
+
+# log types.
+
+#
+
+# That can be added later when you practice:
+
+#
+
+# - API server logs
+
+# - Audit logs
+
+# - Authenticator logs
+
+# - Controller manager logs
+
+# - Scheduler logs
+
+#
+
+#
+
+# ============================================================
+
+# CLEANUP
+
+# ============================================================
+
+#
+
+# IMPORTANT:
+
+#
+
+# Delete Kubernetes workloads before deleting the cluster if
+
+# they created external AWS resources such as Load Balancers.
+
+#
+
+#
+
+# ============================================================
+
+# 39. DELETE TEST WORKLOAD
+
+# ============================================================
+
+#
+
+# kubectl delete service nginx
+
+#
+
+# kubectl delete deployment nginx
+
+#
+
+#
+
+# ============================================================
+
+# 40. DELETE EKS CLOUDFORMATION STACK
+
+# ============================================================
+
+#
+
+# aws cloudformation delete-stack \
+
+# --stack-name HybridIaCLab-EKS \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 41. CHECK DELETION
+
+# ============================================================
+
+#
+
+# aws cloudformation describe-stack-events \
+
+# --stack-name HybridIaCLab-EKS \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# CLOUDFORMATION TEMPLATE
+
+# ============================================================
+
+Parameters:
+
+# ----------------------------------------------------------
+
+# Project name
+
+# ----------------------------------------------------------
+
+ProjectName:
+Type: String
+Description: Project name
+
+# ----------------------------------------------------------
+
+# Environment
+
+# ----------------------------------------------------------
+
+Environment:
+Type: String
+Description: Deployment environment
+
+# ----------------------------------------------------------
+
+# VPC
+
+# ----------------------------------------------------------
+
+VpcId:
+Type: AWS::EC2::VPC::Id
+Description: VPC where the EKS cluster will run
+
+# ----------------------------------------------------------
+
+# PRIVATE SUBNET 1
+
+# ----------------------------------------------------------
+
+PrivateSubnet1Id:
+Type: AWS::EC2::Subnet::Id
+Description: First private subnet for EKS
+
+# ----------------------------------------------------------
+
+# PRIVATE SUBNET 2
+
+# ----------------------------------------------------------
+
+PrivateSubnet2Id:
+Type: AWS::EC2::Subnet::Id
+Description: Second private subnet for EKS
+
+# ============================================================
+
+# RESOURCES
+
+# ============================================================
+
+Resources:
+
+# ==========================================================
+
+# EKS CLUSTER IAM ROLE
+
+# ==========================================================
+
+#
+
+# Allows the Amazon EKS service to manage AWS resources
+
+# required by the Kubernetes control plane.
+
+#
+
+# ==========================================================
+
+EKSClusterRole:
+Type: AWS::IAM::Role
+
+
+Properties:
+
+  RoleName:
+    !Sub "${ProjectName}-${Environment}-EKSClusterRole"
+
+  AssumeRolePolicyDocument:
+
+    Version: "2012-10-17"
+
+    Statement:
+
+      - Effect: Allow
+
+        Principal:
+
+          Service:
+            - eks.amazonaws.com
+
+        Action:
+          - sts:AssumeRole
+
+  ManagedPolicyArns:
+
+    - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+
+
+# ==========================================================
+
+# EKS NODE IAM ROLE
+
+# ==========================================================
+
+#
+
+# IAM role assumed by the EC2 worker nodes.
+
+#
+
+# ==========================================================
+
+EKSNodeRole:
+Type: AWS::IAM::Role
+
+
+Properties:
+
+  RoleName:
+    !Sub "${ProjectName}-${Environment}-EKSNodeRole"
+
+  AssumeRolePolicyDocument:
+
+    Version: "2012-10-17"
+
+    Statement:
+
+      - Effect: Allow
+
+        Principal:
+
+          Service:
+            - ec2.amazonaws.com
+
+        Action:
+          - sts:AssumeRole
+
+  ManagedPolicyArns:
+
+    # Allows worker nodes to communicate with EKS.
+
+    - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+
+    # Allows worker nodes to pull container images from ECR.
+
+    - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPullOnly
+
+    # Allows the AWS VPC CNI to manage networking.
+
+    - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+
+
+# ==========================================================
+
+# EKS CLUSTER
+
+# ==========================================================
+
+EKSCluster:
+Type: AWS::EKS::Cluster
+
+
+Properties:
+
+
+  # ------------------------------------------------------
+  # Cluster name
+  # ------------------------------------------------------
+
+  Name:
+    !Sub "${ProjectName}-${Environment}-EKS"
+
+
+  # ------------------------------------------------------
+  # Kubernetes version
+  # ------------------------------------------------------
+
+  Version: "1.33"
+
+
+  # ------------------------------------------------------
+  # EKS cluster IAM role
+  # ------------------------------------------------------
+
+  RoleArn:
+    !GetAtt EKSClusterRole.Arn
+
+
+  # ======================================================
+  # VPC CONFIGURATION
+  # ======================================================
+
+  ResourcesVpcConfig:
+
+    # ----------------------------------------------------
+    # VPC
+    # ----------------------------------------------------
+
+    VpcId:
+      !Ref VpcId
+
+
+    # ----------------------------------------------------
+    # PRIVATE SUBNETS
+    # ----------------------------------------------------
+
+    SubnetIds:
+
+      - !Ref PrivateSubnet1Id
+      - !Ref PrivateSubnet2Id
+
+
+    # ----------------------------------------------------
+    # API ENDPOINT ACCESS
+    # ----------------------------------------------------
+    #
+    # Public access:
+    #
+    #   Allows kubectl access through the public EKS API
+    #   endpoint.
+    #
+    # Private access:
+    #
+    #   Allows resources inside the VPC to communicate with
+    #   the Kubernetes API endpoint privately.
+    #
+    # ----------------------------------------------------
+
+    EndpointPublicAccess: true
+
+    EndpointPrivateAccess: true
+
+
+  # ======================================================
+  # TAGS
+  # ======================================================
+
+  Tags:
+
+    - Key: Project
+
+      Value:
+        !Ref ProjectName
+
+    - Key: Environment
+
+      Value:
+        !Ref Environment
+
+
+# ==========================================================
+
+# EKS MANAGED NODE GROUP
+
+# ==========================================================
+
+#
+
+# AWS manages the lifecycle of the EC2 worker nodes.
+
+#
+
+# ==========================================================
+
+EKSNodeGroup:
+Type: AWS::EKS::Nodegroup
+
+
+DependsOn:
+  - EKSCluster
+
+Properties:
+
+
+  # ------------------------------------------------------
+  # EKS cluster
+  # ------------------------------------------------------
+
+  ClusterName:
+    !Ref EKSCluster
+
+
+  # ------------------------------------------------------
+  # Node group name
+  # ------------------------------------------------------
+
+  NodegroupName:
+    !Sub "${ProjectName}-${Environment}-NodeGroup"
+
+
+  # ------------------------------------------------------
+  # Worker node IAM role
+  # ------------------------------------------------------
+
+  NodeRole:
+    !GetAtt EKSNodeRole.Arn
+
+
+  # ------------------------------------------------------
+  # PRIVATE SUBNETS
+  # ------------------------------------------------------
+
+  Subnets:
+
+    - !Ref PrivateSubnet1Id
+    - !Ref PrivateSubnet2Id
+
+
+  # ------------------------------------------------------
+  # EC2 INSTANCE TYPE
+  # ------------------------------------------------------
+  #
+  # t3.medium is intentionally used for this Kubernetes
+  # learning lab because Kubernetes components and workloads
+  # require more resources than a minimal EC2 web server.
+  #
+  # ------------------------------------------------------
+
+  InstanceTypes:
+
+    - t3.medium
+
+
+  # ------------------------------------------------------
+  # AMAZON LINUX 2023
+  # ------------------------------------------------------
+
+  AmiType: AL2023_x86_64_STANDARD
+
+
+  # ------------------------------------------------------
+  # CAPACITY TYPE
+  # ------------------------------------------------------
+
+  CapacityType: ON_DEMAND
+
+
+  # ======================================================
+  # AUTO SCALING CONFIGURATION
+  # ======================================================
+
+  ScalingConfig:
+
+    # Minimum number of worker nodes.
+
+    MinSize: 1
+
+    # Number of worker nodes created initially.
+
+    DesiredSize: 1
+
+    # Maximum number of worker nodes.
+
+    MaxSize: 2
+
+
+# ============================================================
+
+# OUTPUTS
+
+# ============================================================
+
+Outputs:
+
+# ==========================================================
+
+# CLUSTER NAME
+
+# ==========================================================
+
+ClusterName:
+
+
+Description: EKS cluster name
+
+Value:
+  !Ref EKSCluster
+
+
+# ==========================================================
+
+# CLUSTER ENDPOINT
+
+# ==========================================================
+
+ClusterEndpoint:
+
+
+Description: EKS Kubernetes API endpoint
+
+Value:
+  !GetAtt EKSCluster.Endpoint
+
+
+# ==========================================================
+
+# NODE GROUP NAME
+
+# ==========================================================
+
+NodeGroupName:
+
+
+Description: EKS managed node group name
+
+Value:
+  !Ref EKSNodeGroup
+
+
+# ==========================================================
+
+# CLUSTER ARN
+
+# ==========================================================
+
+ClusterArn:
+
+
+Description: EKS cluster ARN
+
+Value:
+  !GetAtt EKSCluster.Arn
+
+
+# ==========================================================
+
+# NODE ROLE ARN
+
+# ==========================================================
+
+NodeRoleArn:
+
+
+Description: EKS worker node IAM role ARN
+
+Value:
+  !GetAtt EKSNodeRole.Arn
+

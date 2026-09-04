@@ -1,0 +1,971 @@
+# ============================================================
+
+# AWS HYBRID IaC LAB
+
+# AWS LAMBDA APPLICATION LAYER
+
+# ============================================================
+
+#
+
+# File:
+
+# infrastructure/cloudformation/lambda.yaml
+
+#
+
+# Purpose:
+
+# Creates the Lambda application layer for the Hybrid IaC Lab.
+
+#
+
+# Architecture:
+
+#
+
+# Client
+
+# |
+
+# v
+
+# API Gateway
+
+# |
+
+# | POST /orders
+
+# v
+
+# AWS Lambda
+
+# |
+
+# +------------------+
+
+# |                  |
+
+# v                  v
+
+# CloudWatch         DynamoDB
+
+# Logs               Tables
+
+#
+
+# This template creates:
+
+#
+
+# 1. IAM Role for Lambda
+
+# 2. Basic Lambda execution permissions
+
+# 3. DynamoDB permissions
+
+# 4. Python 3.12 Lambda function
+
+# 5. CloudFormation Outputs
+
+#
+
+# ============================================================
+
+# IMPORTANT
+
+# ============================================================
+
+#
+
+# This Lambda uses inline Python code through CloudFormation's
+
+# ZipFile property.
+
+#
+
+# That makes it very useful for learning CloudFormation because
+
+# no external ZIP package is required.
+
+#
+
+# For larger production applications, Lambda code would normally
+
+# be maintained in source control and packaged separately.
+
+#
+
+#
+
+# ============================================================
+
+# AWS CLI COMMANDS
+
+# ============================================================
+
+#
+
+# These commands assume that you are running them from:
+
+#
+
+# infrastructure/cloudformation/
+
+#
+
+#
+
+# ============================================================
+
+# 1. VERIFY AWS CLI
+
+# ============================================================
+
+#
+
+# aws --version
+
+#
+
+#
+
+# ============================================================
+
+# 2. VERIFY AWS ACCOUNT
+
+# ============================================================
+
+#
+
+# aws sts get-caller-identity
+
+#
+
+#
+
+# ============================================================
+
+# 3. CHECK AWS REGION
+
+# ============================================================
+
+#
+
+# aws configure get region
+
+#
+
+# Example:
+
+#
+
+# us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 4. VALIDATE CLOUDFORMATION TEMPLATE
+
+# ============================================================
+
+#
+
+# Always validate the template before deployment.
+
+#
+
+# aws cloudformation validate-template \
+
+# --template-body file://lambda.yaml \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 5. DEPLOY LAMBDA STACK
+
+# ============================================================
+
+#
+
+# Example:
+
+#
+
+# aws cloudformation deploy \
+
+# --template-file lambda.yaml \
+
+# --stack-name HybridIaCLab-Lambda \
+
+# --parameter-overrides \
+
+# ProjectName=HybridIaCLab \
+
+# Environment=dev \
+
+# --capabilities CAPABILITY_NAMED_IAM \
+
+# --region us-east-1
+
+#
+
+# IMPORTANT:
+
+#
+
+# CAPABILITY_NAMED_IAM is required because this template creates
+
+# an IAM Role with a custom RoleName.
+
+#
+
+#
+
+# ============================================================
+
+# 6. CHECK STACK STATUS
+
+# ============================================================
+
+#
+
+# aws cloudformation describe-stacks \
+
+# --stack-name HybridIaCLab-Lambda \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 7. WATCH CLOUDFORMATION EVENTS
+
+# ============================================================
+
+#
+
+# aws cloudformation describe-stack-events \
+
+# --stack-name HybridIaCLab-Lambda \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 8. GET LAMBDA OUTPUTS
+
+# ============================================================
+
+#
+
+# aws cloudformation describe-stacks \
+
+# --stack-name HybridIaCLab-Lambda \
+
+# --query "Stacks[0].Outputs" \
+
+# --output table \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 9. GET LAMBDA FUNCTION
+
+# ============================================================
+
+#
+
+# aws lambda get-function \
+
+# --function-name HybridIaCLab-dev-ApplicationLambda \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 10. GET LAMBDA CONFIGURATION
+
+# ============================================================
+
+#
+
+# aws lambda get-function-configuration \
+
+# --function-name HybridIaCLab-dev-ApplicationLambda \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 11. INVOKE LAMBDA DIRECTLY
+
+# ============================================================
+
+#
+
+# You can test Lambda without API Gateway.
+
+#
+
+# AWS CLI:
+
+#
+
+# aws lambda invoke \
+
+# --function-name HybridIaCLab-dev-ApplicationLambda \
+
+# --payload '{}' \
+
+# response.json \
+
+# --region us-east-1
+
+#
+
+# Then:
+
+#
+
+# cat response.json
+
+#
+
+# On PowerShell:
+
+#
+
+# Get-Content response.json
+
+#
+
+#
+
+# ============================================================
+
+# 12. INVOKE WITH TEST JSON
+
+# ============================================================
+
+#
+
+# Example:
+
+#
+
+# aws lambda invoke \
+
+# --function-name HybridIaCLab-dev-ApplicationLambda \
+
+# --payload '{"item":"Coffee","quantity":2}' \
+
+# response.json \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 13. VIEW CLOUDWATCH LOG GROUP
+
+# ============================================================
+
+#
+
+# Lambda automatically writes logs because the execution role
+
+# includes AWSLambdaBasicExecutionRole.
+
+#
+
+# Find the log group:
+
+#
+
+# aws logs describe-log-groups \
+
+# --log-group-name-prefix /aws/lambda/HybridIaCLab-dev \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 14. VIEW RECENT LOG STREAMS
+
+# ============================================================
+
+#
+
+# aws logs describe-log-streams \
+
+# --log-group-name /aws/lambda/HybridIaCLab-dev-ApplicationLambda \
+
+# --order-by LastEventTime \
+
+# --descending \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 15. TEST USING API GATEWAY
+
+# ============================================================
+
+#
+
+# The API Gateway template should use this Lambda output:
+
+#
+
+# LambdaFunctionArn
+
+#
+
+# After API Gateway has been deployed, use its:
+
+#
+
+# OrdersEndpoint
+
+#
+
+# Example:
+
+#
+
+# curl -X POST \
+
+# https://API_ID.execute-api.us-east-1.amazonaws.com/dev/orders \
+
+# -H "Content-Type: application/json" \
+
+# -d '{"item":"Coffee","quantity":2}'
+
+#
+
+#
+
+# ============================================================
+
+# 16. DELETE STACK
+
+# ============================================================
+
+#
+
+# aws cloudformation delete-stack \
+
+# --stack-name HybridIaCLab-Lambda \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# CLOUDFORMATION TEMPLATE
+
+# ============================================================
+
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: >
+Lambda application layer for the Hybrid IaC Lab.
+
+# ============================================================
+
+# PARAMETERS
+
+# ============================================================
+
+#
+
+# Parameters allow the same CloudFormation template to be reused
+
+# for different projects and environments.
+
+#
+
+# Example:
+
+#
+
+# ProjectName = HybridIaCLab
+
+# Environment = dev
+
+#
+
+# ============================================================
+
+Parameters:
+
+# ----------------------------------------------------------
+
+# Project Name
+
+# ----------------------------------------------------------
+
+#
+
+# Used when generating AWS resource names.
+
+#
+
+ProjectName:
+Type: String
+Description: Project name
+
+# ----------------------------------------------------------
+
+# Environment
+
+# ----------------------------------------------------------
+
+#
+
+# Example:
+
+#
+
+# dev
+
+# test
+
+# staging
+
+# prod
+
+#
+
+Environment:
+Type: String
+Description: Deployment environment
+
+# ============================================================
+
+# RESOURCES
+
+# ============================================================
+
+Resources:
+
+# ==========================================================
+
+# LAMBDA EXECUTION ROLE
+
+# ==========================================================
+
+#
+
+# AWS Lambda needs an IAM role to access AWS services.
+
+#
+
+# This role allows Lambda to:
+
+#
+
+# - Write logs to CloudWatch
+
+# - Read/write DynamoDB
+
+#
+
+# ==========================================================
+
+LambdaExecutionRole:
+Type: AWS::IAM::Role
+
+
+Properties:
+
+
+  # ------------------------------------------------------
+  # IAM Role Name
+  # ------------------------------------------------------
+  #
+  # Example:
+  #
+  #   HybridIaCLab-dev-LambdaRole
+  #
+  RoleName:
+    !Sub "${ProjectName}-${Environment}-LambdaRole"
+
+
+  # ------------------------------------------------------
+  # TRUST POLICY
+  # ------------------------------------------------------
+  #
+  # This policy defines WHO can assume this IAM role.
+  #
+  # In this case:
+  #
+  #   AWS Lambda
+  #
+  # is allowed to assume the role.
+  #
+  # ======================================================
+
+  AssumeRolePolicyDocument:
+
+    Version: "2012-10-17"
+
+    Statement:
+
+      - Effect: Allow
+
+        Principal:
+          Service:
+            - lambda.amazonaws.com
+
+        Action:
+          - sts:AssumeRole
+
+
+  # ------------------------------------------------------
+  # AWS MANAGED POLICY
+  # ------------------------------------------------------
+  #
+  # AWSLambdaBasicExecutionRole provides the standard
+  # permissions required for Lambda to write logs to
+  # Amazon CloudWatch Logs.
+  #
+  # This includes permissions such as:
+  #
+  #   logs:CreateLogGroup
+  #   logs:CreateLogStream
+  #   logs:PutLogEvents
+  #
+  # ------------------------------------------------------
+
+  ManagedPolicyArns:
+
+    - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+
+  # ======================================================
+  # INLINE IAM POLICY
+  # ======================================================
+  #
+  # Provides DynamoDB permissions to Lambda.
+  #
+  # NOTE:
+  #
+  # Resource: "*"
+  #
+  # is intentionally broad for this learning lab.
+  #
+  # In production, this should be restricted to specific
+  # DynamoDB table ARNs.
+  #
+  # ======================================================
+
+  Policies:
+
+    - PolicyName: DynamoDBAccess
+
+      PolicyDocument:
+
+        Version: "2012-10-17"
+
+        Statement:
+
+          - Effect: Allow
+
+            Action:
+
+              # Insert an item
+              - dynamodb:PutItem
+
+              # Read a specific item
+              - dynamodb:GetItem
+
+              # Update an existing item
+              - dynamodb:UpdateItem
+
+              # Query table/index data
+              - dynamodb:Query
+
+              # Scan table data
+              - dynamodb:Scan
+
+            # ------------------------------------------------
+            # Lab-level permission.
+            #
+            # Production recommendation:
+            # restrict this to specific DynamoDB table ARNs.
+            # ------------------------------------------------
+
+            Resource: "*"
+
+
+# ==========================================================
+
+# LAMBDA FUNCTION
+
+# ==========================================================
+
+#
+
+# Creates the actual application Lambda function.
+
+#
+
+# ==========================================================
+
+ApplicationFunction:
+Type: AWS::Lambda::Function
+
+
+Properties:
+
+
+  # ------------------------------------------------------
+  # Function Name
+  # ------------------------------------------------------
+  #
+  # Example:
+  #
+  #   HybridIaCLab-dev-ApplicationLambda
+  #
+  FunctionName:
+    !Sub "${ProjectName}-${Environment}-ApplicationLambda"
+
+
+  # ------------------------------------------------------
+  # Python Runtime
+  # ------------------------------------------------------
+  #
+  # Python 3.12 is used for this lab.
+  #
+  Runtime: python3.12
+
+
+  # ------------------------------------------------------
+  # Lambda Handler
+  # ------------------------------------------------------
+  #
+  # Format:
+  #
+  #   filename.function
+  #
+  # Because the inline code is stored in index.py,
+  # the handler is:
+  #
+  #   index.handler
+  #
+  Handler: index.handler
+
+
+  # ------------------------------------------------------
+  # IAM EXECUTION ROLE
+  # ------------------------------------------------------
+  #
+  # Lambda assumes this role when it executes.
+  #
+  Role:
+    !GetAtt LambdaExecutionRole.Arn
+
+
+  # ------------------------------------------------------
+  # TIMEOUT
+  # ------------------------------------------------------
+  #
+  # Maximum execution time:
+  #
+  #   30 seconds
+  #
+  Timeout: 30
+
+
+  # ------------------------------------------------------
+  # MEMORY
+  # ------------------------------------------------------
+  #
+  # Lambda memory allocation:
+  #
+  #   256 MB
+  #
+  MemorySize: 256
+
+
+  # ======================================================
+  # INLINE LAMBDA CODE
+  # ======================================================
+  #
+  # CloudFormation packages this Python code automatically.
+  #
+  # No external ZIP file is required.
+  #
+  # ======================================================
+
+  Code:
+
+    ZipFile: !Sub |
+
+      import json
+
+      def handler(event, context):
+
+          # ------------------------------------------------
+          # Print the incoming event.
+          #
+          # This information can be viewed in CloudWatch
+          # Logs and is useful when learning/debugging.
+          # ------------------------------------------------
+
+          print("Received event:")
+          print(json.dumps(event))
+
+
+          # ------------------------------------------------
+          # Return an API Gateway compatible response.
+          #
+          # statusCode:
+          #   HTTP response status.
+          #
+          # headers:
+          #   HTTP response headers.
+          #
+          # body:
+          #   JSON string returned to the client.
+          # ------------------------------------------------
+
+          return {
+              "statusCode": 200,
+
+              "headers": {
+                  "Content-Type": "application/json"
+              },
+
+              "body": json.dumps({
+                  "message": "Hello from Hybrid IaC Lambda",
+                  "project": "${ProjectName}",
+                  "environment": "${Environment}"
+              })
+          }
+
+
+# ============================================================
+
+# OUTPUTS
+
+# ============================================================
+
+#
+
+# CloudFormation outputs make important resource information
+
+# available after deployment.
+
+#
+
+# These outputs can also be consumed by other automation,
+
+# scripts, CI/CD pipelines, or manually through AWS CLI.
+
+#
+
+# ============================================================
+
+Outputs:
+
+# ==========================================================
+
+# LAMBDA FUNCTION NAME
+
+# ==========================================================
+
+LambdaFunctionName:
+
+
+Description: Lambda function name
+
+Value:
+  !Ref ApplicationFunction
+
+
+# ==========================================================
+
+# LAMBDA FUNCTION ARN
+
+# ==========================================================
+
+#
+
+# This ARN is especially important because the API Gateway
+
+# CloudFormation template requires it as a parameter.
+
+#
+
+# Flow:
+
+#
+
+# Lambda Stack
+
+# |
+
+# | LambdaFunctionArn
+
+# v
+
+# API Gateway Stack
+
+#
+
+# ==========================================================
+
+LambdaFunctionArn:
+
+
+Description: Lambda function ARN
+
+Value:
+  !GetAtt ApplicationFunction.Arn
+

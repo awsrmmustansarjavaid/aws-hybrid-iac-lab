@@ -1,0 +1,271 @@
+# =======================================================
+# PROJECT .gitignore
+# AWS / TERRAFORM / DEVOPS PROJECT
+# =======================================================
+#
+# This file prevents generated files, temporary files,
+# sensitive configuration, credentials, local state, and
+# environment-specific artifacts from being committed
+# to source control.
+#
+# IMPORTANT:
+# Never commit AWS credentials, private keys, Terraform
+# state files, environment secrets, or other sensitive
+# configuration to Git.
+# =======================================================
+
+
+# =======================================================
+# AWS / CLOUD CREDENTIALS
+# =======================================================
+#
+# Private key files are commonly used to connect to EC2
+# instances through SSH.
+#
+# These files are sensitive and must never be committed
+# to a public or shared Git repository.
+# =======================================================
+
+*.pem
+
+
+# =======================================================
+# TERRAFORM
+# =======================================================
+#
+# Terraform generates several local files and directories
+# during initialization, planning, and deployment.
+#
+# Terraform state may contain resource IDs, configuration
+# details, and potentially sensitive values.
+# Therefore, state files should never be committed.
+# =======================================================
+
+
+# -------------------------------------------------------
+# Terraform working directory
+# -------------------------------------------------------
+#
+# Created automatically by `terraform init`.
+# Contains downloaded providers and Terraform modules.
+# This directory can always be recreated.
+# -------------------------------------------------------
+
+.terraform/
+
+
+# -------------------------------------------------------
+# Terraform state files
+# -------------------------------------------------------
+#
+# Terraform state tracks the infrastructure managed by
+# Terraform and may contain sensitive information.
+#
+# For team environments, use a remote backend such as
+# Amazon S3 with appropriate locking and access control.
+# -------------------------------------------------------
+
+*.tfstate
+*.tfstate.*
+terraform.tfstate
+terraform.tfstate.backup
+
+
+# -------------------------------------------------------
+# Terraform variable files
+# -------------------------------------------------------
+#
+# These files commonly contain environment-specific
+# configuration, IDs, passwords, ARNs, or other values
+# that should not be committed.
+# -------------------------------------------------------
+
+*.tfvars
+*.tfvars.json
+
+
+# -------------------------------------------------------
+# Example Terraform variables
+# -------------------------------------------------------
+#
+# Keep a sanitized example file in Git so other developers
+# know which variables are required without exposing
+# real environment-specific values.
+# -------------------------------------------------------
+
+!terraform.tfvars.example
+
+
+# -------------------------------------------------------
+# Terraform plan files
+# -------------------------------------------------------
+#
+# Terraform plan files contain details about proposed
+# infrastructure changes and are normally generated
+# locally or within CI/CD pipelines.
+# -------------------------------------------------------
+
+*.tfplan
+*.plan
+
+
+# -------------------------------------------------------
+# Terraform crash logs
+# -------------------------------------------------------
+#
+# Terraform may generate crash logs when an unexpected
+# error occurs during execution.
+# -------------------------------------------------------
+
+crash.log
+crash.*.log
+
+
+# -------------------------------------------------------
+# Terraform override files
+# -------------------------------------------------------
+#
+# Terraform automatically loads override files.
+# They are normally intended for local development and
+# should not be shared as part of the main configuration.
+# -------------------------------------------------------
+
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+
+# -------------------------------------------------------
+# Terraform CLI configuration
+# -------------------------------------------------------
+#
+# These files contain user-specific Terraform CLI
+# configuration and should remain local to the developer.
+# -------------------------------------------------------
+
+.terraformrc
+terraform.rc
+
+
+# =======================================================
+# CLOUDFORMATION
+# =======================================================
+#
+# Ignore generated CloudFormation output or temporary
+# deployment artifacts.
+# =======================================================
+
+outputs/
+
+
+# =======================================================
+# ENVIRONMENT / SECRETS
+# =======================================================
+#
+# Environment files frequently contain passwords, API keys,
+# database credentials, tokens, connection strings, and
+# other application secrets.
+#
+# Never commit real .env files.
+# =======================================================
+
+.env
+.env.*
+!.env.example
+
+
+# =======================================================
+# OPERATING SYSTEM FILES
+# =======================================================
+#
+# Ignore files automatically generated by operating
+# systems. These files are not part of the project source.
+# =======================================================
+
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+
+# =======================================================
+# IDE / CODE EDITOR FILES
+# =======================================================
+#
+# Ignore local editor configuration, workspace metadata,
+# and IDE-specific project files.
+#
+# These settings are usually personal and may differ
+# between developers.
+# =======================================================
+
+.vscode/
+.idea/
+
+
+# =======================================================
+# LOG FILES
+# =======================================================
+#
+# Application, deployment, debugging, and local
+# development logs should not normally be committed.
+# =======================================================
+
+*.log
+
+
+# =======================================================
+# TEMPORARY FILES
+# =======================================================
+#
+# Ignore temporary files created by editors, scripts,
+# applications, or development tools.
+# =======================================================
+
+*.tmp
+*.temp
+
+
+# =======================================================
+# DOCUMENTATION / GENERATED DOCUMENTS
+# =======================================================
+#
+# Ignore generated or locally stored documentation files
+# that are not intended to be version-controlled.
+#
+# Keep important project documentation such as README.md,
+# architecture documentation, and deployment guides in Git.
+# =======================================================
+
+doc/*
+*.pdf
+*.doc
+*.docx
+
+
+# =======================================================
+# GENERATED / BINARY MEDIA FILES
+# =======================================================
+#
+# Ignore large images and binary media that are generated
+# locally or used only for documentation/screenshots.
+#
+# If an image is an important part of the project, remove
+# the corresponding rule and commit it intentionally.
+# =======================================================
+
+*.jpg
+*.png
+
+
+# =======================================================
+# OPTIONAL: LOCAL BACKUP FILES
+# =======================================================
+#
+# Ignore common editor and operating-system backup files.
+# =======================================================
+
+*.bak
+*.swp
+*.swo
+*~

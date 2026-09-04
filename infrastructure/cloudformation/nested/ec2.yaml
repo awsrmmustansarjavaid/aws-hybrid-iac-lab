@@ -1,0 +1,1280 @@
+# ============================================================
+
+# AWS HYBRID IaC LAB
+
+# EC2 COMPUTE LAYER
+
+# ============================================================
+
+#
+
+# File:
+
+# infrastructure/cloudformation/ec2.yaml
+
+#
+
+# Purpose:
+
+# Creates an EC2-based web server for the Hybrid IaC Lab.
+
+#
+
+# Resources created:
+
+#
+
+# 1. EC2 Security Group
+
+# 2. IAM Role
+
+# 3. IAM Instance Profile
+
+# 4. EC2 Instance
+
+# 5. Nginx Web Server
+
+#
+
+# Architecture:
+
+#
+
+# Internet
+
+# |
+
+# | HTTP :80
+
+# v
+
+# +-------------------+
+
+# |   EC2 Instance    |
+
+# |   Amazon Linux 2023|
+
+# |                   |
+
+# |      Nginx        |
+
+# +-------------------+
+
+# |
+
+# v
+
+# Web Application
+
+#
+
+#
+
+# SSM Management:
+
+#
+
+# AWS Systems Manager
+
+# |
+
+# v
+
+# EC2 Role
+
+# |
+
+# v
+
+# EC2 Instance
+
+#
+
+# This means the instance can be managed through SSM without
+
+# requiring an SSH key pair.
+
+#
+
+# ============================================================
+
+# IMPORTANT SECURITY NOTE
+
+# ============================================================
+
+#
+
+# This lab currently allows SSH from:
+
+#
+
+# 0.0.0.0/0
+
+#
+
+# That means SSH is publicly reachable.
+
+#
+
+# For a production environment, restrict port 22 to your
+
+# trusted IP address or remove SSH completely and use SSM.
+
+#
+
+# HTTP port 80 is intentionally open because this EC2 instance
+
+# is acting as a public web server.
+
+#
+
+#
+
+# ============================================================
+
+# AWS CLI COMMANDS
+
+# ============================================================
+
+#
+
+# These commands assume you are running them from:
+
+#
+
+# infrastructure/cloudformation/
+
+#
+
+#
+
+# ============================================================
+
+# 1. VERIFY AWS CLI
+
+# ============================================================
+
+#
+
+# aws --version
+
+#
+
+#
+
+# ============================================================
+
+# 2. VERIFY AWS ACCOUNT
+
+# ============================================================
+
+#
+
+# aws sts get-caller-identity
+
+#
+
+#
+
+# ============================================================
+
+# 3. CHECK CURRENT REGION
+
+# ============================================================
+
+#
+
+# aws configure get region
+
+#
+
+# Example:
+
+#
+
+# us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 4. FIND VPC
+
+# ============================================================
+
+#
+
+# aws ec2 describe-vpcs \
+
+# --query "Vpcs[].{VpcId:VpcId,Cidr:CidrBlock,Default:Default}" \
+
+# --output table \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 5. FIND PUBLIC SUBNET
+
+# ============================================================
+
+#
+
+# aws ec2 describe-subnets \
+
+# --query "Subnets[].{SubnetId:SubnetId,VpcId:VpcId,AZ:AvailabilityZone,Cidr:CidrBlock}" \
+
+# --output table \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 6. FIND AMAZON LINUX 2023 AMI
+
+# ============================================================
+
+#
+
+# Amazon Linux 2023 AMI IDs are region-specific.
+
+#
+
+# Example command:
+
+#
+
+# aws ssm get-parameter \
+
+# --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64 \
+
+# --query "Parameter.Value" \
+
+# --output text \
+
+# --region us-east-1
+
+#
+
+# Save the returned AMI ID.
+
+#
+
+# Example:
+
+#
+
+# ami-xxxxxxxxxxxxxxxxx
+
+#
+
+#
+
+# ============================================================
+
+# 7. VALIDATE CLOUDFORMATION TEMPLATE
+
+# ============================================================
+
+#
+
+# aws cloudformation validate-template \
+
+# --template-body file://ec2.yaml \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 8. DEPLOY EC2 STACK
+
+# ============================================================
+
+#
+
+# Example:
+
+#
+
+# aws cloudformation deploy \
+
+# --template-file ec2.yaml \
+
+# --stack-name HybridIaCLab-EC2 \
+
+# --parameter-overrides \
+
+# ProjectName=HybridIaCLab \
+
+# Environment=dev \
+
+# VpcId=vpc-xxxxxxxxxxxxxxxxx \
+
+# PublicSubnetId=subnet-xxxxxxxxxxxxxxxxx \
+
+# AmiId=ami-xxxxxxxxxxxxxxxxx \
+
+# InstanceType=t3.micro \
+
+# --capabilities CAPABILITY_NAMED_IAM \
+
+# --region us-east-1
+
+#
+
+# IMPORTANT:
+
+#
+
+# Replace:
+
+#
+
+# vpc-xxxxxxxxxxxxxxxxx
+
+# subnet-xxxxxxxxxxxxxxxxx
+
+# ami-xxxxxxxxxxxxxxxxx
+
+#
+
+# with your actual AWS resource IDs.
+
+#
+
+#
+
+# CAPABILITY_NAMED_IAM is required because this template
+
+# creates IAM resources with explicit names.
+
+#
+
+#
+
+# ============================================================
+
+# 9. CHECK STACK STATUS
+
+# ============================================================
+
+#
+
+# aws cloudformation describe-stacks \
+
+# --stack-name HybridIaCLab-EC2 \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 10. WATCH CLOUDFORMATION EVENTS
+
+# ============================================================
+
+#
+
+# aws cloudformation describe-stack-events \
+
+# --stack-name HybridIaCLab-EC2 \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 11. GET CLOUDFORMATION OUTPUTS
+
+# ============================================================
+
+#
+
+# aws cloudformation describe-stacks \
+
+# --stack-name HybridIaCLab-EC2 \
+
+# --query "Stacks[0].Outputs" \
+
+# --output table \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 12. GET INSTANCE ID
+
+# ============================================================
+
+#
+
+# aws cloudformation describe-stacks \
+
+# --stack-name HybridIaCLab-EC2 \
+
+# --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" \
+
+# --output text \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 13. GET PUBLIC IP
+
+# ============================================================
+
+#
+
+# aws cloudformation describe-stacks \
+
+# --stack-name HybridIaCLab-EC2 \
+
+# --query "Stacks[0].Outputs[?OutputKey=='PublicIp'].OutputValue" \
+
+# --output text \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 14. CHECK EC2 INSTANCE
+
+# ============================================================
+
+#
+
+# aws ec2 describe-instances \
+
+# --instance-ids YOUR_INSTANCE_ID \
+
+# --query "Reservations[0].Instances[0].{State:State.Name,PublicIp:PublicIpAddress,PrivateIp:PrivateIpAddress,InstanceType:InstanceType}" \
+
+# --output table \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 15. TEST NGINX
+
+# ============================================================
+
+#
+
+# After the instance is running, get its public IP:
+
+#
+
+# http://YOUR_PUBLIC_IP
+
+#
+
+# Or use curl:
+
+#
+
+# curl http://YOUR_PUBLIC_IP
+
+#
+
+# Expected result:
+
+#
+
+# <h1>Hybrid IaC Lab - EC2</h1>
+
+#
+
+#
+
+# ============================================================
+
+# 16. TEST HTTP FROM POWERSHELL
+
+# ============================================================
+
+#
+
+# Invoke-WebRequest http://YOUR_PUBLIC_IP
+
+#
+
+#
+
+# Or:
+
+#
+
+# Invoke-WebRequest http://YOUR_PUBLIC_IP | Select-Object Content
+
+#
+
+#
+
+# ============================================================
+
+# 17. VERIFY NGINX USING SSM
+
+# ============================================================
+
+#
+
+# First verify the instance is registered with SSM:
+
+#
+
+# aws ssm describe-instance-information \
+
+# --region us-east-1
+
+#
+
+#
+
+# Then send a command:
+
+#
+
+# aws ssm send-command \
+
+# --instance-ids YOUR_INSTANCE_ID \
+
+# --document-name "AWS-RunShellScript" \
+
+# --parameters commands="systemctl status nginx" \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 18. CHECK NGINX SERVICE
+
+# ============================================================
+
+#
+
+# Through SSM:
+
+#
+
+# aws ssm send-command \
+
+# --instance-ids YOUR_INSTANCE_ID \
+
+# --document-name "AWS-RunShellScript" \
+
+# --parameters commands="systemctl is-active nginx" \
+
+# --region us-east-1
+
+#
+
+# Expected:
+
+#
+
+# active
+
+#
+
+#
+
+# ============================================================
+
+# 19. CHECK INSTANCE SYSTEM LOGS
+
+# ============================================================
+
+#
+
+# aws ec2 get-console-output \
+
+# --instance-id YOUR_INSTANCE_ID \
+
+# --latest \
+
+# --output text \
+
+# --region us-east-1
+
+#
+
+#
+
+# This is useful for troubleshooting UserData.
+
+#
+
+#
+
+# ============================================================
+
+# 20. DELETE STACK
+
+# ============================================================
+
+#
+
+# aws cloudformation delete-stack \
+
+# --stack-name HybridIaCLab-EC2 \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# CLOUDFORMATION TEMPLATE
+
+# ============================================================
+
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: >
+EC2 compute layer for the Hybrid IaC Lab.
+
+# ============================================================
+
+# PARAMETERS
+
+# ============================================================
+
+Parameters:
+
+# ----------------------------------------------------------
+
+# Project name
+
+# ----------------------------------------------------------
+
+#
+
+# Example:
+
+#
+
+# HybridIaCLab
+
+#
+
+ProjectName:
+Type: String
+Description: Project name
+
+# ----------------------------------------------------------
+
+# Environment
+
+# ----------------------------------------------------------
+
+#
+
+# Example:
+
+#
+
+# dev
+
+#
+
+Environment:
+Type: String
+Description: Deployment environment
+
+# ----------------------------------------------------------
+
+# VPC ID
+
+# ----------------------------------------------------------
+
+#
+
+# AWS::EC2::VPC::Id provides a VPC selector when using the
+
+# CloudFormation console.
+
+#
+
+VpcId:
+Type: AWS::EC2::VPC::Id
+Description: VPC where the EC2 instance will be deployed
+
+# ----------------------------------------------------------
+
+# Public Subnet ID
+
+# ----------------------------------------------------------
+
+#
+
+# The EC2 instance is placed into this subnet.
+
+#
+
+# IMPORTANT:
+
+#
+
+# The subnet must have a route to an Internet Gateway if
+
+# you want the instance to be publicly reachable.
+
+#
+
+PublicSubnetId:
+Type: AWS::EC2::Subnet::Id
+Description: Public subnet for the EC2 instance
+
+# ----------------------------------------------------------
+
+# AMI ID
+
+# ----------------------------------------------------------
+
+#
+
+# Amazon Linux 2023 AMI IDs are different in different
+
+# AWS regions.
+
+#
+
+AmiId:
+Type: AWS::EC2::Image::Id
+
+
+Description: >
+  Amazon Linux 2023 AMI ID for the selected AWS region.
+
+
+# ----------------------------------------------------------
+
+# EC2 INSTANCE TYPE
+
+# ----------------------------------------------------------
+
+#
+
+# Default:
+
+#
+
+# t3.micro
+
+#
+
+# The t3.small option is also available for this lab.
+
+#
+
+InstanceType:
+Type: String
+Default: t3.micro
+
+
+AllowedValues:
+  - t3.micro
+  - t3.small
+
+Description: EC2 instance type
+
+
+# ============================================================
+
+# RESOURCES
+
+# ============================================================
+
+Resources:
+
+# ==========================================================
+
+# EC2 SECURITY GROUP
+
+# ==========================================================
+
+#
+
+# Controls inbound and outbound network traffic for the
+
+# EC2 instance.
+
+#
+
+# ==========================================================
+
+WebSecurityGroup:
+Type: AWS::EC2::SecurityGroup
+
+
+Properties:
+
+
+  # ------------------------------------------------------
+  # Security group description
+  # ------------------------------------------------------
+
+  GroupDescription:
+    !Sub "${ProjectName}-${Environment} EC2 security group"
+
+
+  # ------------------------------------------------------
+  # VPC
+  # ------------------------------------------------------
+
+  VpcId: !Ref VpcId
+
+
+  # ======================================================
+  # INBOUND RULES
+  # ======================================================
+
+  SecurityGroupIngress:
+
+
+    # ----------------------------------------------------
+    # SSH - TCP 22
+    # ----------------------------------------------------
+    #
+    # Used for traditional SSH administration.
+    #
+    # LAB ONLY:
+    #
+    # 0.0.0.0/0 means the whole Internet.
+    #
+    # Production recommendation:
+    #
+    #   Restrict to your public IP.
+    #
+    # Example:
+    #
+    #   203.0.113.10/32
+    #
+    # ----------------------------------------------------
+
+    - IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      CidrIp: 0.0.0.0/0
+
+      Description: SSH access
+
+
+    # ----------------------------------------------------
+    # HTTP - TCP 80
+    # ----------------------------------------------------
+    #
+    # Required so users can access the Nginx web server.
+    #
+    # ----------------------------------------------------
+
+    - IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      CidrIp: 0.0.0.0/0
+
+      Description: HTTP access
+
+
+  # ======================================================
+  # TAGS
+  # ======================================================
+
+  Tags:
+
+    - Key: Name
+
+      Value:
+        !Sub "${ProjectName}-${Environment}-EC2-SG"
+
+
+# ==========================================================
+
+# EC2 IAM ROLE
+
+# ==========================================================
+
+#
+
+# IAM role assumed by the EC2 instance.
+
+#
+
+# The role provides permission for AWS Systems Manager
+
+# to manage the instance.
+
+#
+
+# ==========================================================
+
+EC2Role:
+Type: AWS::IAM::Role
+
+
+Properties:
+
+
+  # ------------------------------------------------------
+  # IAM Role Name
+  # ------------------------------------------------------
+
+  RoleName:
+    !Sub "${ProjectName}-${Environment}-EC2Role"
+
+
+  # ======================================================
+  # TRUST POLICY
+  # ======================================================
+  #
+  # Allows EC2 to assume this role.
+  #
+  # ======================================================
+
+  AssumeRolePolicyDocument:
+
+    Version: "2012-10-17"
+
+    Statement:
+
+      - Effect: Allow
+
+        Principal:
+          Service:
+            - ec2.amazonaws.com
+
+        Action:
+          - sts:AssumeRole
+
+
+  # ======================================================
+  # AWS MANAGED POLICY
+  # ======================================================
+  #
+  # AmazonSSMManagedInstanceCore provides the permissions
+  # needed for Systems Manager to manage the EC2 instance.
+  #
+  # This allows you to use SSM instead of relying entirely
+  # on SSH.
+  #
+  # ======================================================
+
+  ManagedPolicyArns:
+
+    - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+
+# ==========================================================
+
+# EC2 INSTANCE PROFILE
+
+# ==========================================================
+
+#
+
+# EC2 does not directly attach an IAM Role.
+
+#
+
+# Instead:
+
+#
+
+# IAM Role
+
+# |
+
+# v
+
+# Instance Profile
+
+# |
+
+# v
+
+# EC2 Instance
+
+#
+
+# ==========================================================
+
+EC2InstanceProfile:
+Type: AWS::IAM::InstanceProfile
+
+
+Properties:
+
+
+  # ------------------------------------------------------
+  # Instance profile name
+  # ------------------------------------------------------
+
+  InstanceProfileName:
+    !Sub "${ProjectName}-${Environment}-EC2Profile"
+
+
+  # ------------------------------------------------------
+  # IAM role attached to the instance profile
+  # ------------------------------------------------------
+
+  Roles:
+    - !Ref EC2Role
+
+
+# ==========================================================
+
+# EC2 WEB SERVER
+
+# ==========================================================
+
+#
+
+# Creates the Amazon EC2 instance.
+
+#
+
+# ==========================================================
+
+WebServer:
+Type: AWS::EC2::Instance
+
+
+Properties:
+
+
+  # ------------------------------------------------------
+  # AMI
+  # ------------------------------------------------------
+  #
+  # Amazon Linux 2023 AMI.
+  #
+  ImageId: !Ref AmiId
+
+
+  # ------------------------------------------------------
+  # INSTANCE TYPE
+  # ------------------------------------------------------
+
+  InstanceType: !Ref InstanceType
+
+
+  # ------------------------------------------------------
+  # SUBNET
+  # ------------------------------------------------------
+  #
+  # The instance is placed into the supplied public subnet.
+  #
+  SubnetId: !Ref PublicSubnetId
+
+
+  # ------------------------------------------------------
+  # SECURITY GROUP
+  # ------------------------------------------------------
+  #
+  # Attach the security group created above.
+  #
+  SecurityGroupIds:
+
+    - !Ref WebSecurityGroup
+
+
+  # ------------------------------------------------------
+  # IAM INSTANCE PROFILE
+  # ------------------------------------------------------
+  #
+  # Gives the EC2 instance access to AWS Systems Manager.
+  #
+  IamInstanceProfile:
+    !Ref EC2InstanceProfile
+
+
+  # ======================================================
+  # EC2 USER DATA
+  # ======================================================
+  #
+  # UserData runs automatically during the initial boot.
+  #
+  # The script:
+  #
+  #   1. Updates Amazon Linux packages
+  #   2. Installs Nginx
+  #   3. Enables Nginx at boot
+  #   4. Starts Nginx
+  #   5. Creates a simple HTML page
+  #
+  # ======================================================
+
+  UserData:
+    Fn::Base64: |
+      #!/bin/bash
+
+      # --------------------------------------------------
+      # Update installed packages
+      # --------------------------------------------------
+
+      dnf update -y
+
+
+      # --------------------------------------------------
+      # Install Nginx
+      # --------------------------------------------------
+
+      dnf install -y nginx
+
+
+      # --------------------------------------------------
+      # Enable Nginx at system boot
+      # --------------------------------------------------
+
+      systemctl enable nginx
+
+
+      # --------------------------------------------------
+      # Start Nginx
+      # --------------------------------------------------
+
+      systemctl start nginx
+
+
+      # --------------------------------------------------
+      # Create test web page
+      # --------------------------------------------------
+
+      echo "<h1>Hybrid IaC Lab - EC2</h1>" \
+        > /usr/share/nginx/html/index.html
+
+
+  # ======================================================
+  # EC2 TAGS
+  # ======================================================
+
+  Tags:
+
+    - Key: Name
+
+      Value:
+        !Sub "${ProjectName}-${Environment}-EC2"
+
+
+# ============================================================
+
+# OUTPUTS
+
+# ============================================================
+
+#
+
+# These values are displayed after CloudFormation creates
+
+# the stack.
+
+#
+
+# ============================================================
+
+Outputs:
+
+# ==========================================================
+
+# INSTANCE ID
+
+# ==========================================================
+
+InstanceId:
+
+
+Description: EC2 instance ID
+
+Value:
+  !Ref WebServer
+
+
+# ==========================================================
+
+# PUBLIC IP
+
+# ==========================================================
+
+#
+
+# Used to access the Nginx web server from the Internet.
+
+#
+
+# Example:
+
+#
+
+# http://1.2.3.4
+
+#
+
+# ==========================================================
+
+PublicIp:
+
+
+Description: EC2 public IP
+
+Value:
+  !GetAtt WebServer.PublicIp
+
+
+# ==========================================================
+
+# SECURITY GROUP ID
+
+# ==========================================================
+
+SecurityGroupId:
+
+
+Description: EC2 security group
+
+Value:
+  !Ref WebSecurityGroup
+

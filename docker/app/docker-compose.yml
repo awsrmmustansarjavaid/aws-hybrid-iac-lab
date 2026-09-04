@@ -1,0 +1,70 @@
+# ==========================================================
+# HYBRID TERRAFORM + CLOUDFORMATION LAB
+# Docker Compose Configuration
+# ==========================================================
+
+services:
+
+  # --------------------------------------------------------
+  # Application Container
+  # --------------------------------------------------------
+
+  app:
+
+    # ------------------------------------------------------
+    # Build Configuration
+    # ------------------------------------------------------
+    # Build the Docker image using the Dockerfile located
+    # in the current directory.
+    # ------------------------------------------------------
+
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+
+    # ------------------------------------------------------
+    # Image Name
+    # ------------------------------------------------------
+    # Name that will be assigned to the built image.
+    # ------------------------------------------------------
+
+    image: hybrid-iac-app:latest
+
+
+    # ------------------------------------------------------
+    # Container Name
+    # ------------------------------------------------------
+    # Give our container a predictable name.
+    # ------------------------------------------------------
+
+    container_name: hybrid-iac-app
+
+
+    # ------------------------------------------------------
+    # Port Mapping
+    # ------------------------------------------------------
+    #
+    # Host machine       Container
+    #      8080     --->    80
+    #
+    # Therefore:
+    #
+    # http://localhost:8080
+    #
+    # will reach Nginx inside the container.
+    # ------------------------------------------------------
+
+    ports:
+      - "8080:80"
+
+
+    # ------------------------------------------------------
+    # Restart Policy
+    # ------------------------------------------------------
+    # Restart the container automatically if it stops.
+    #
+    # This is useful for practicing container operations.
+    # ------------------------------------------------------
+
+    restart: unless-stopped

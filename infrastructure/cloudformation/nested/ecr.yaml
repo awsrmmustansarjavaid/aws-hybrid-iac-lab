@@ -1,0 +1,337 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+# ============================================================
+# HYBRID IaC AWS DEVOPS LAB
+# ============================================================
+#
+# File:
+#   infrastructure/cloudformation/nested/ecr.yaml
+#
+# Purpose:
+#   Creates the Amazon ECR container image repository for the
+#   Hybrid IaC AWS DevOps Lab.
+#
+# Architecture:
+#
+#   Developer
+#       |
+#       v
+#   Application Source Code
+#       |
+#       v
+#   Docker Build
+#       |
+#       v
+#   Docker Image
+#       |
+#       v
+#   Amazon ECR
+#       |
+#       +----------------------+
+#       |                      |
+#       v                      v
+#     Amazon ECS          Kubernetes / EKS
+#
+#
+# This stack creates:
+#
+#   1. ECR repository
+#   2. Image scanning on push
+#   3. Immutable image tags
+#   4. AES-256 encryption
+#   5. Resource tags
+#
+# ============================================================
+
+
+# ============================================================
+# DESCRIPTION
+# ============================================================
+
+Description: >
+  Amazon ECR repository layer for Docker images used by the
+  Hybrid IaC AWS DevOps Lab.
+
+
+# ============================================================
+# PARAMETERS
+# ============================================================
+#
+# These parameters are passed from the ROOT CloudFormation
+# stack:
+#
+#   infrastructure/cloudformation/main.yaml
+#
+# ============================================================
+
+Parameters:
+
+
+  # ----------------------------------------------------------
+  # PROJECT NAME
+  # ----------------------------------------------------------
+  #
+  # Example:
+  #
+  #   HybridIaCLab
+  #
+  # Used to construct the ECR repository name.
+  #
+  ProjectName:
+    Type: String
+
+    Description: >
+      Name of the project used for ECR repository naming
+      and resource tagging.
+
+
+  # ----------------------------------------------------------
+  # ENVIRONMENT
+  # ----------------------------------------------------------
+  #
+  # Example:
+  #
+  #   dev
+  #
+  # Repository example:
+  #
+  #   HybridIaCLab-dev-app
+  #
+  Environment:
+    Type: String
+
+    Description: >
+      Deployment environment for the ECR repository.
+
+
+# ============================================================
+# RESOURCES
+# ============================================================
+
+Resources:
+
+
+  # ==========================================================
+  # APPLICATION ECR REPOSITORY
+  # ==========================================================
+  #
+  # Stores Docker images for the application.
+  #
+  # Example repository name:
+  #
+  #   HybridIaCLab-dev-app
+  #
+  # Example image:
+  #
+  #   HybridIaCLab-dev-app:1.0.0
+  #
+  # ==========================================================
+
+  ApplicationRepository:
+
+    # Tell CloudFormation to create an Amazon ECR repository.
+    Type: AWS::ECR::Repository
+
+    Properties:
+
+
+      # --------------------------------------------------------
+      # REPOSITORY NAME
+      # --------------------------------------------------------
+      #
+      # !Sub combines:
+      #
+      #   ProjectName
+      #   Environment
+      #   app
+      #
+      # Example:
+      #
+      #   HybridIaCLab-dev-app
+      #
+      RepositoryName: !Sub "${ProjectName}-${Environment}-app"
+
+
+      # --------------------------------------------------------
+      # IMAGE SCANNING
+      # --------------------------------------------------------
+      #
+      # Scan Docker images automatically when they are pushed
+      # into the repository.
+      #
+      # This helps identify known vulnerabilities in the image.
+      #
+      # Example workflow:
+      #
+      #   Docker push
+      #       |
+      #       v
+      #   ECR
+      #       |
+      #       v
+      #   Image Scan
+      #
+      ImageScanningConfiguration:
+
+        ScanOnPush: true
+
+
+      # --------------------------------------------------------
+      # IMAGE TAG MUTABILITY
+      # --------------------------------------------------------
+      #
+      # IMMUTABLE means an existing image tag cannot be reused
+      # to point to a different image.
+      #
+      # Example:
+      #
+      #   app:1.0.0
+      #
+      # Once pushed, another image cannot overwrite the same
+      # tag.
+      #
+      # This is useful for reliable deployments because the
+      # meaning of a tag does not unexpectedly change.
+      #
+      ImageTagMutability: IMMUTABLE
+
+
+      # --------------------------------------------------------
+      # ENCRYPTION
+      # --------------------------------------------------------
+      #
+      # ECR stores images using server-side encryption.
+      #
+      # AES256 uses an AWS-managed encryption key.
+      #
+      # This provides encryption at rest for the container
+      # images stored in the repository.
+      #
+      EncryptionConfiguration:
+
+        EncryptionType: AES256
+
+
+      # --------------------------------------------------------
+      # TAGS
+      # --------------------------------------------------------
+      #
+      # Tags make AWS resources easier to identify, organize,
+      # automate, and manage.
+      #
+      Tags:
+
+
+        # Project identifier
+        - Key: Project
+
+          Value: !Ref ProjectName
+
+
+        # Environment identifier
+        - Key: Environment
+
+          Value: !Ref Environment
+
+
+        # AWS service identifier
+        - Key: Service
+
+          Value: ECR
+
+
+        # Resource purpose
+        - Key: Purpose
+
+          Value: ContainerImages
+
+
+# ============================================================
+# OUTPUTS
+# ============================================================
+#
+# Outputs expose information about the ECR repository.
+#
+# These values can be used by:
+#
+#   - AWS CLI
+#   - Terraform
+#   - GitHub Actions
+#   - Jenkins
+#   - ECS
+#   - EKS / Kubernetes
+#   - Other CloudFormation stacks
+#
+# ============================================================
+
+Outputs:
+
+
+  # ==========================================================
+  # REPOSITORY URI
+  # ==========================================================
+  #
+  # Example:
+  #
+  #   123456789012.dkr.ecr.us-east-1.amazonaws.com/
+  #   HybridIaCLab-dev-app
+  #
+  # This is the value normally used when tagging and pushing
+  # Docker images.
+  #
+  # Example Docker workflow:
+  #
+  #   docker tag app:latest <RepositoryUri>:1.0.0
+  #
+  #   docker push <RepositoryUri>:1.0.0
+  #
+  # ==========================================================
+
+  RepositoryUri:
+
+    Description: >
+      URI of the ECR repository used to store application
+      Docker images.
+
+    Value: !GetAtt ApplicationRepository.RepositoryUri
+
+
+  # ==========================================================
+  # REPOSITORY ARN
+  # ==========================================================
+  #
+  # The ARN uniquely identifies the ECR repository.
+  #
+  # Example:
+  #
+  #   arn:aws:ecr:region:account-id:repository/...
+  #
+  # This can be useful when creating IAM policies.
+  #
+  # ==========================================================
+
+  RepositoryArn:
+
+    Description: >
+      ARN of the application ECR repository.
+
+    Value: !GetAtt ApplicationRepository.Arn
+
+
+  # ==========================================================
+  # REPOSITORY NAME
+  # ==========================================================
+  #
+  # !Ref on AWS::ECR::Repository returns the repository name.
+  #
+  # This output is useful for CLI commands and CI/CD pipelines.
+  #
+  # ==========================================================
+
+  RepositoryName:
+
+    Description: >
+      Name of the application ECR repository.
+
+    Value: !Ref ApplicationRepository
+

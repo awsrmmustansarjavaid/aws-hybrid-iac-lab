@@ -1,0 +1,338 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+# ============================================================
+# HYBRID IaC AWS DEVOPS LAB
+# ============================================================
+#
+# File:
+#   infrastructure/cloudformation/nested/dynamodb.yaml
+#
+# Purpose:
+#   This nested CloudFormation stack creates the DynamoDB
+#   database layer for the Hybrid IaC AWS DevOps Lab.
+#
+# Architecture:
+#
+#                         Application
+#                              |
+#                              v
+#                       +--------------+
+#                       |  DynamoDB    |
+#                       |              |
+#                       | OrdersTable  |
+#                       +--------------+
+#                              |
+#                              v
+#                           OrderId
+#
+#
+# This stack creates:
+#
+#   1. DynamoDB Orders table
+#   2. Partition key: OrderId
+#   3. On-demand billing
+#   4. Point-in-time recovery
+#   5. Resource tags
+#
+# ============================================================
+
+
+# ============================================================
+# DESCRIPTION
+# ============================================================
+
+Description: >
+  DynamoDB database layer for the Hybrid IaC AWS DevOps Lab.
+
+
+# ============================================================
+# PARAMETERS
+# ============================================================
+#
+# These parameters are received from the ROOT CloudFormation
+# stack:
+#
+#   infrastructure/cloudformation/main.yaml
+#
+# The root stack passes:
+#
+#   ProjectName
+#   Environment
+#
+# ============================================================
+
+Parameters:
+
+
+  # ----------------------------------------------------------
+  # PROJECT NAME
+  # ----------------------------------------------------------
+  #
+  # Used to create a consistent DynamoDB table name.
+  #
+  # Example:
+  #
+  #   HybridIaCLab
+  #
+  ProjectName:
+    Type: String
+
+    Description: >
+      Name of the project used for DynamoDB resource naming
+      and tagging.
+
+
+  # ----------------------------------------------------------
+  # ENVIRONMENT
+  # ----------------------------------------------------------
+  #
+  # Identifies the environment where the table is deployed.
+  #
+  # Example:
+  #
+  #   dev
+  #
+  Environment:
+    Type: String
+
+    Description: >
+      Deployment environment for the DynamoDB table.
+
+
+# ============================================================
+# RESOURCES
+# ============================================================
+
+Resources:
+
+
+  # ==========================================================
+  # ORDERS TABLE
+  # ==========================================================
+  #
+  # This DynamoDB table stores application order records.
+  #
+  # Example table name:
+  #
+  #   HybridIaCLab-dev-Orders
+  #
+  # ==========================================================
+
+  OrdersTable:
+
+    # Tell CloudFormation to create a DynamoDB table.
+    Type: AWS::DynamoDB::Table
+
+    Properties:
+
+
+      # --------------------------------------------------------
+      # TABLE NAME
+      # --------------------------------------------------------
+      #
+      # !Sub dynamically combines:
+      #
+      #   ProjectName
+      #   Environment
+      #
+      # Example:
+      #
+      #   HybridIaCLab-dev-Orders
+      #
+      # Keeping the project and environment in the name makes
+      # the resource easy to identify.
+      #
+      TableName: !Sub "${ProjectName}-${Environment}-Orders"
+
+
+      # --------------------------------------------------------
+      # BILLING MODE
+      # --------------------------------------------------------
+      #
+      # PAY_PER_REQUEST means DynamoDB uses on-demand capacity.
+      #
+      # Advantages for this lab:
+      #
+      #   - No need to configure read capacity.
+      #   - No need to configure write capacity.
+      #   - Automatically handles traffic changes.
+      #   - Good for development and unpredictable workloads.
+      #
+      BillingMode: PAY_PER_REQUEST
+
+
+      # --------------------------------------------------------
+      # ATTRIBUTE DEFINITIONS
+      # --------------------------------------------------------
+      #
+      # Defines the attributes used by the table's key schema.
+      #
+      # IMPORTANT:
+      #
+      # DynamoDB does NOT require every possible application
+      # attribute to be declared here.
+      #
+      # Only attributes participating in the primary key or
+      # index key definitions are declared.
+      #
+      # OrderId:
+      #
+      #   S = String
+      #
+      AttributeDefinitions:
+
+        - AttributeName: OrderId
+          AttributeType: S
+
+
+      # --------------------------------------------------------
+      # KEY SCHEMA
+      # --------------------------------------------------------
+      #
+      # Defines the primary key of the DynamoDB table.
+      #
+      # HASH means partition key.
+      #
+      # Therefore:
+      #
+      #   Partition Key = OrderId
+      #
+      # Example:
+      #
+      #   OrderId = ORD-1001
+      #   OrderId = ORD-1002
+      #   OrderId = ORD-1003
+      #
+      # Each OrderId should uniquely identify an order.
+      #
+      KeySchema:
+
+        - AttributeName: OrderId
+          KeyType: HASH
+
+
+      # --------------------------------------------------------
+      # POINT-IN-TIME RECOVERY
+      # --------------------------------------------------------
+      #
+      # Enables continuous backups for the DynamoDB table.
+      #
+      # This allows the table to be restored to a previous point
+      # in time within the supported recovery window.
+      #
+      # This is an important production-style data protection
+      # feature for the lab.
+      #
+      PointInTimeRecoverySpecification:
+
+        PointInTimeRecoveryEnabled: true
+
+
+      # --------------------------------------------------------
+      # TAGS
+      # --------------------------------------------------------
+      #
+      # Tags help identify and manage AWS resources.
+      #
+      # We use:
+      #
+      #   Project
+      #   Environment
+      #
+      # These can later be useful for:
+      #
+      #   - Cost allocation
+      #   - Resource filtering
+      #   - Automation
+      #   - Operations
+      #
+      Tags:
+
+
+        # Project tag
+        - Key: Project
+
+          Value: !Ref ProjectName
+
+
+        # Environment tag
+        - Key: Environment
+
+          Value: !Ref Environment
+
+
+        # Service tag
+        - Key: Service
+
+          Value: DynamoDB
+
+
+# ============================================================
+# OUTPUTS
+# ============================================================
+#
+# Outputs expose information about the DynamoDB table.
+#
+# These values can be viewed after deployment and can also be
+# consumed by automation.
+#
+# ============================================================
+
+Outputs:
+
+
+  # ==========================================================
+  # ORDERS TABLE NAME
+  # ==========================================================
+
+  OrdersTableName:
+
+    Description: >
+      Name of the DynamoDB Orders table.
+
+    # !Ref on AWS::DynamoDB::Table returns the table name.
+    Value: !Ref OrdersTable
+
+
+  # ==========================================================
+  # ORDERS TABLE ARN
+  # ==========================================================
+  #
+  # !GetAtt retrieves an attribute from the DynamoDB table.
+  #
+  # Here we retrieve:
+  #
+  #   Arn
+  #
+  # Example:
+  #
+  #   arn:aws:dynamodb:region:account-id:table/...
+  #
+  # ==========================================================
+
+  OrdersTableArn:
+
+    Description: >
+      ARN of the DynamoDB Orders table.
+
+    Value: !GetAtt OrdersTable.Arn
+
+
+  # ==========================================================
+  # PARTITION KEY
+  # ==========================================================
+  #
+  # This output documents the primary partition key used by
+  # the table.
+  #
+  # It is not required for CloudFormation itself, but is useful
+  # when inspecting stack outputs during the lab.
+  #
+  # ==========================================================
+
+  OrdersTablePartitionKey:
+
+    Description: >
+      Partition key used by the Orders DynamoDB table.
+
+    Value: OrderId

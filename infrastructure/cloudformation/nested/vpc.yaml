@@ -1,0 +1,840 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+# ============================================================
+# HYBRID IaC AWS DEVOPS LAB
+# ============================================================
+#
+# File:
+#   infrastructure/cloudformation/nested/vpc.yaml
+#
+# Purpose:
+#   This nested CloudFormation stack creates the NETWORK layer
+#   of the Hybrid IaC AWS DevOps Lab.
+#
+# Architecture:
+#
+#                       Internet
+#                           |
+#                           v
+#                   Internet Gateway
+#                           |
+#                           v
+#                    +-------------+
+#                    |     VPC     |
+#                    | 10.0.0.0/16 |
+#                    +-------------+
+#                       /       \
+#                      /         \
+#                     v           v
+#              Public Subnet   Public Subnet
+#               10.0.1.0/24    10.0.2.0/24
+#                    |               |
+#                    +-------+-------+
+#                            |
+#                      Public Route Table
+#
+#              Private Subnet   Private Subnet
+#               10.0.11.0/24    10.0.12.0/24
+#
+#
+# IMPORTANT:
+#
+# This template creates:
+#
+#   1. VPC
+#   2. Internet Gateway
+#   3. Internet Gateway attachment
+#   4. Two public subnets
+#   5. Two private subnets
+#   6. Public route table
+#   7. Default internet route
+#   8. Public subnet route associations
+#
+# The private subnets intentionally do NOT have a route to the
+# Internet Gateway.
+#
+# A NAT Gateway can be added later if private resources need
+# outbound Internet access.
+#
+# ============================================================
+
+
+# ============================================================
+# DESCRIPTION
+# ============================================================
+
+Description: >
+  Network layer for the Hybrid IaC Lab.
+  Creates a VPC with two public and two private subnets
+  distributed across two Availability Zones.
+
+
+# ============================================================
+# PARAMETERS
+# ============================================================
+#
+# These parameters are received from the ROOT STACK:
+#
+#   infrastructure/cloudformation/main.yaml
+#
+# The root stack passes:
+#
+#   ProjectName
+#   Environment
+#
+# ============================================================
+
+Parameters:
+
+
+  # ----------------------------------------------------------
+  # PROJECT NAME
+  # ----------------------------------------------------------
+  #
+  # Example:
+  #
+  #   HybridIaCLab
+  #
+  # This value is used when creating resource names.
+  #
+  ProjectName:
+    Type: String
+
+    Description: >
+      Name of the project used for resource naming and tagging.
+
+
+  # ----------------------------------------------------------
+  # ENVIRONMENT
+  # ----------------------------------------------------------
+  #
+  # Example:
+  #
+  #   dev
+  #
+  # Other possible values:
+  #
+  #   test
+  #   staging
+  #   prod
+  #
+  Environment:
+    Type: String
+
+    Description: >
+      Deployment environment for the infrastructure.
+
+
+# ============================================================
+# RESOURCES
+# ============================================================
+
+Resources:
+
+
+  # ==========================================================
+  # VPC
+  # ==========================================================
+  #
+  # The VPC is the main private networking boundary for our
+  # AWS infrastructure.
+  #
+  # CIDR:
+  #
+  #   10.0.0.0/16
+  #
+  # This provides 65,536 IPv4 addresses before AWS subnet
+  # reservations and allows us to divide the network into
+  # multiple subnets.
+  #
+  # ==========================================================
+
+  VPC:
+    Type: AWS::EC2::VPC
+
+    Properties:
+
+      # --------------------------------------------------------
+      # VPC CIDR RANGE
+      # --------------------------------------------------------
+      #
+      # Entire network:
+      #
+      #   10.0.0.0/16
+      #
+      CidrBlock: 10.0.0.0/16
+
+
+      # --------------------------------------------------------
+      # DNS SUPPORT
+      # --------------------------------------------------------
+      #
+      # Allows instances in the VPC to resolve DNS hostnames.
+      #
+      EnableDnsSupport: true
+
+
+      # --------------------------------------------------------
+      # DNS HOSTNAMES
+      # --------------------------------------------------------
+      #
+      # Enables DNS hostnames for resources in the VPC.
+      #
+      # This is useful for EC2 instances and other AWS services
+      # that rely on DNS names.
+      #
+      EnableDnsHostnames: true
+
+
+      # --------------------------------------------------------
+      # TAGS
+      # --------------------------------------------------------
+      #
+      # Tags make resources easier to identify in the AWS
+      # Console, CLI, billing reports, and automation.
+      #
+      Tags:
+
+        - Key: Name
+
+          Value: !Sub "${ProjectName}-${Environment}-VPC"
+
+
+        - Key: Project
+
+          Value: !Ref ProjectName
+
+
+        - Key: Environment
+
+          Value: !Ref Environment
+
+
+  # ==========================================================
+  # INTERNET GATEWAY
+  # ==========================================================
+  #
+  # The Internet Gateway provides a path between the VPC and
+  # the public Internet.
+  #
+  # IMPORTANT:
+  #
+  # Creating an Internet Gateway alone does NOT make a subnet
+  # public.
+  #
+  # A subnet becomes public when:
+  #
+  #   1. Its route table has a route to the Internet Gateway.
+  #   2. Resources have appropriate public IP addressing.
+  #
+  # ==========================================================
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+    Properties:
+
+      Tags:
+
+        - Key: Name
+
+          Value: !Sub "${ProjectName}-${Environment}-IGW"
+
+
+        - Key: Project
+
+          Value: !Ref ProjectName
+
+
+        - Key: Environment
+
+          Value: !Ref Environment
+
+
+  # ==========================================================
+  # VPC / INTERNET GATEWAY ATTACHMENT
+  # ==========================================================
+  #
+  # An Internet Gateway must be attached to the VPC before
+  # traffic can flow through it.
+  #
+  # Relationship:
+  #
+  #   VPC
+  #    |
+  #    +---- Internet Gateway
+  #
+  # ==========================================================
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+
+    Properties:
+
+      # VPC that will use the Internet Gateway.
+      VpcId: !Ref VPC
+
+      # Internet Gateway being attached to the VPC.
+      InternetGatewayId: !Ref InternetGateway
+
+
+  # ==========================================================
+  # PUBLIC SUBNET 1
+  # ==========================================================
+  #
+  # CIDR:
+  #
+  #   10.0.1.0/24
+  #
+  # Availability Zone:
+  #
+  #   First AZ returned by AWS for the selected region.
+  #
+  # Example:
+  #
+  #   us-east-1a
+  #
+  # The exact AZ depends on the AWS region.
+  #
+  # ==========================================================
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+
+    Properties:
+
+      # Attach the subnet to our VPC.
+      VpcId: !Ref VPC
+
+
+      # Network range for Public Subnet 1.
+      CidrBlock: 10.0.1.0/24
+
+
+      # --------------------------------------------------------
+      # AVAILABILITY ZONE
+      # --------------------------------------------------------
+      #
+      # Fn::GetAZs returns the Availability Zones available in
+      # the current AWS region.
+      #
+      # Fn::Select:
+      #
+      #   0 = first Availability Zone
+      #
+      # --------------------------------------------------------
+
+      AvailabilityZone:
+        Fn::Select:
+
+          - 0
+
+          - Fn::GetAZs: !Ref AWS::Region
+
+
+      # --------------------------------------------------------
+      # PUBLIC IPv4 ADDRESS
+      # --------------------------------------------------------
+      #
+      # EC2 instances launched into this subnet will receive a
+      # public IPv4 address automatically when supported by the
+      # launch configuration.
+      #
+      MapPublicIpOnLaunch: true
+
+
+      # Resource tags.
+      Tags:
+
+        - Key: Name
+
+          Value: !Sub "${ProjectName}-${Environment}-PublicSubnet1"
+
+
+        - Key: Tier
+
+          Value: Public
+
+
+        - Key: Project
+
+          Value: !Ref ProjectName
+
+
+        - Key: Environment
+
+          Value: !Ref Environment
+
+
+  # ==========================================================
+  # PUBLIC SUBNET 2
+  # ==========================================================
+  #
+  # CIDR:
+  #
+  #   10.0.2.0/24
+  #
+  # This subnet is placed in the SECOND Availability Zone.
+  #
+  # Using multiple AZs improves availability and allows us to
+  # practice Multi-AZ AWS architectures.
+  #
+  # ==========================================================
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+
+    Properties:
+
+      # Attach subnet to the VPC.
+      VpcId: !Ref VPC
+
+
+      # Network range for Public Subnet 2.
+      CidrBlock: 10.0.2.0/24
+
+
+      # Select the second Availability Zone.
+      AvailabilityZone:
+        Fn::Select:
+
+          - 1
+
+          - Fn::GetAZs: !Ref AWS::Region
+
+
+      # Automatically assign public IPv4 addresses where
+      # supported.
+      MapPublicIpOnLaunch: true
+
+
+      # Resource tags.
+      Tags:
+
+        - Key: Name
+
+          Value: !Sub "${ProjectName}-${Environment}-PublicSubnet2"
+
+
+        - Key: Tier
+
+          Value: Public
+
+
+        - Key: Project
+
+          Value: !Ref ProjectName
+
+
+        - Key: Environment
+
+          Value: !Ref Environment
+
+
+  # ==========================================================
+  # PRIVATE SUBNET 1
+  # ==========================================================
+  #
+  # CIDR:
+  #
+  #   10.0.11.0/24
+  #
+  # Availability Zone:
+  #
+  #   First AZ
+  #
+  # This subnet does NOT automatically assign public IP
+  # addresses.
+  #
+  # It also has no Internet Gateway route in this template.
+  #
+  # Suitable future resources:
+  #
+  #   - RDS
+  #   - ECS tasks
+  #   - Internal application servers
+  #   - Lambda ENIs
+  #   - Other private workloads
+  #
+  # ==========================================================
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+
+    Properties:
+
+      # Attach subnet to VPC.
+      VpcId: !Ref VPC
+
+
+      # Private network range.
+      CidrBlock: 10.0.11.0/24
+
+
+      # Place the subnet in the first AZ.
+      AvailabilityZone:
+        Fn::Select:
+
+          - 0
+
+          - Fn::GetAZs: !Ref AWS::Region
+
+
+      # Do NOT automatically assign public IPv4 addresses.
+      MapPublicIpOnLaunch: false
+
+
+      # Resource tags.
+      Tags:
+
+        - Key: Name
+
+          Value: !Sub "${ProjectName}-${Environment}-PrivateSubnet1"
+
+
+        - Key: Tier
+
+          Value: Private
+
+
+        - Key: Project
+
+          Value: !Ref ProjectName
+
+
+        - Key: Environment
+
+          Value: !Ref Environment
+
+
+  # ==========================================================
+  # PRIVATE SUBNET 2
+  # ==========================================================
+  #
+  # CIDR:
+  #
+  #   10.0.12.0/24
+  #
+  # Availability Zone:
+  #
+  #   Second AZ
+  #
+  # This provides a second private subnet for Multi-AZ
+  # architectures.
+  #
+  # ==========================================================
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+
+    Properties:
+
+      # Attach subnet to VPC.
+      VpcId: !Ref VPC
+
+
+      # Private network range.
+      CidrBlock: 10.0.12.0/24
+
+
+      # Place the subnet in the second AZ.
+      AvailabilityZone:
+        Fn::Select:
+
+          - 1
+
+          - Fn::GetAZs: !Ref AWS::Region
+
+
+      # Private subnet does not automatically assign public IPs.
+      MapPublicIpOnLaunch: false
+
+
+      # Resource tags.
+      Tags:
+
+        - Key: Name
+
+          Value: !Sub "${ProjectName}-${Environment}-PrivateSubnet2"
+
+
+        - Key: Tier
+
+          Value: Private
+
+
+        - Key: Project
+
+          Value: !Ref ProjectName
+
+
+        - Key: Environment
+
+          Value: !Ref Environment
+
+
+  # ==========================================================
+  # PUBLIC ROUTE TABLE
+  # ==========================================================
+  #
+  # A route table controls where network traffic from a subnet
+  # is sent.
+  #
+  # This route table will contain:
+  #
+  #   0.0.0.0/0 --> Internet Gateway
+  #
+  # Therefore, subnets associated with this route table are
+  # public subnets.
+  #
+  # ==========================================================
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+
+    Properties:
+
+      # Route table belongs to our VPC.
+      VpcId: !Ref VPC
+
+
+      # Tags for easier identification.
+      Tags:
+
+        - Key: Name
+
+          Value: !Sub "${ProjectName}-${Environment}-PublicRouteTable"
+
+
+        - Key: Tier
+
+          Value: Public
+
+
+        - Key: Project
+
+          Value: !Ref ProjectName
+
+
+        - Key: Environment
+
+          Value: !Ref Environment
+
+
+  # ==========================================================
+  # DEFAULT PUBLIC ROUTE
+  # ==========================================================
+  #
+  # This creates the default route:
+  #
+  #   Destination:
+  #
+  #       0.0.0.0/0
+  #
+  #   Target:
+  #
+  #       Internet Gateway
+  #
+  # Meaning:
+  #
+  #   Traffic destined for anywhere on the Internet is sent
+  #   through the Internet Gateway.
+  #
+  # ==========================================================
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+
+
+    # --------------------------------------------------------
+    # DEPENDS ON
+    # --------------------------------------------------------
+    #
+    # Make sure the Internet Gateway is attached to the VPC
+    # before CloudFormation creates this route.
+    #
+    DependsOn: VPCGatewayAttachment
+
+
+    Properties:
+
+      # Route table receiving this route.
+      RouteTableId: !Ref PublicRouteTable
+
+
+      # Default IPv4 route.
+      DestinationCidrBlock: 0.0.0.0/0
+
+
+      # Send traffic to the Internet Gateway.
+      GatewayId: !Ref InternetGateway
+
+
+  # ==========================================================
+  # PUBLIC SUBNET 1 ROUTE TABLE ASSOCIATION
+  # ==========================================================
+  #
+  # Associates PublicSubnet1 with PublicRouteTable.
+  #
+  # Therefore:
+  #
+  #   PublicSubnet1
+  #          |
+  #          v
+  #   PublicRouteTable
+  #          |
+  #          v
+  #   Internet Gateway
+  #
+  # ==========================================================
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+
+    Properties:
+
+      # Subnet being associated.
+      SubnetId: !Ref PublicSubnet1
+
+      # Public route table being assigned.
+      RouteTableId: !Ref PublicRouteTable
+
+
+  # ==========================================================
+  # PUBLIC SUBNET 2 ROUTE TABLE ASSOCIATION
+  # ==========================================================
+  #
+  # Associates PublicSubnet2 with PublicRouteTable.
+  #
+  # Both public subnets therefore use the same public route
+  # table in this simple lab design.
+  #
+  # ==========================================================
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+
+    Properties:
+
+      # Subnet being associated.
+      SubnetId: !Ref PublicSubnet2
+
+      # Public route table being assigned.
+      RouteTableId: !Ref PublicRouteTable
+
+
+# ============================================================
+# OUTPUTS
+# ============================================================
+#
+# Outputs expose important resource IDs to the parent stack
+# and to users/automation.
+#
+# The ROOT STACK can later consume these values if needed.
+#
+# ============================================================
+
+Outputs:
+
+
+  # ==========================================================
+  # VPC ID
+  # ==========================================================
+
+  VpcId:
+
+    Description: >
+      ID of the VPC created by this nested stack.
+
+    Value: !Ref VPC
+
+    # Export allows other CloudFormation stacks in the same
+    # AWS account and region to reference this value using
+    # Fn::ImportValue.
+    #
+    # Example:
+    #
+    #   !ImportValue
+    #     !Sub "${ProjectName}-${Environment}-VpcId"
+    #
+    Export:
+
+      Name: !Sub "${ProjectName}-${Environment}-VpcId"
+
+
+  # ==========================================================
+  # PUBLIC SUBNET 1 ID
+  # ==========================================================
+
+  PublicSubnet1Id:
+
+    Description: >
+      ID of Public Subnet 1.
+
+    Value: !Ref PublicSubnet1
+
+
+  # ==========================================================
+  # PUBLIC SUBNET 2 ID
+  # ==========================================================
+
+  PublicSubnet2Id:
+
+    Description: >
+      ID of Public Subnet 2.
+
+    Value: !Ref PublicSubnet2
+
+
+  # ==========================================================
+  # PRIVATE SUBNET 1 ID
+  # ==========================================================
+
+  PrivateSubnet1Id:
+
+    Description: >
+      ID of Private Subnet 1.
+
+    Value: !Ref PrivateSubnet1
+
+
+  # ==========================================================
+  # PRIVATE SUBNET 2 ID
+  # ==========================================================
+
+  PrivateSubnet2Id:
+
+    Description: >
+      ID of Private Subnet 2.
+
+    Value: !Ref PrivateSubnet2
+
+
+  # ==========================================================
+  # INTERNET GATEWAY ID
+  # ==========================================================
+  #
+  # Exposing this ID is useful for troubleshooting and
+  # verification from the AWS CLI.
+  #
+  # ==========================================================
+
+  InternetGatewayId:
+
+    Description: >
+      ID of the Internet Gateway attached to the VPC.
+
+    Value: !Ref InternetGateway
+
+
+  # ==========================================================
+  # PUBLIC ROUTE TABLE ID
+  # ==========================================================
+
+  PublicRouteTableId:
+
+    Description: >
+      ID of the public route table.
+
+    Value: !Ref PublicRouteTable
+

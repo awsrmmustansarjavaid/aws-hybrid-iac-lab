@@ -1,0 +1,133 @@
+# ==========================================================
+# HYBRID TERRAFORM + CLOUDFORMATION AWS LAB
+# Infrastructure Deletion Workflow
+# ==========================================================
+#
+# WARNING:
+#
+# THIS WORKFLOW DELETES AWS INFRASTRUCTURE.
+#
+# It should NEVER run automatically on push.
+#
+# It must be started manually from:
+#
+# GitHub
+#   -> Actions
+#   -> Delete Infrastructure
+#   -> Run workflow
+#
+# ==========================================================
+
+name: Delete Infrastructure
+
+
+# ==========================================================
+# MANUAL TRIGGER ONLY
+# ==========================================================
+
+on:
+
+  workflow_dispatch:
+
+
+# ==========================================================
+# PERMISSIONS
+# ==========================================================
+
+permissions:
+
+  id-token: write
+
+  contents: read
+
+
+# ==========================================================
+# JOB
+# ==========================================================
+
+jobs:
+
+  delete:
+
+    name: Destroy AWS Infrastructure
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ----------------------------------------------------
+      # 1. Checkout repository
+      # ----------------------------------------------------
+
+      - name: Checkout Repository
+
+        uses: actions/checkout@v4
+
+
+      # ----------------------------------------------------
+      # 2. Configure AWS
+      # ----------------------------------------------------
+
+      - name: Configure AWS Credentials
+
+        uses: aws-actions/configure-aws-credentials@v4
+
+        with:
+
+          aws-region: ${{ vars.AWS_REGION }}
+
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+
+
+      # ----------------------------------------------------
+      # 3. Setup Terraform
+      # ----------------------------------------------------
+
+      - name: Setup Terraform
+
+        uses: hashicorp/setup-terraform@v3
+
+
+      # ----------------------------------------------------
+      # 4. Terraform Init
+      # ----------------------------------------------------
+
+      - name: Terraform Init
+
+        working-directory: infrastructure/terraform
+
+        run: terraform init
+
+
+      # ----------------------------------------------------
+      # 5. Show Terraform Resources
+      # ----------------------------------------------------
+      #
+      # This gives us visibility before destruction.
+      #
+      # ----------------------------------------------------
+
+      - name: Terraform State List
+
+        working-directory: infrastructure/terraform
+
+        run: terraform state list
+
+
+      # ----------------------------------------------------
+      # 6. Terraform Destroy
+      # ----------------------------------------------------
+      #
+      # This will destroy resources managed by Terraform.
+      #
+      # Because Terraform manages the main CloudFormation
+      # stack, deleting the stack also removes the nested
+      # CloudFormation resources.
+      #
+      # ----------------------------------------------------
+
+      - name: Terraform Destroy
+
+        working-directory: infrastructure/terraform
+
+        run: terraform destroy -auto-approve

@@ -1,0 +1,1516 @@
+# ============================================================
+
+# AWS HYBRID IaC LAB
+
+# RDS MYSQL DATABASE LAYER
+
+# ============================================================
+
+#
+
+# File:
+
+# infrastructure/cloudformation/rds.yaml
+
+#
+
+# Purpose:
+
+# Creates the Amazon RDS MySQL database layer for the
+
+# Hybrid Terraform + CloudFormation AWS DevOps Lab.
+
+#
+
+# Resources created:
+
+#
+
+# 1. RDS DB Subnet Group
+
+# 2. RDS Security Group
+
+# 3. RDS MySQL Database
+
+#
+
+# Architecture:
+
+#
+
+# VPC
+
+# |
+
+# +----------+----------+
+
+# |                     |
+
+# v                     v
+
+# Public Subnet         Private Subnets
+
+# |                +------------+
+
+# v                |            |
+
+# EC2              Private-1   Private-2
+
+# |            |
+
+# +-----+------+
+
+# |
+
+# v
+
+# RDS MySQL
+
+#
+
+#
+
+# Application connectivity:
+
+#
+
+# EC2 / Application
+
+# |
+
+# | TCP 3306
+
+# v
+
+# RDS Security Group
+
+# |
+
+# v
+
+# RDS MySQL
+
+#
+
+#
+
+# ============================================================
+
+# IMPORTANT SECURITY DESIGN
+
+# ============================================================
+
+#
+
+# The database is configured with:
+
+#
+
+# PubliclyAccessible: false
+
+#
+
+# Therefore the database does NOT receive a public IP and
+
+# should only be reachable from resources inside the VPC.
+
+#
+
+# IMPORTANT:
+
+#
+
+# This template creates the RDS security group, but does not
+
+# currently create an inbound MySQL rule.
+
+#
+
+# That is intentional for this base lab template.
+
+#
+
+# You should later add an inbound rule allowing TCP 3306 only
+
+# from the application/EC2 security group.
+
+#
+
+# NEVER use:
+
+#
+
+# 0.0.0.0/0
+
+#
+
+# for RDS MySQL port 3306 in a production architecture.
+
+#
+
+#
+
+# ============================================================
+
+# DATABASE ARCHITECTURE
+
+# ============================================================
+
+#
+
+# RDS uses two private subnets:
+
+#
+
+# PrivateSubnet1Id
+
+# PrivateSubnet2Id
+
+#
+
+# This allows the RDS subnet group to span multiple
+
+# Availability Zones.
+
+#
+
+# MultiAZ is currently:
+
+#
+
+# false
+
+#
+
+# This keeps the lab cost lower.
+
+#
+
+# In a production/high-availability environment:
+
+#
+
+# MultiAZ: true
+
+#
+
+# can be considered.
+
+#
+
+#
+
+# ============================================================
+
+# AWS CLI COMMANDS
+
+# ============================================================
+
+#
+
+# These commands assume that you are running them from:
+
+#
+
+# infrastructure/cloudformation/
+
+#
+
+#
+
+# ============================================================
+
+# 1. VERIFY AWS CLI
+
+# ============================================================
+
+#
+
+# aws --version
+
+#
+
+#
+
+# ============================================================
+
+# 2. VERIFY AWS ACCOUNT
+
+# ============================================================
+
+#
+
+# aws sts get-caller-identity
+
+#
+
+#
+
+# ============================================================
+
+# 3. CHECK AWS REGION
+
+# ============================================================
+
+#
+
+# aws configure get region
+
+#
+
+# Example:
+
+#
+
+# us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 4. FIND VPC
+
+# ============================================================
+
+#
+
+# aws ec2 describe-vpcs \
+
+# --query "Vpcs[].{VpcId:VpcId,Cidr:CidrBlock,Default:Default}" \
+
+# --output table \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 5. FIND PRIVATE SUBNETS
+
+# ============================================================
+
+#
+
+# aws ec2 describe-subnets \
+
+# --query "Subnets[].{SubnetId:SubnetId,VpcId:VpcId,AZ:AvailabilityZone,Cidr:CidrBlock}" \
+
+# --output table \
+
+# --region us-east-1
+
+#
+
+# Select two private subnets in different Availability Zones.
+
+#
+
+#
+
+# ============================================================
+
+# 6. VALIDATE CLOUDFORMATION TEMPLATE
+
+# ============================================================
+
+#
+
+# aws cloudformation validate-template \
+
+# --template-body file://rds.yaml \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 7. DEPLOY RDS STACK
+
+# ============================================================
+
+#
+
+# Example:
+
+#
+
+# aws cloudformation deploy \
+
+# --template-file rds.yaml \
+
+# --stack-name HybridIaCLab-RDS \
+
+# --parameter-overrides \
+
+# ProjectName=HybridIaCLab \
+
+# Environment=dev \
+
+# VpcId=vpc-xxxxxxxxxxxxxxxxx \
+
+# PrivateSubnet1Id=subnet-xxxxxxxxxxxxxxxxx \
+
+# PrivateSubnet2Id=subnet-yyyyyyyyyyyyyyyyy \
+
+# DatabaseUsername=admin \
+
+# DatabasePassword='YourStrongPassword123!'
+
+# --region us-east-1
+
+#
+
+# IMPORTANT:
+
+#
+
+# Replace the VPC and subnet IDs with your actual resources.
+
+#
+
+# Do NOT place real production passwords directly in shell
+
+# history or source-control files.
+
+#
+
+#
+
+# ============================================================
+
+# 8. CHECK STACK STATUS
+
+# ============================================================
+
+#
+
+# aws cloudformation describe-stacks \
+
+# --stack-name HybridIaCLab-RDS \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 9. WATCH CLOUDFORMATION EVENTS
+
+# ============================================================
+
+#
+
+# RDS creation can take several minutes.
+
+#
+
+# aws cloudformation describe-stack-events \
+
+# --stack-name HybridIaCLab-RDS \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 10. GET CLOUDFORMATION OUTPUTS
+
+# ============================================================
+
+#
+
+# aws cloudformation describe-stacks \
+
+# --stack-name HybridIaCLab-RDS \
+
+# --query "Stacks[0].Outputs" \
+
+# --output table \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 11. GET DATABASE ENDPOINT
+
+# ============================================================
+
+#
+
+# aws cloudformation describe-stacks \
+
+# --stack-name HybridIaCLab-RDS \
+
+# --query "Stacks[0].Outputs[?OutputKey=='DatabaseEndpoint'].OutputValue" \
+
+# --output text \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 12. GET DATABASE PORT
+
+# ============================================================
+
+#
+
+# aws cloudformation describe-stacks \
+
+# --stack-name HybridIaCLab-RDS \
+
+# --query "Stacks[0].Outputs[?OutputKey=='DatabasePort'].OutputValue" \
+
+# --output text \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 13. DESCRIBE RDS INSTANCE
+
+# ============================================================
+
+#
+
+# aws rds describe-db-instances \
+
+# --db-instance-identifier HybridIaCLab-dev-mysql \
+
+# --query "DBInstances[0].{Status:DBInstanceStatus,Engine:Engine,Version:EngineVersion,Endpoint:Endpoint.Address,Port:Endpoint.Port,PubliclyAccessible:PubliclyAccessible,MultiAZ:MultiAZ}" \
+
+# --output table \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 14. CHECK RDS STATUS
+
+# ============================================================
+
+#
+
+# aws rds describe-db-instances \
+
+# --db-instance-identifier HybridIaCLab-dev-mysql \
+
+# --query "DBInstances[0].DBInstanceStatus" \
+
+# --output text \
+
+# --region us-east-1
+
+#
+
+# Expected:
+
+#
+
+# available
+
+#
+
+#
+
+# ============================================================
+
+# 15. CHECK RDS SECURITY GROUP
+
+# ============================================================
+
+#
+
+# Get the Security Group ID from CloudFormation:
+
+#
+
+# aws cloudformation describe-stacks \
+
+# --stack-name HybridIaCLab-RDS \
+
+# --query "Stacks[0].Outputs[?OutputKey=='DatabaseSecurityGroupId'].OutputValue" \
+
+# --output text \
+
+# --region us-east-1
+
+#
+
+#
+
+# Then:
+
+#
+
+# aws ec2 describe-security-groups \
+
+# --group-ids YOUR_RDS_SECURITY_GROUP_ID \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 16. CHECK RDS SUBNET GROUP
+
+# ============================================================
+
+#
+
+# aws rds describe-db-subnet-groups \
+
+# --db-subnet-group-name HybridIaCLab-dev \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# DATABASE CONNECTIVITY TEST
+
+# ============================================================
+
+#
+
+# Because:
+
+#
+
+# PubliclyAccessible: false
+
+#
+
+# you should NOT attempt to connect directly from your local
+
+# computer over the Internet.
+
+#
+
+# Instead:
+
+#
+
+# Your EC2 instance
+
+# |
+
+# v
+
+# Private VPC
+
+# |
+
+# v
+
+# RDS MySQL
+
+#
+
+#
+
+# ============================================================
+
+# 17. TEST MYSQL FROM EC2
+
+# ============================================================
+
+#
+
+# First connect to your EC2 instance using AWS Systems Manager.
+
+#
+
+# Start an SSM session:
+
+#
+
+# aws ssm start-session \
+
+# --target YOUR_INSTANCE_ID \
+
+# --region us-east-1
+
+#
+
+#
+
+# Then install the MySQL client on Amazon Linux:
+
+#
+
+# sudo dnf install -y mariadb105
+
+#
+
+#
+
+# Test DNS resolution:
+
+#
+
+# nslookup YOUR_RDS_ENDPOINT
+
+#
+
+#
+
+# Or:
+
+#
+
+# getent hosts YOUR_RDS_ENDPOINT
+
+#
+
+#
+
+# Test TCP port 3306:
+
+#
+
+# nc -zv YOUR_RDS_ENDPOINT 3306
+
+#
+
+#
+
+# If connectivity is correctly configured, the connection
+
+# should succeed.
+
+#
+
+#
+
+# ============================================================
+
+# 18. CONNECT TO MYSQL
+
+# ============================================================
+
+#
+
+# From the EC2 instance:
+
+#
+
+# mysql \
+
+# -h YOUR_RDS_ENDPOINT \
+
+# -P 3306 \
+
+# -u admin \
+
+# -p
+
+#
+
+# You will then be prompted for the database password.
+
+#
+
+#
+
+# ============================================================
+
+# 19. TEST DATABASE
+
+# ============================================================
+
+#
+
+# After connecting:
+
+#
+
+# SHOW DATABASES;
+
+#
+
+#
+
+# Select the application database:
+
+#
+
+# USE hybridlab;
+
+#
+
+#
+
+# Show tables:
+
+#
+
+# SHOW TABLES;
+
+#
+
+#
+
+# ============================================================
+
+# 20. CHECK DATABASE ENCRYPTION
+
+# ============================================================
+
+#
+
+# aws rds describe-db-instances \
+
+# --db-instance-identifier HybridIaCLab-dev-mysql \
+
+# --query "DBInstances[0].StorageEncrypted" \
+
+# --output text \
+
+# --region us-east-1
+
+#
+
+# Expected:
+
+#
+
+# True
+
+#
+
+#
+
+# ============================================================
+
+# 21. CHECK BACKUP CONFIGURATION
+
+# ============================================================
+
+#
+
+# aws rds describe-db-instances \
+
+# --db-instance-identifier HybridIaCLab-dev-mysql \
+
+# --query "DBInstances[0].{BackupRetention:BackupRetentionPeriod,DeleteAutomatedBackups:DeleteAutomatedBackups}" \
+
+# --output table \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 22. DELETE RDS STACK
+
+# ============================================================
+
+#
+
+# IMPORTANT:
+
+#
+
+# This template uses:
+
+#
+
+# DeletionPolicy: Snapshot
+
+#
+
+# Therefore CloudFormation creates a final DB snapshot when
+
+# deleting the database.
+
+#
+
+# Delete stack:
+
+#
+
+# aws cloudformation delete-stack \
+
+# --stack-name HybridIaCLab-RDS \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# 23. CHECK STACK DELETION
+
+# ============================================================
+
+#
+
+# aws cloudformation describe-stacks \
+
+# --stack-name HybridIaCLab-RDS \
+
+# --region us-east-1
+
+#
+
+# Once deletion is complete, CloudFormation will report that
+
+# the stack does not exist.
+
+#
+
+#
+
+# ============================================================
+
+# 24. LIST RDS SNAPSHOTS
+
+# ============================================================
+
+#
+
+# aws rds describe-db-snapshots \
+
+# --query "DBSnapshots[].{Identifier:DBSnapshotIdentifier,Status:Status,Engine:Engine}" \
+
+# --output table \
+
+# --region us-east-1
+
+#
+
+#
+
+# ============================================================
+
+# CLOUDFORMATION TEMPLATE
+
+# ============================================================
+
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: >
+RDS MySQL database layer for the Hybrid IaC Lab.
+
+# ============================================================
+
+# PARAMETERS
+
+# ============================================================
+
+Parameters:
+
+# ----------------------------------------------------------
+
+# Project name
+
+# ----------------------------------------------------------
+
+ProjectName:
+Type: String
+Description: Project name
+
+# ----------------------------------------------------------
+
+# Environment
+
+# ----------------------------------------------------------
+
+Environment:
+Type: String
+Description: Deployment environment
+
+# ----------------------------------------------------------
+
+# VPC ID
+
+# ----------------------------------------------------------
+
+#
+
+# The RDS security group is created inside this VPC.
+
+#
+
+VpcId:
+Type: AWS::EC2::VPC::Id
+Description: VPC where the RDS database will be deployed
+
+# ----------------------------------------------------------
+
+# PRIVATE SUBNET 1
+
+# ----------------------------------------------------------
+
+#
+
+# First subnet used by the RDS subnet group.
+
+#
+
+PrivateSubnet1Id:
+Type: AWS::EC2::Subnet::Id
+Description: First private subnet for RDS
+
+# ----------------------------------------------------------
+
+# PRIVATE SUBNET 2
+
+# ----------------------------------------------------------
+
+#
+
+# Second subnet used by the RDS subnet group.
+
+#
+
+# Ideally this should be in another Availability Zone.
+
+#
+
+PrivateSubnet2Id:
+Type: AWS::EC2::Subnet::Id
+Description: Second private subnet for RDS
+
+# ----------------------------------------------------------
+
+# DATABASE USERNAME
+
+# ----------------------------------------------------------
+
+#
+
+# Master database username.
+
+#
+
+# NoEcho prevents CloudFormation from displaying this value
+
+# in normal output.
+
+#
+
+DatabaseUsername:
+Type: String
+Default: admin
+
+
+NoEcho: true
+
+Description: RDS master username
+
+
+# ----------------------------------------------------------
+
+# DATABASE PASSWORD
+
+# ----------------------------------------------------------
+
+#
+
+# Master database password.
+
+#
+
+# NoEcho prevents the password from being displayed as a
+
+# normal CloudFormation parameter value.
+
+#
+
+# Minimum length:
+
+#
+
+# 8 characters
+
+#
+
+DatabasePassword:
+Type: String
+
+
+NoEcho: true
+
+MinLength: 8
+
+Description: RDS master password
+
+
+# ============================================================
+
+# RESOURCES
+
+# ============================================================
+
+Resources:
+
+# ==========================================================
+
+# DATABASE SUBNET GROUP
+
+# ==========================================================
+
+#
+
+# RDS requires a DB subnet group when deploying a database
+
+# inside a VPC.
+
+#
+
+# The subnet group identifies the subnets where RDS can
+
+# place the database network interfaces.
+
+#
+
+# ==========================================================
+
+DatabaseSubnetGroup:
+Type: AWS::RDS::DBSubnetGroup
+
+
+Properties:
+
+
+  # ------------------------------------------------------
+  # Description
+  # ------------------------------------------------------
+
+  DBSubnetGroupDescription:
+    !Sub "${ProjectName}-${Environment} database subnet group"
+
+
+  # ------------------------------------------------------
+  # PRIVATE SUBNETS
+  # ------------------------------------------------------
+
+  SubnetIds:
+
+    - !Ref PrivateSubnet1Id
+    - !Ref PrivateSubnet2Id
+
+
+  # ------------------------------------------------------
+  # TAGS
+  # ------------------------------------------------------
+
+  Tags:
+
+    - Key: Name
+
+      Value:
+        !Sub "${ProjectName}-${Environment}-DBSubnetGroup"
+
+
+# ==========================================================
+
+# DATABASE SECURITY GROUP
+
+# ==========================================================
+
+#
+
+# Controls network access to the RDS MySQL database.
+
+#
+
+# MySQL uses:
+
+#
+
+# TCP 3306
+
+#
+
+# No public inbound rule is created here.
+
+#
+
+# Later, the recommended rule is:
+
+#
+
+# Source:
+
+# EC2/Application Security Group
+
+#
+
+# Port:
+
+# 3306
+
+#
+
+# ==========================================================
+
+DatabaseSecurityGroup:
+Type: AWS::EC2::SecurityGroup
+
+
+Properties:
+
+
+  # ------------------------------------------------------
+  # Security group description
+  # ------------------------------------------------------
+
+  GroupDescription:
+    !Sub "${ProjectName}-${Environment} RDS security group"
+
+
+  # ------------------------------------------------------
+  # VPC
+  # ------------------------------------------------------
+
+  VpcId: !Ref VpcId
+
+
+  # ------------------------------------------------------
+  # TAGS
+  # ------------------------------------------------------
+
+  Tags:
+
+    - Key: Name
+
+      Value:
+        !Sub "${ProjectName}-${Environment}-RDS-SG"
+
+
+# ==========================================================
+
+# RDS MYSQL DATABASE
+
+# ==========================================================
+
+#
+
+# Creates the actual Amazon RDS MySQL database instance.
+
+#
+
+# ==========================================================
+
+Database:
+Type: AWS::RDS::DBInstance
+
+
+# ========================================================
+# DELETION POLICY
+# ========================================================
+#
+# When CloudFormation deletes this database, AWS creates
+# a final snapshot.
+#
+# This is safer than deleting the database without a backup.
+#
+# ========================================================
+
+DeletionPolicy: Snapshot
+
+UpdateReplacePolicy: Snapshot
+
+
+Properties:
+
+
+  # ------------------------------------------------------
+  # DB INSTANCE IDENTIFIER
+  # ------------------------------------------------------
+  #
+  # Example:
+  #
+  #   HybridIaCLab-dev-mysql
+  #
+  DBInstanceIdentifier:
+    !Sub "${ProjectName}-${Environment}-mysql"
+
+
+  # ------------------------------------------------------
+  # DATABASE ENGINE
+  # ------------------------------------------------------
+
+  Engine: mysql
+
+
+  # ------------------------------------------------------
+  # MYSQL ENGINE VERSION
+  # ------------------------------------------------------
+  #
+  # This lab uses MySQL 8.0.
+  #
+  EngineVersion: "8.0"
+
+
+  # ------------------------------------------------------
+  # INSTANCE CLASS
+  # ------------------------------------------------------
+  #
+  # db.t3.micro is suitable for a small learning lab,
+  # subject to current AWS availability and pricing.
+  #
+  DBInstanceClass: db.t3.micro
+
+
+  # ------------------------------------------------------
+  # STORAGE
+  # ------------------------------------------------------
+  #
+  # Initial allocated storage:
+  #
+  #   20 GB
+  #
+  AllocatedStorage: 20
+
+
+  # ------------------------------------------------------
+  # STORAGE TYPE
+  # ------------------------------------------------------
+  #
+  # gp3 is the general-purpose SSD storage type.
+  #
+  StorageType: gp3
+
+
+  # ------------------------------------------------------
+  # STORAGE ENCRYPTION
+  # ------------------------------------------------------
+  #
+  # Encrypts database storage at rest.
+  #
+  StorageEncrypted: true
+
+
+  # ------------------------------------------------------
+  # MASTER USERNAME
+  # ------------------------------------------------------
+
+  MasterUsername:
+    !Ref DatabaseUsername
+
+
+  # ------------------------------------------------------
+  # MASTER PASSWORD
+  # ------------------------------------------------------
+
+  MasterUserPassword:
+    !Ref DatabasePassword
+
+
+  # ------------------------------------------------------
+  # INITIAL DATABASE NAME
+  # ------------------------------------------------------
+  #
+  # RDS creates this database when the instance is
+  # initialized.
+  #
+  DBName: hybridlab
+
+
+  # ------------------------------------------------------
+  # MYSQL PORT
+  # ------------------------------------------------------
+
+  Port: 3306
+
+
+  # ------------------------------------------------------
+  # MULTI-AZ
+  # ------------------------------------------------------
+  #
+  # false keeps the lab cheaper.
+  #
+  # Production/high availability:
+  #
+  #   MultiAZ: true
+  #
+  MultiAZ: false
+
+
+  # ------------------------------------------------------
+  # PUBLIC ACCESS
+  # ------------------------------------------------------
+  #
+  # false means the database is not publicly accessible.
+  #
+  # This is an important security configuration.
+  #
+  PubliclyAccessible: false
+
+
+  # ------------------------------------------------------
+  # AUTOMATED BACKUPS
+  # ------------------------------------------------------
+  #
+  # Keep automated backups for one day.
+  #
+  # This is intentionally small for the learning lab.
+  #
+  BackupRetentionPeriod: 1
+
+
+  # ------------------------------------------------------
+  # AUTOMATED BACKUP DELETION
+  # ------------------------------------------------------
+  #
+  # Automated backups are removed when the DB instance
+  # is deleted.
+  #
+  # The DeletionPolicy Snapshot above still protects the
+  # database with a final snapshot.
+  #
+  DeleteAutomatedBackups: true
+
+
+  # ------------------------------------------------------
+  # DB SUBNET GROUP
+  # ------------------------------------------------------
+
+  DBSubnetGroupName:
+    !Ref DatabaseSubnetGroup
+
+
+  # ------------------------------------------------------
+  # RDS SECURITY GROUP
+  # ------------------------------------------------------
+
+  VPCSecurityGroups:
+
+    - !Ref DatabaseSecurityGroup
+
+
+  # ======================================================
+  # DATABASE TAGS
+  # ======================================================
+
+  Tags:
+
+    - Key: Project
+
+      Value:
+        !Ref ProjectName
+
+    - Key: Environment
+
+      Value:
+        !Ref Environment
+
+
+# ============================================================
+
+# OUTPUTS
+
+# ============================================================
+
+#
+
+# These outputs provide information required by applications
+
+# and administrators.
+
+#
+
+# ============================================================
+
+Outputs:
+
+# ==========================================================
+
+# DATABASE ENDPOINT
+
+# ==========================================================
+
+#
+
+# Example:
+
+#
+
+# hybridlab.xxxxxxxxx.us-east-1.rds.amazonaws.com
+
+#
+
+# ==========================================================
+
+DatabaseEndpoint:
+
+
+Description: RDS database endpoint
+
+Value:
+  !GetAtt Database.Endpoint.Address
+
+
+# ==========================================================
+
+# DATABASE PORT
+
+# ==========================================================
+
+DatabasePort:
+
+
+Description: RDS database port
+
+Value:
+  !GetAtt Database.Endpoint.Port
+
+
+# ==========================================================
+
+# DATABASE SECURITY GROUP ID
+
+# ==========================================================
+
+DatabaseSecurityGroupId:
+
+
+Description: RDS security group ID
+
+Value:
+  !Ref DatabaseSecurityGroup
+

@@ -1,0 +1,256 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+# ============================================================
+# HYBRID IaC AWS DEVOPS LAB
+# ============================================================
+#
+# File:
+#   infrastructure/cloudformation/nested/s3.yaml
+#
+# Purpose:
+#   Creates the application's S3 storage layer.
+#
+# Resources created:
+#
+#   - S3 application bucket
+#   - Server-side encryption
+#   - S3 versioning
+#   - Public access blocking
+#   - Resource tags
+#
+# Security model:
+#
+#   The bucket is PRIVATE.
+#
+#   Public ACLs and public bucket policies are blocked.
+#
+#   Applications or AWS services should access the bucket
+#   through IAM permissions or controlled AWS integrations.
+#
+# ============================================================
+
+
+# ============================================================
+# DESCRIPTION
+# ============================================================
+
+Description: >
+  Application S3 storage layer for the Hybrid IaC AWS DevOps Lab.
+
+
+# ============================================================
+# PARAMETERS
+# ============================================================
+#
+# Values are passed from:
+#
+#   infrastructure/cloudformation/main.yaml
+#
+# ============================================================
+
+Parameters:
+
+
+  # ----------------------------------------------------------
+  # PROJECT NAME
+  # ----------------------------------------------------------
+
+  ProjectName:
+    Type: String
+
+    Description: >
+      Name of the project used for resource tagging.
+
+
+  # ----------------------------------------------------------
+  # ENVIRONMENT
+  # ----------------------------------------------------------
+
+  Environment:
+    Type: String
+
+    Description: >
+      Deployment environment such as dev, test, or prod.
+
+
+# ============================================================
+# RESOURCES
+# ============================================================
+
+Resources:
+
+
+  # ==========================================================
+  # APPLICATION S3 BUCKET
+  # ==========================================================
+  #
+  # This bucket provides object storage for the application.
+  #
+  # Possible future uses include:
+  #
+  #   - Application files
+  #   - Uploaded files
+  #   - Build artifacts
+  #   - Reports
+  #   - Logs
+  #   - Static assets
+  #
+  # ==========================================================
+
+  ApplicationBucket:
+
+    # Create an Amazon S3 bucket.
+    Type: AWS::S3::Bucket
+
+    Properties:
+
+
+      # --------------------------------------------------------
+      # BUCKET ENCRYPTION
+      # --------------------------------------------------------
+      #
+      # Enables server-side encryption for objects stored in
+      # this bucket.
+      #
+      # AES256 uses Amazon S3 managed encryption keys.
+      #
+      # This is a simple and cost-effective encryption option
+      # for the lab.
+      #
+      BucketEncryption:
+
+        ServerSideEncryptionConfiguration:
+
+          - ServerSideEncryptionByDefault:
+
+              SSEAlgorithm: AES256
+
+
+      # --------------------------------------------------------
+      # PUBLIC ACCESS BLOCK
+      # --------------------------------------------------------
+      #
+      # These four settings prevent accidental public access.
+      #
+      # BlockPublicAcls:
+      #
+      #   Blocks new public ACLs.
+      #
+      # BlockPublicPolicy:
+      #
+      #   Blocks public bucket policies.
+      #
+      # IgnorePublicAcls:
+      #
+      #   Ignores public ACLs that might already exist.
+      #
+      # RestrictPublicBuckets:
+      #
+      #   Restricts access when a bucket has a public policy.
+      #
+      # --------------------------------------------------------
+
+      PublicAccessBlockConfiguration:
+
+        BlockPublicAcls: true
+
+        BlockPublicPolicy: true
+
+        IgnorePublicAcls: true
+
+        RestrictPublicBuckets: true
+
+
+      # --------------------------------------------------------
+      # VERSIONING
+      # --------------------------------------------------------
+      #
+      # Versioning keeps multiple versions of objects.
+      #
+      # Example:
+      #
+      #   index.html
+      #
+      #   version 1
+      #   version 2
+      #   version 3
+      #
+      # This is useful for:
+      #
+      #   - Accidental deletion recovery
+      #   - File rollback
+      #   - Deployment safety
+      #   - CI/CD artifact management
+      #
+      VersioningConfiguration:
+
+        Status: Enabled
+
+
+      # --------------------------------------------------------
+      # TAGS
+      # --------------------------------------------------------
+
+      Tags:
+
+        # Project identifier
+        - Key: Project
+
+          Value: !Ref ProjectName
+
+
+        # Environment identifier
+        - Key: Environment
+
+          Value: !Ref Environment
+
+
+        # AWS service identifier
+        - Key: Service
+
+          Value: S3
+
+
+        # Resource purpose
+        - Key: Purpose
+
+          Value: ApplicationStorage
+
+
+# ============================================================
+# OUTPUTS
+# ============================================================
+#
+# These outputs expose the bucket information to CloudFormation,
+# CLI commands, CI/CD pipelines, and future infrastructure.
+#
+# ============================================================
+
+Outputs:
+
+
+  # ==========================================================
+  # BUCKET NAME
+  # ==========================================================
+
+  BucketName:
+
+    Description: >
+      Name of the application S3 bucket.
+
+    # !Ref AWS::S3::Bucket returns the bucket name.
+    Value: !Ref ApplicationBucket
+
+
+  # ==========================================================
+  # BUCKET ARN
+  # ==========================================================
+
+  BucketArn:
+
+    Description: >
+      ARN of the application S3 bucket.
+
+    # !GetAtt retrieves the bucket ARN.
+    Value: !GetAtt ApplicationBucket.Arn
+

@@ -1,0 +1,204 @@
+# ==========================================================
+# HYBRID TERRAFORM + CLOUDFORMATION AWS LAB
+# Docker + Amazon ECR Workflow
+# ==========================================================
+#
+# This workflow is responsible for:
+#
+#   Dockerfile
+#       |
+#       v
+#   Docker Image
+#       |
+#       v
+#   Amazon ECR
+#       |
+#       +----> ECS
+#       |
+#       +----> EKS
+#
+# This workflow is called by:
+#
+#   main-deploy.yaml
+#
+# ==========================================================
+
+name: Docker Build and ECR
+
+
+# ==========================================================
+# TRIGGERS
+# ==========================================================
+
+on:
+
+  # --------------------------------------------------------
+  # Allows main-deploy.yaml to call this workflow.
+  # --------------------------------------------------------
+
+  workflow_call:
+
+  # --------------------------------------------------------
+  # Allows manual execution.
+  # --------------------------------------------------------
+
+  workflow_dispatch:
+
+
+# ==========================================================
+# PERMISSIONS
+# ==========================================================
+
+permissions:
+
+  id-token: write
+
+  contents: read
+
+
+# ==========================================================
+# JOB
+# ==========================================================
+
+jobs:
+
+  docker:
+
+    name: Build Docker Image and Push to ECR
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ----------------------------------------------------
+      # 1. Checkout repository
+      # ----------------------------------------------------
+
+      - name: Checkout Repository
+
+        uses: actions/checkout@v4
+
+
+      # ----------------------------------------------------
+      # 2. Configure AWS
+      # ----------------------------------------------------
+
+      - name: Configure AWS Credentials
+
+        uses: aws-actions/configure-aws-credentials@v4
+
+        with:
+
+          aws-region: ${{ vars.AWS_REGION }}
+
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+
+
+      # ----------------------------------------------------
+      # 3. Login to Amazon ECR
+      # ----------------------------------------------------
+
+      - name: Login to Amazon ECR
+
+        id: login-ecr
+
+        uses: aws-actions/amazon-ecr-login@v2
+
+
+      # ----------------------------------------------------
+      # 4. Get AWS Account ID
+      # ----------------------------------------------------
+
+      - name: Get AWS Account ID
+
+        id: aws-account
+
+        run: |
+
+          ACCOUNT_ID=$(aws sts get-caller-identity \
+            --query Account \
+            --output text)
+
+          echo "ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_OUTPUT"
+
+
+      # ----------------------------------------------------
+      # 5. Build Docker Image
+      # ----------------------------------------------------
+      #
+      # Dockerfile:
+      #
+      # docker/app/Dockerfile
+      #
+      # Context:
+      #
+      # docker/app
+      #
+      # ----------------------------------------------------
+
+      - name: Build Docker Image
+
+        working-directory: docker/app
+
+        run: |
+
+          docker build \
+            -t hybrid-iac-app:${GITHUB_SHA} \
+            -t hybrid-iac-app:latest \
+            .
+
+
+      # ----------------------------------------------------
+      # 6. Get ECR Repository
+      # ----------------------------------------------------
+      #
+      # Our CloudFormation ECR repository is:
+      #
+      # HybridIaCLab-dev-app
+      #
+      # ----------------------------------------------------
+
+      - name: Get ECR Repository URI
+
+        id: ecr
+
+        run: |
+
+          ECR_URI=$(aws ecr describe-repositories \
+            --repository-names HybridIaCLab-dev-app \
+            --query 'repositories[0].repositoryUri' \
+            --output text)
+
+          echo "ECR_URI=$ECR_URI" >> "$GITHUB_OUTPUT"
+
+
+      # ----------------------------------------------------
+      # 7. Tag Docker Image
+      # ----------------------------------------------------
+
+      - name: Tag Docker Image
+
+        run: |
+
+          docker tag \
+            hybrid-iac-app:${GITHUB_SHA} \
+            ${{ steps.ecr.outputs.ECR_URI }}:${GITHUB_SHA}
+
+          docker tag \
+            hybrid-iac-app:latest \
+            ${{ steps.ecr.outputs.ECR_URI }}:latest
+
+
+      # ----------------------------------------------------
+      # 8. Push Image to ECR
+      # ----------------------------------------------------
+
+      - name: Push Docker Image to ECR
+
+        run: |
+
+          docker push \
+            ${{ steps.ecr.outputs.ECR_URI }}:${GITHUB_SHA}
+
+          docker push \
+            ${{ steps.ecr.outputs.ECR_URI }}:latest

@@ -1,0 +1,209 @@
+# ==========================================================
+# HYBRID TERRAFORM + CLOUDFORMATION AWS LAB
+# Kubernetes / Amazon EKS Deployment Workflow
+# ==========================================================
+#
+# This workflow is responsible for deploying Kubernetes
+# resources INSIDE the EKS cluster.
+#
+# IMPORTANT:
+#
+# CloudFormation creates the EKS infrastructure.
+#
+# Kubernetes manages the applications running inside EKS.
+#
+# Therefore:
+#
+# CloudFormation
+#       |
+#       v
+#      EKS
+#       |
+#       v
+# Kubernetes
+#       |
+#       +--> Namespace
+#       +--> ConfigMap
+#       +--> Deployment
+#       +--> Service
+#
+# ==========================================================
+
+name: Kubernetes Deployment
+
+
+# ==========================================================
+# TRIGGERS
+# ==========================================================
+
+on:
+
+  # --------------------------------------------------------
+  # Allows main-deploy.yaml to call this workflow.
+  # --------------------------------------------------------
+
+  workflow_call:
+
+  # --------------------------------------------------------
+  # Allows manual execution.
+  # --------------------------------------------------------
+
+  workflow_dispatch:
+
+
+# ==========================================================
+# PERMISSIONS
+# ==========================================================
+
+permissions:
+
+  id-token: write
+
+  contents: read
+
+
+# ==========================================================
+# JOB
+# ==========================================================
+
+jobs:
+
+  kubernetes:
+
+    name: Deploy Application to Amazon EKS
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ----------------------------------------------------
+      # 1. Checkout repository
+      # ----------------------------------------------------
+
+      - name: Checkout Repository
+
+        uses: actions/checkout@v4
+
+
+      # ----------------------------------------------------
+      # 2. Configure AWS
+      # ----------------------------------------------------
+
+      - name: Configure AWS Credentials
+
+        uses: aws-actions/configure-aws-credentials@v4
+
+        with:
+
+          aws-region: ${{ vars.AWS_REGION }}
+
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+
+
+      # ----------------------------------------------------
+      # 3. Install kubectl
+      # ----------------------------------------------------
+
+      - name: Install kubectl
+
+        uses: azure/setup-kubectl@v4
+
+        with:
+
+          version: latest
+
+
+      # ----------------------------------------------------
+      # 4. Configure kubectl for EKS
+      # ----------------------------------------------------
+      #
+      # This connects kubectl to our EKS cluster.
+      #
+      # ----------------------------------------------------
+
+      - name: Configure kubectl
+
+        run: |
+
+          aws eks update-kubeconfig \
+            --region ${{ vars.AWS_REGION }} \
+            --name HybridIaCLab-dev-eks
+
+
+      # ----------------------------------------------------
+      # 5. Verify EKS connection
+      # ----------------------------------------------------
+
+      - name: Verify Kubernetes Connection
+
+        run: |
+
+          kubectl get nodes
+
+
+      # ----------------------------------------------------
+      # 6. Create Namespace
+      # ----------------------------------------------------
+
+      - name: Deploy Namespace
+
+        run: |
+
+          kubectl apply \
+            -f kubernetes/namespace.yaml
+
+
+      # ----------------------------------------------------
+      # 7. Deploy ConfigMap
+      # ----------------------------------------------------
+
+      - name: Deploy ConfigMap
+
+        run: |
+
+          kubectl apply \
+            -f kubernetes/configmap.yaml
+
+
+      # ----------------------------------------------------
+      # 8. Deploy Application
+      # ----------------------------------------------------
+
+      - name: Deploy Application
+
+        run: |
+
+          kubectl apply \
+            -f kubernetes/deployment.yaml
+
+
+      # ----------------------------------------------------
+      # 9. Deploy Service
+      # ----------------------------------------------------
+
+      - name: Deploy Service
+
+        run: |
+
+          kubectl apply \
+            -f kubernetes/service.yaml
+
+
+      # ----------------------------------------------------
+      # 10. Check Kubernetes Resources
+      # ----------------------------------------------------
+
+      - name: Verify Deployment
+
+        run: |
+
+          kubectl get namespace
+
+          kubectl get deployments \
+            -n hybrid-iac
+
+          kubectl get pods \
+            -n hybrid-iac
+
+          kubectl get services \
+            -n hybrid-iac
