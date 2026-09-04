@@ -1,56 +1,271 @@
+# ==========================================================
+# WORKFLOW NAME
+# ==========================================================
+#
+# This is the main GitHub Actions workflow for the project.
+#
+# It coordinates the complete deployment pipeline:
+#
+#   1. Terraform / CloudFormation
+#   2. Docker / Amazon ECR
+#   3. Kubernetes / Amazon EKS
+#
+# ==========================================================
+
 name: Main Deployment
+
 
 # ==========================================================
 # GITHUB ACTIONS PERMISSIONS
+# ==========================================================
+#
+# These permissions control what the GitHub Actions workflow
+# is allowed to access.
+#
+# contents: read
+#   Allows GitHub Actions to read the repository contents.
+#
+# id-token: write
+#   Allows GitHub Actions to request an OIDC identity token.
+#
+#   This is required when GitHub Actions authenticates with
+#   AWS using OIDC instead of storing long-term AWS access
+#   keys inside GitHub Secrets.
+#
 # ==========================================================
 
 permissions:
   contents: read
   id-token: write
 
+
 # ==========================================================
 # WORKFLOW TRIGGERS
 # ==========================================================
+#
+# Defines when this workflow should start.
+#
+# ==========================================================
 
 on:
+
+  # --------------------------------------------------------
+  # AUTOMATIC DEPLOYMENT
+  # --------------------------------------------------------
+  #
+  # Run the workflow automatically whenever code is pushed
+  # to the "main" branch.
+  #
+  # Example:
+  #
+  #   git add .
+  #   git commit -m "Deploy application"
+  #   git push origin main
+  #
+  # This push starts the workflow.
+  #
+  # --------------------------------------------------------
+
   push:
     branches:
       - main
 
+
+  # --------------------------------------------------------
+  # MANUAL DEPLOYMENT
+  # --------------------------------------------------------
+  #
+  # Allows the workflow to be started manually from the
+  # GitHub Actions interface.
+  #
+  # GitHub:
+  #
+  #   Actions
+  #      ↓
+  #   Main Deployment
+  #      ↓
+  #   Run workflow
+  #
+  # --------------------------------------------------------
+
   workflow_dispatch:
+
 
 # ==========================================================
 # JOBS
 # ==========================================================
+#
+# The "jobs" section defines the individual deployment
+# stages of the pipeline.
+#
+# This main workflow calls three reusable workflows:
+#
+#   terraform.yml
+#   docker.yml
+#   kubernetes.yml
+#
+# ==========================================================
 
 jobs:
 
+
   # ========================================================
-  # TERRAFORM + CLOUDFORMATION
+  # JOB 1 — TERRAFORM + CLOUDFORMATION
   # ========================================================
+  #
+  # This is the FIRST deployment stage.
+  #
+  # It calls:
+  #
+  #   .github/workflows/terraform.yml
+  #
+  # Terraform infrastructure must be created or updated
+  # before the application/container deployment begins.
+  #
+  # --------------------------------------------------------
+  # IMPORTANT:
+  #
+  # terraform.yml must be configured as a reusable workflow
+  # using:
+  #
+  #   on:
+  #     workflow_call:
+  #
+  # --------------------------------------------------------
 
   terraform:
+
+    # ------------------------------------------------------
+    # Call the Terraform reusable workflow.
+    # ------------------------------------------------------
+
     uses: ./.github/workflows/terraform.yml
+
+    # ------------------------------------------------------
+    # Pass the repository's available GitHub Secrets to the
+    # reusable Terraform workflow.
+    #
+    # This is useful when Terraform requires secrets such as
+    # AWS-related configuration or other protected values.
+    # ------------------------------------------------------
+
     secrets: inherit
 
+
   # ========================================================
-  # DOCKER + AMAZON ECR
+  # JOB 2 — DOCKER + AMAZON ECR
+  # ========================================================
+  #
+  # This is the SECOND deployment stage.
+  #
+  # It calls:
+  #
+  #   .github/workflows/docker.yml
+  #
+  # Docker should run ONLY after the Terraform job succeeds.
+  #
+  # The Docker workflow can:
+  #
+  #   1. Build the Docker image
+  #   2. Authenticate with Amazon ECR
+  #   3. Tag the Docker image
+  #   4. Push the image to Amazon ECR
+  #
   # ========================================================
 
   docker:
+
+    # ------------------------------------------------------
+    # DEPENDENCY
+    # ------------------------------------------------------
+    #
+    # "needs" tells GitHub Actions that this job depends on
+    # the Terraform job.
+    #
+    # Therefore:
+    #
+    #   Terraform SUCCESS
+    #          ↓
+    #       Docker
+    #
+    # If Terraform fails, Docker will not run.
+    #
+    # ------------------------------------------------------
+
     needs:
       - terraform
+
+
+    # ------------------------------------------------------
+    # Call the Docker reusable workflow.
+    # ------------------------------------------------------
+
     uses: ./.github/workflows/docker.yml
+
+
+    # ------------------------------------------------------
+    # Pass GitHub Secrets to the Docker reusable workflow.
+    # ------------------------------------------------------
+
     secrets: inherit
 
+
   # ========================================================
-  # KUBERNETES + AMAZON EKS
+  # JOB 3 — KUBERNETES + AMAZON EKS
+  # ========================================================
+  #
+  # This is the THIRD and FINAL deployment stage.
+  #
+  # It calls:
+  #
+  #   .github/workflows/kubernetes.yml
+  #
+  # Kubernetes/EKS deployment starts only after BOTH:
+  #
+  #   1. Terraform
+  #   2. Docker
+  #
+  # have completed successfully.
+  #
   # ========================================================
 
   kubernetes:
+
+    # ------------------------------------------------------
+    # DEPENDENCIES
+    # ------------------------------------------------------
+    #
+    # Kubernetes depends on BOTH Terraform and Docker.
+    #
+    # Deployment flow:
+    #
+    #              Terraform
+    #                 │
+    #                 ▼
+    #               Docker
+    #                 │
+    #                 ▼
+    #             Kubernetes
+    #
+    # Kubernetes also explicitly depends on Terraform.
+    #
+    # ------------------------------------------------------
+
     needs:
       - terraform
       - docker
+
+
+    # ------------------------------------------------------
+    # Call the Kubernetes reusable workflow.
+    # ------------------------------------------------------
+
     uses: ./.github/workflows/kubernetes.yml
+
+
+    # ------------------------------------------------------
+    # Pass GitHub Secrets to the Kubernetes reusable workflow.
+    # ------------------------------------------------------
+
     secrets: inherit
 
