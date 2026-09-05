@@ -136,10 +136,39 @@ jobs:
   terraform:
 
     # ------------------------------------------------------
+    # EXPLICIT GITHUB ACTIONS PERMISSIONS
+    # ------------------------------------------------------
+    #
+    # These permissions are explicitly assigned to the
+    # Terraform reusable workflow job.
+    #
+    # id-token: write
+    #   Allows the Terraform workflow to request a GitHub
+    #   OIDC token.
+    #
+    #   This is required when Terraform authenticates to AWS
+    #   through GitHub Actions OIDC and an AWS IAM role.
+    #
+    # contents: read
+    #   Allows the Terraform workflow to read repository
+    #   files.
+    #
+    # These permissions reinforce the same permissions defined
+    # at the workflow level above.
+    #
+    # ------------------------------------------------------
+
+    permissions:
+      id-token: write
+      contents: read
+
+
+    # ------------------------------------------------------
     # Call the Terraform reusable workflow.
     # ------------------------------------------------------
 
     uses: ./.github/workflows/terraform.yml
+
 
     # ------------------------------------------------------
     # Pass the repository's available GitHub Secrets to the
