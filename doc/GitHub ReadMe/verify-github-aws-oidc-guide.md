@@ -1220,65 +1220,139 @@ Purpose:
     by GitHub Actions using AWS OIDC.
 
 Checks:
-    1. AWS CLI
+    1. AWS CLI installation
     2. AWS account
     3. AWS caller identity
     4. AWS region
     5. GitHub OIDC provider
-    6. OIDC audience
-    7. IAM role
-    8. IAM role ARN
-    9. IAM trust policy
-   10. GitHub repository trust restriction
-   11. GitHub branch trust restriction
-   12. GitHub Actions IAM policy
-   13. IAM policy attachment
-   14. IAM policy version
-   15. iam:PassRole
-   16. Important AWS permissions
-   17. Terraform installation
-   18. Terraform directory
-   19. Terraform files
-   20. Terraform formatting
-   21. Terraform initialization
-   22. Terraform validation
-   23. Terraform provider configuration
-   24. main-deploy.yaml
-   25. terraform.yml
-   26. AWS_REGION
-   27. AWS_ROLE_ARN
-   28. Final PASS / FAIL / WARNING summary
+    6. OIDC provider URL
+    7. OIDC audience
+    8. IAM role
+    9. IAM role ARN
+   10. IAM trust policy
+   11. GitHub repository restriction
+   12. GitHub branch restriction
+   13. GitHub Actions IAM policy
+   14. IAM policy attachment
+   15. IAM policy default version
+   16. IAM policy document
+   17. iam:PassRole
+   18. CloudFormation permissions
+   19. S3 permissions
+   20. EC2 permissions
+   21. IAM permissions
+   22. ECR permissions
+   23. EKS permissions
+   24. RDS permissions
+   25. Lambda permissions
+   26. Terraform installation
+   27. Terraform directory
+   28. Terraform files
+   29. Terraform AWS provider
+   30. Terraform region configuration
+   31. Terraform formatting
+   32. Terraform initialization
+   33. Terraform validation
+   34. main-deploy.yaml
+   35. terraform.yml
+   36. workflow_call
+   37. GitHub OIDC id-token permission
+   38. AWS_REGION
+   39. AWS_ROLE_ARN
+   40. Final PASS / FAIL / WARNING summary
 
 IMPORTANT:
     This script does NOT attempt to assume the GitHub OIDC role.
+
     GitHub's OIDC token exists only inside GitHub Actions.
 
-    The script verifies that the AWS-side configuration is ready
-    for GitHub Actions OIDC.
+    This script verifies that the AWS-side configuration and local
+    Terraform configuration are ready for GitHub Actions OIDC.
+
+PowerShell:
+    Windows PowerShell 5.1+
 
 =======================================================================
 #>
 
+# =====================================================================
+# POWERSHELL SAFETY SETTINGS
+# =====================================================================
+
 Set-StrictMode -Version Latest
+
+# Continue after individual AWS/Terraform verification failures so
+# that the complete report can be displayed.
 $ErrorActionPreference = "Continue"
+
 
 # =====================================================================
 # CONFIGURATION
 # =====================================================================
 
+# ---------------------------------------------------------------------
+# IAM role created for GitHub Actions OIDC
+# ---------------------------------------------------------------------
+
 $ExpectedRoleName = "aws-hybrid-iac-lab-GitHubActions"
+
+
+# ---------------------------------------------------------------------
+# Customer-managed IAM policy attached to the GitHub Actions role
+# ---------------------------------------------------------------------
 
 $ExpectedPolicyName = "aws-hybrid-iac-lab-GitHubActionsPolicy"
 
+
+# ---------------------------------------------------------------------
+# GitHub repository
+# Format:
+#     OWNER/REPOSITORY
+# ---------------------------------------------------------------------
+
 $ExpectedGitHubRepository = "awsrmmustansarjavaid/aws-hybrid-iac-lab"
+
+
+# ---------------------------------------------------------------------
+# GitHub branch allowed to assume the IAM role
+# ---------------------------------------------------------------------
 
 $ExpectedGitHubBranch = "main"
 
+
+# ---------------------------------------------------------------------
+# AWS region used by the lab
+# ---------------------------------------------------------------------
+
 $ExpectedAwsRegion = "us-east-1"
+
+
+# ---------------------------------------------------------------------
+# GitHub Actions OIDC provider URL
+# ---------------------------------------------------------------------
 
 $ExpectedOidcUrl = "https://token.actions.githubusercontent.com"
 
+
+# ---------------------------------------------------------------------
+# OIDC audience used by AWS STS
+# ---------------------------------------------------------------------
+
 $ExpectedOidcAudience = "sts.amazonaws.com"
+
+
+# =====================================================================
+# REPOSITORY PATHS
+# =====================================================================
+
+# PSScriptRoot points to:
+#
+#     aws-hybrid-iac-lab\scripts
+#
+# Therefore ".." points to:
+#
+#     aws-hybrid-iac-lab
+# ---------------------------------------------------------------------
 
 $TerraformDirectory = Join-Path $PSScriptRoot "..\infrastructure\terraform"
 
@@ -1288,14 +1362,69 @@ $TerraformWorkflow = Join-Path $PSScriptRoot "..\.github\workflows\terraform.yml
 
 
 # =====================================================================
+# NORMALIZE PATHS
+# =====================================================================
+
+# Convert relative paths into absolute paths.
+# This also makes the output easier to understand.
+
+$TerraformDirectoryFull = [System.IO.Path]::GetFullPath($TerraformDirectory)
+
+$MainWorkflowFull = [System.IO.Path]::GetFullPath($MainWorkflow)
+
+$TerraformWorkflowFull = [System.IO.Path]::GetFullPath($TerraformWorkflow)
+
+
+# =====================================================================
 # RESULT STORAGE
 # =====================================================================
 
 $Passed = 0
+
 $Failed = 0
+
 $Warnings = 0
 
 $Results = @()
+
+
+# =====================================================================
+# VARIABLE INITIALIZATION
+# =====================================================================
+#
+# These variables are initialized because Set-StrictMode -Version Latest
+# causes an error if a variable is referenced before it exists.
+# =====================================================================
+
+$AWSAccountId = $null
+
+$CallerArn = $null
+
+$OidcProviderArn = $null
+
+$OidcProvider = $null
+
+$Role = $null
+
+$RoleArn = $null
+
+$Policy = $null
+
+$PolicyArn = $null
+
+$PolicyVersion = $null
+
+$PolicyDocument = $null
+
+$PolicyJson = $null
+
+$MainWorkflowText = $null
+
+$TerraformWorkflowText = $null
+
+$TerraformText = ""
+
+$TerraformFiles = @()
 
 
 # =====================================================================
@@ -1303,7 +1432,9 @@ $Results = @()
 # =====================================================================
 
 function Write-Section {
+
     param (
+        [Parameter(Mandatory = $true)]
         [string]$Title
     )
 
@@ -1315,7 +1446,9 @@ function Write-Section {
 
 
 function Write-Check {
+
     param (
+        [Parameter(Mandatory = $true)]
         [string]$Name
     )
 
@@ -1325,7 +1458,9 @@ function Write-Check {
 
 
 function Write-Pass {
+
     param (
+        [Parameter(Mandatory = $true)]
         [string]$Message
     )
 
@@ -1341,7 +1476,9 @@ function Write-Pass {
 
 
 function Write-Fail {
+
     param (
+        [Parameter(Mandatory = $true)]
         [string]$Message
     )
 
@@ -1357,7 +1494,9 @@ function Write-Fail {
 
 
 function Write-Warn {
+
     param (
+        [Parameter(Mandatory = $true)]
         [string]$Message
     )
 
@@ -1373,11 +1512,15 @@ function Write-Warn {
 
 
 function Test-CommandExists {
+
     param (
+        [Parameter(Mandatory = $true)]
         [string]$CommandName
     )
 
-    return $null -ne (Get-Command $CommandName -ErrorAction SilentlyContinue)
+    return $null -ne (
+        Get-Command $CommandName -ErrorAction SilentlyContinue
+    )
 }
 
 
@@ -1395,11 +1538,28 @@ Write-Host "#                                                                   
 Write-Host "#######################################################################" -ForegroundColor Cyan
 
 Write-Host ""
+
 Write-Host "Repository : $ExpectedGitHubRepository"
 Write-Host "Branch     : $ExpectedGitHubBranch"
 Write-Host "AWS Region : $ExpectedAwsRegion"
 Write-Host "IAM Role   : $ExpectedRoleName"
 Write-Host "IAM Policy : $ExpectedPolicyName"
+
+Write-Host ""
+
+Write-Host "Terraform Directory:" -ForegroundColor Cyan
+Write-Host "    $TerraformDirectoryFull"
+
+Write-Host ""
+
+Write-Host "Main Workflow:" -ForegroundColor Cyan
+Write-Host "    $MainWorkflowFull"
+
+Write-Host ""
+
+Write-Host "Terraform Workflow:" -ForegroundColor Cyan
+Write-Host "    $TerraformWorkflowFull"
+
 
 # =====================================================================
 # 1. CHECK AWS CLI
@@ -1414,17 +1574,23 @@ if (Test-CommandExists "aws") {
     $AwsVersion = aws --version 2>&1
 
     if ($LASTEXITCODE -eq 0) {
+
         Write-Pass "AWS CLI is installed."
+
         Write-Host "        $AwsVersion"
+
     }
     else {
+
         Write-Fail "AWS CLI exists but could not execute."
+
     }
 
 }
 else {
 
     Write-Fail "AWS CLI is not installed or not available in PATH."
+
     Write-Host ""
     Write-Host "Install AWS CLI before continuing." -ForegroundColor Yellow
 }
@@ -1449,11 +1615,13 @@ if (Test-CommandExists "aws") {
             $CallerIdentity = $CallerIdentityRaw | ConvertFrom-Json
 
             $AWSAccountId = $CallerIdentity.Account
+
             $CallerArn = $CallerIdentity.Arn
 
             Write-Pass "AWS authentication is working."
 
             Write-Host "        Account : $AWSAccountId"
+
             Write-Host "        ARN     : $CallerArn"
 
         }
@@ -1461,13 +1629,17 @@ if (Test-CommandExists "aws") {
 
             Write-Fail "AWS returned an unexpected caller identity response."
 
+            Write-Host "        $($_.Exception.Message)" -ForegroundColor Red
         }
 
     }
     else {
 
         Write-Fail "AWS CLI cannot authenticate with AWS."
-        Write-Host "        $CallerIdentityRaw" -ForegroundColor Red
+
+        Write-Host ""
+        Write-Host "AWS response:" -ForegroundColor Red
+        Write-Host "$CallerIdentityRaw" -ForegroundColor Red
 
     }
 
@@ -1487,13 +1659,17 @@ Write-Section "3. AWS Region"
 
 Write-Check "Expected AWS region"
 
-Write-Host "Expected region: $ExpectedAwsRegion"
+Write-Host "        Expected region: $ExpectedAwsRegion"
 
 $AwsRegionEnvironment = $env:AWS_REGION
 
 if ([string]::IsNullOrWhiteSpace($AwsRegionEnvironment)) {
 
     Write-Warn "Local AWS_REGION environment variable is not set."
+
+    Write-Host ""
+    Write-Host "This is not automatically a failure." -ForegroundColor Yellow
+    Write-Host "AWS CLI can still use the region from AWS configuration."
 
 }
 elseif ($AwsRegionEnvironment -eq $ExpectedAwsRegion) {
@@ -1514,11 +1690,14 @@ else {
 
 Write-Section "4. GitHub OIDC Provider"
 
-if ($AWSAccountId) {
+if (-not [string]::IsNullOrWhiteSpace($AWSAccountId)) {
 
     $OidcProviderArn = "arn:aws:iam::$AWSAccountId`:oidc-provider/token.actions.githubusercontent.com"
 
     Write-Check "GitHub OIDC provider"
+
+    Write-Host "        Expected ARN:"
+    Write-Host "        $OidcProviderArn"
 
     $OidcProviderRaw = aws iam get-open-id-connect-provider `
         --open-id-connect-provider-arn $OidcProviderArn `
@@ -1539,6 +1718,7 @@ if ($AWSAccountId) {
 
             Write-Fail "OIDC provider exists but could not be parsed."
 
+            Write-Host "        $($_.Exception.Message)" -ForegroundColor Red
         }
 
     }
@@ -1546,9 +1726,13 @@ if ($AWSAccountId) {
 
         Write-Fail "GitHub OIDC provider was not found."
 
-        Write-Host "        Expected:" -ForegroundColor Yellow
-        Write-Host "        $OidcProviderArn"
+        Write-Host ""
+        Write-Host "Expected:" -ForegroundColor Yellow
+        Write-Host "$OidcProviderArn" -ForegroundColor Yellow
 
+        Write-Host ""
+        Write-Host "AWS response:" -ForegroundColor Red
+        Write-Host "$OidcProviderRaw" -ForegroundColor Red
     }
 
 }
@@ -1560,10 +1744,17 @@ else {
 
 
 # =====================================================================
-# 5. OIDC URL
+# 5. OIDC URL AND AUDIENCE
 # =====================================================================
 
-if ($OidcProvider) {
+if ($null -ne $OidcProvider) {
+
+    Write-Section "5. OIDC Provider Configuration"
+
+
+    # -----------------------------------------------------------------
+    # OIDC URL
+    # -----------------------------------------------------------------
 
     Write-Check "OIDC provider URL"
 
@@ -1572,31 +1763,38 @@ if ($OidcProvider) {
     if ($OidcUrl -eq $ExpectedOidcUrl) {
 
         Write-Pass "OIDC provider URL is correct."
+
         Write-Host "        $OidcUrl"
 
     }
     else {
 
         Write-Fail "OIDC provider URL is incorrect."
+
         Write-Host "        Found   : $OidcUrl"
         Write-Host "        Expected: $ExpectedOidcUrl"
 
     }
 
 
-    # ================================================================
-    # 6. OIDC AUDIENCE
-    # ================================================================
+    # -----------------------------------------------------------------
+    # OIDC AUDIENCE
+    # -----------------------------------------------------------------
 
     Write-Check "OIDC audience"
 
     $AudienceFound = $false
 
-    foreach ($ClientId in $OidcProvider.ClientIDList) {
+    if ($null -ne $OidcProvider.ClientIDList) {
 
-        if ($ClientId -eq $ExpectedOidcAudience) {
+        foreach ($ClientId in $OidcProvider.ClientIDList) {
 
-            $AudienceFound = $true
+            if ($ClientId -eq $ExpectedOidcAudience) {
+
+                $AudienceFound = $true
+
+                break
+            }
         }
     }
 
@@ -1609,16 +1807,19 @@ if ($OidcProvider) {
 
         Write-Fail "OIDC audience does not contain sts.amazonaws.com."
 
+        Write-Host ""
+        Write-Host "Expected audience:" -ForegroundColor Yellow
+        Write-Host "$ExpectedOidcAudience" -ForegroundColor Yellow
     }
 
 }
 
 
 # =====================================================================
-# 7. IAM ROLE
+# 6. IAM ROLE
 # =====================================================================
 
-Write-Section "5. GitHub Actions IAM Role"
+Write-Section "6. GitHub Actions IAM Role"
 
 Write-Check "IAM role exists"
 
@@ -1637,6 +1838,7 @@ if ($LASTEXITCODE -eq 0) {
         Write-Pass "IAM role exists."
 
         Write-Host "        Name: $ExpectedRoleName"
+
         Write-Host "        ARN : $RoleArn"
 
     }
@@ -1644,6 +1846,7 @@ if ($LASTEXITCODE -eq 0) {
 
         Write-Fail "IAM role was found but could not be parsed."
 
+        Write-Host "        $($_.Exception.Message)" -ForegroundColor Red
     }
 
 }
@@ -1651,22 +1854,30 @@ else {
 
     Write-Fail "IAM role '$ExpectedRoleName' does not exist."
 
+    Write-Host ""
+    Write-Host "AWS response:" -ForegroundColor Red
+    Write-Host "$RoleRaw" -ForegroundColor Red
 }
 
 
 # =====================================================================
-# 8. TRUST POLICY
+# 7. IAM TRUST POLICY
 # =====================================================================
 
-if ($Role) {
+if ($null -ne $Role) {
 
-    Write-Section "6. IAM Trust Policy"
+    Write-Section "7. IAM Trust Policy"
 
     $TrustPolicy = $Role.Role.AssumeRolePolicyDocument
 
-    Write-Check "OIDC AssumeRoleWithWebIdentity"
+    $TrustJson = $TrustPolicy | ConvertTo-Json -Depth 30
 
-    $TrustJson = $TrustPolicy | ConvertTo-Json -Depth 20
+
+    # -----------------------------------------------------------------
+    # STS WEB IDENTITY
+    # -----------------------------------------------------------------
+
+    Write-Check "OIDC AssumeRoleWithWebIdentity"
 
     if ($TrustJson -match "AssumeRoleWithWebIdentity") {
 
@@ -1679,6 +1890,10 @@ if ($Role) {
 
     }
 
+
+    # -----------------------------------------------------------------
+    # GITHUB OIDC PROVIDER
+    # -----------------------------------------------------------------
 
     Write-Check "GitHub OIDC provider in trust policy"
 
@@ -1694,9 +1909,13 @@ if ($Role) {
     }
 
 
+    # -----------------------------------------------------------------
+    # OIDC AUDIENCE
+    # -----------------------------------------------------------------
+
     Write-Check "OIDC audience condition"
 
-    if ($TrustJson -match "sts.amazonaws.com") {
+    if ($TrustJson -match [regex]::Escape($ExpectedOidcAudience)) {
 
         Write-Pass "Trust policy contains sts.amazonaws.com audience."
 
@@ -1708,9 +1927,9 @@ if ($Role) {
     }
 
 
-    # ================================================================
+    # -----------------------------------------------------------------
     # GITHUB REPOSITORY
-    # ================================================================
+    # -----------------------------------------------------------------
 
     Write-Check "GitHub repository restriction"
 
@@ -1723,15 +1942,15 @@ if ($Role) {
 
         Write-Fail "Trust policy does not reference the expected repository."
 
-        Write-Host "        Expected:"
-        Write-Host "        $ExpectedGitHubRepository"
-
+        Write-Host ""
+        Write-Host "Expected repository:" -ForegroundColor Yellow
+        Write-Host "$ExpectedGitHubRepository" -ForegroundColor Yellow
     }
 
 
-    # ================================================================
+    # -----------------------------------------------------------------
     # GITHUB BRANCH
-    # ================================================================
+    # -----------------------------------------------------------------
 
     Write-Check "GitHub main branch restriction"
 
@@ -1746,19 +1965,19 @@ if ($Role) {
 
         Write-Warn "Could not confirm exact main branch restriction."
 
-        Write-Host "        Expected subject:"
-        Write-Host "        $ExpectedSubject"
-
+        Write-Host ""
+        Write-Host "Expected subject:" -ForegroundColor Yellow
+        Write-Host "$ExpectedSubject" -ForegroundColor Yellow
     }
 
 }
 
 
 # =====================================================================
-# 9. IAM POLICY
+# 8. IAM POLICY
 # =====================================================================
 
-Write-Section "7. GitHub Actions IAM Policy"
+Write-Section "8. GitHub Actions IAM Policy"
 
 Write-Check "IAM customer-managed policy"
 
@@ -1773,7 +1992,7 @@ if ($LASTEXITCODE -eq 0) {
 
         $Policies = $PolicyRaw | ConvertFrom-Json
 
-        if ($Policies.Count -gt 0) {
+        if ($null -ne $Policies -and $Policies.Count -gt 0) {
 
             $Policy = $Policies[0]
 
@@ -1782,6 +2001,7 @@ if ($LASTEXITCODE -eq 0) {
             Write-Pass "IAM policy exists."
 
             Write-Host "        Name: $ExpectedPolicyName"
+
             Write-Host "        ARN : $PolicyArn"
 
         }
@@ -1796,6 +2016,7 @@ if ($LASTEXITCODE -eq 0) {
 
         Write-Fail "Could not parse IAM policy response."
 
+        Write-Host "        $($_.Exception.Message)" -ForegroundColor Red
     }
 
 }
@@ -1803,16 +2024,19 @@ else {
 
     Write-Fail "Unable to query IAM policies."
 
+    Write-Host ""
+    Write-Host "AWS response:" -ForegroundColor Red
+    Write-Host "$PolicyRaw" -ForegroundColor Red
 }
 
 
 # =====================================================================
-# 10. POLICY ATTACHMENT
+# 9. POLICY ATTACHMENT
 # =====================================================================
 
-if ($Role) {
+if ($null -ne $Role) {
 
-    Write-Section "8. IAM Policy Attachment"
+    Write-Section "9. IAM Policy Attachment"
 
     Write-Check "Policy attached to GitHub Actions role"
 
@@ -1822,27 +2046,42 @@ if ($Role) {
 
     if ($LASTEXITCODE -eq 0) {
 
-        $AttachedPolicies = $AttachedPoliciesRaw | ConvertFrom-Json
+        try {
 
-        $Attached = $false
+            $AttachedPolicies = $AttachedPoliciesRaw | ConvertFrom-Json
 
-        foreach ($AttachedPolicy in $AttachedPolicies.AttachedPolicies) {
+            $Attached = $false
 
-            if ($AttachedPolicy.PolicyName -eq $ExpectedPolicyName) {
+            if ($null -ne $AttachedPolicies.AttachedPolicies) {
 
-                $Attached = $true
+                foreach ($AttachedPolicy in $AttachedPolicies.AttachedPolicies) {
+
+                    if ($AttachedPolicy.PolicyName -eq $ExpectedPolicyName) {
+
+                        $Attached = $true
+
+                        break
+                    }
+                }
             }
+
+            if ($Attached) {
+
+                Write-Pass "GitHub Actions IAM policy is attached to the role."
+
+            }
+            else {
+
+                Write-Fail "GitHub Actions IAM policy is NOT attached to the role."
+
+            }
+
         }
+        catch {
 
-        if ($Attached) {
+            Write-Fail "Could not parse attached policy response."
 
-            Write-Pass "GitHub Actions IAM policy is attached to the role."
-
-        }
-        else {
-
-            Write-Fail "GitHub Actions IAM policy is NOT attached to the role."
-
+            Write-Host "        $($_.Exception.Message)" -ForegroundColor Red
         }
 
     }
@@ -1850,18 +2089,20 @@ if ($Role) {
 
         Write-Fail "Could not retrieve attached policies."
 
+        Write-Host ""
+        Write-Host "$AttachedPoliciesRaw" -ForegroundColor Red
     }
 
 }
 
 
 # =====================================================================
-# 11. POLICY VERSION AND DOCUMENT
+# 10. IAM POLICY VERSION
 # =====================================================================
 
-if ($PolicyArn) {
+if (-not [string]::IsNullOrWhiteSpace($PolicyArn)) {
 
-    Write-Section "9. IAM Policy Permissions"
+    Write-Section "10. IAM Policy Permissions"
 
     Write-Check "IAM policy default version"
 
@@ -1879,38 +2120,52 @@ if ($PolicyArn) {
 
         Write-Fail "Could not retrieve IAM policy version."
 
+        Write-Host "$PolicyVersion" -ForegroundColor Red
     }
 
 
-    Write-Check "IAM policy document"
+    # ================================================================
+    # POLICY DOCUMENT
+    # ================================================================
 
-    $PolicyDocumentRaw = aws iam get-policy-version `
-        --policy-arn $PolicyArn `
-        --version-id $PolicyVersion `
-        --query "PolicyVersion.Document" `
-        --output json 2>&1
+    if (-not [string]::IsNullOrWhiteSpace($PolicyVersion)) {
 
-    if ($LASTEXITCODE -eq 0) {
+        Write-Check "IAM policy document"
 
-        try {
+        $PolicyDocumentRaw = aws iam get-policy-version `
+            --policy-arn $PolicyArn `
+            --version-id $PolicyVersion `
+            --query "PolicyVersion.Document" `
+            --output json 2>&1
 
-            $PolicyDocument = $PolicyDocumentRaw | ConvertFrom-Json
+        if ($LASTEXITCODE -eq 0) {
 
-            $PolicyJson = $PolicyDocument | ConvertTo-Json -Depth 30
+            try {
 
-            Write-Pass "IAM policy document can be read."
+                $PolicyDocument = $PolicyDocumentRaw | ConvertFrom-Json
+
+                # AWS CLI normally returns the policy document as JSON.
+                # Convert it again to create a searchable JSON string.
+
+                $PolicyJson = $PolicyDocument | ConvertTo-Json -Depth 50
+
+                Write-Pass "IAM policy document can be read."
+
+            }
+            catch {
+
+                Write-Fail "Could not parse IAM policy document."
+
+                Write-Host "        $($_.Exception.Message)" -ForegroundColor Red
+            }
 
         }
-        catch {
+        else {
 
-            Write-Fail "Could not parse IAM policy document."
+            Write-Fail "Could not retrieve IAM policy document."
 
+            Write-Host "$PolicyDocumentRaw" -ForegroundColor Red
         }
-
-    }
-    else {
-
-        Write-Fail "Could not retrieve IAM policy document."
 
     }
 
@@ -1919,11 +2174,14 @@ if ($PolicyArn) {
     # IAM PASSROLE
     # ================================================================
 
-    if ($PolicyJson) {
+    if (-not [string]::IsNullOrWhiteSpace($PolicyJson)) {
 
         Write-Check "iam:PassRole"
 
-        if ($PolicyJson -match "iam:PassRole" -or $PolicyJson -match "iam:\*") {
+        if (
+            ($PolicyJson -match "iam:PassRole") -or
+            ($PolicyJson -match "iam:\*")
+        ) {
 
             Write-Pass "Policy contains iam:PassRole capability."
 
@@ -1936,12 +2194,15 @@ if ($PolicyArn) {
 
 
         # ============================================================
-        # IMPORTANT SERVICES
+        # CLOUDFORMATION
         # ============================================================
 
         Write-Check "CloudFormation permissions"
 
-        if ($PolicyJson -match "cloudformation:\*" -or $PolicyJson -match "cloudformation:") {
+        if (
+            ($PolicyJson -match "cloudformation:\*") -or
+            ($PolicyJson -match "cloudformation:")
+        ) {
 
             Write-Pass "CloudFormation permissions detected."
 
@@ -1953,9 +2214,16 @@ if ($PolicyArn) {
         }
 
 
+        # ============================================================
+        # S3
+        # ============================================================
+
         Write-Check "S3 permissions"
 
-        if ($PolicyJson -match "s3:\*" -or $PolicyJson -match "s3:") {
+        if (
+            ($PolicyJson -match "s3:\*") -or
+            ($PolicyJson -match "s3:")
+        ) {
 
             Write-Pass "S3 permissions detected."
 
@@ -1967,9 +2235,16 @@ if ($PolicyArn) {
         }
 
 
+        # ============================================================
+        # EC2
+        # ============================================================
+
         Write-Check "EC2 permissions"
 
-        if ($PolicyJson -match "ec2:\*" -or $PolicyJson -match "ec2:") {
+        if (
+            ($PolicyJson -match "ec2:\*") -or
+            ($PolicyJson -match "ec2:")
+        ) {
 
             Write-Pass "EC2 permissions detected."
 
@@ -1981,9 +2256,16 @@ if ($PolicyArn) {
         }
 
 
+        # ============================================================
+        # IAM
+        # ============================================================
+
         Write-Check "IAM permissions"
 
-        if ($PolicyJson -match "iam:\*" -or $PolicyJson -match "iam:") {
+        if (
+            ($PolicyJson -match "iam:\*") -or
+            ($PolicyJson -match "iam:")
+        ) {
 
             Write-Pass "IAM permissions detected."
 
@@ -1995,9 +2277,16 @@ if ($PolicyArn) {
         }
 
 
+        # ============================================================
+        # ECR
+        # ============================================================
+
         Write-Check "ECR permissions"
 
-        if ($PolicyJson -match "ecr:\*" -or $PolicyJson -match "ecr:") {
+        if (
+            ($PolicyJson -match "ecr:\*") -or
+            ($PolicyJson -match "ecr:")
+        ) {
 
             Write-Pass "ECR permissions detected."
 
@@ -2009,9 +2298,16 @@ if ($PolicyArn) {
         }
 
 
+        # ============================================================
+        # EKS
+        # ============================================================
+
         Write-Check "EKS permissions"
 
-        if ($PolicyJson -match "eks:\*" -or $PolicyJson -match "eks:") {
+        if (
+            ($PolicyJson -match "eks:\*") -or
+            ($PolicyJson -match "eks:")
+        ) {
 
             Write-Pass "EKS permissions detected."
 
@@ -2023,9 +2319,16 @@ if ($PolicyArn) {
         }
 
 
+        # ============================================================
+        # RDS
+        # ============================================================
+
         Write-Check "RDS permissions"
 
-        if ($PolicyJson -match "rds:\*" -or $PolicyJson -match "rds:") {
+        if (
+            ($PolicyJson -match "rds:\*") -or
+            ($PolicyJson -match "rds:")
+        ) {
 
             Write-Pass "RDS permissions detected."
 
@@ -2037,9 +2340,16 @@ if ($PolicyArn) {
         }
 
 
+        # ============================================================
+        # LAMBDA
+        # ============================================================
+
         Write-Check "Lambda permissions"
 
-        if ($PolicyJson -match "lambda:\*" -or $PolicyJson -match "lambda:") {
+        if (
+            ($PolicyJson -match "lambda:\*") -or
+            ($PolicyJson -match "lambda:")
+        ) {
 
             Write-Pass "Lambda permissions detected."
 
@@ -2056,10 +2366,10 @@ if ($PolicyArn) {
 
 
 # =====================================================================
-# 12. TERRAFORM INSTALLATION
+# 11. TERRAFORM INSTALLATION
 # =====================================================================
 
-Write-Section "10. Terraform"
+Write-Section "11. Terraform"
 
 Write-Check "Terraform installation"
 
@@ -2071,13 +2381,19 @@ if (Test-CommandExists "terraform") {
 
         Write-Pass "Terraform is installed."
 
-        Write-Host $TerraformVersion
+        Write-Host ""
+
+        foreach ($VersionLine in $TerraformVersion) {
+
+            Write-Host "        $VersionLine"
+        }
 
     }
     else {
 
         Write-Fail "Terraform command exists but could not execute."
 
+        Write-Host "$TerraformVersion" -ForegroundColor Red
     }
 
 }
@@ -2089,14 +2405,14 @@ else {
 
 
 # =====================================================================
-# 13. TERRAFORM DIRECTORY
+# 12. TERRAFORM DIRECTORY
 # =====================================================================
 
 Write-Check "Terraform directory"
 
-$TerraformDirectoryFull = [System.IO.Path]::GetFullPath($TerraformDirectory)
-
-if (Test-Path $TerraformDirectoryFull -PathType Container) {
+if (
+    Test-Path $TerraformDirectoryFull -PathType Container
+) {
 
     Write-Pass "Terraform directory exists."
 
@@ -2107,25 +2423,29 @@ else {
 
     Write-Fail "Terraform directory does not exist."
 
-    Write-Host "        Expected:"
-    Write-Host "        $TerraformDirectoryFull"
-
+    Write-Host ""
+    Write-Host "Expected:" -ForegroundColor Yellow
+    Write-Host "$TerraformDirectoryFull" -ForegroundColor Yellow
 }
 
 
 # =====================================================================
-# 14. TERRAFORM FILES
+# 13. TERRAFORM FILES
 # =====================================================================
 
-if (Test-Path $TerraformDirectoryFull -PathType Container) {
+if (
+    Test-Path $TerraformDirectoryFull -PathType Container
+) {
 
     Write-Check "Terraform files"
 
-    $TerraformFiles = Get-ChildItem `
-        -Path $TerraformDirectoryFull `
-        -Filter "*.tf" `
-        -File `
-        -ErrorAction SilentlyContinue
+    $TerraformFiles = @(
+        Get-ChildItem `
+            -Path $TerraformDirectoryFull `
+            -Filter "*.tf" `
+            -File `
+            -ErrorAction SilentlyContinue
+    )
 
     if ($TerraformFiles.Count -gt 0) {
 
@@ -2134,7 +2454,6 @@ if (Test-Path $TerraformDirectoryFull -PathType Container) {
         foreach ($File in $TerraformFiles) {
 
             Write-Host "        $($File.Name)"
-
         }
 
     }
@@ -2148,28 +2467,49 @@ if (Test-Path $TerraformDirectoryFull -PathType Container) {
 
 
 # =====================================================================
-# 15. TERRAFORM PROVIDER
+# 14. TERRAFORM PROVIDER
 # =====================================================================
 
-if (Test-Path $TerraformDirectoryFull -PathType Container) {
+if (
+    Test-Path $TerraformDirectoryFull -PathType Container
+) {
 
-    Write-Section "11. Terraform AWS Provider"
+    Write-Section "12. Terraform AWS Provider"
 
-    $TerraformFiles = Get-ChildItem `
-        -Path $TerraformDirectoryFull `
-        -Filter "*.tf" `
-        -File `
-        -ErrorAction SilentlyContinue
+    $TerraformFiles = @(
+        Get-ChildItem `
+            -Path $TerraformDirectoryFull `
+            -Filter "*.tf" `
+            -File `
+            -ErrorAction SilentlyContinue
+    )
 
     $TerraformText = ""
 
     foreach ($File in $TerraformFiles) {
 
-        $TerraformText += Get-Content $File.FullName -Raw
-        $TerraformText += "`n"
+        try {
+
+            $TerraformText += Get-Content `
+                -Path $File.FullName `
+                -Raw `
+                -ErrorAction Stop
+
+            $TerraformText += "`n"
+
+        }
+        catch {
+
+            Write-Warn "Could not read Terraform file: $($File.Name)"
+
+        }
 
     }
 
+
+    # -----------------------------------------------------------------
+    # AWS PROVIDER
+    # -----------------------------------------------------------------
 
     Write-Check "AWS provider configuration"
 
@@ -2184,6 +2524,10 @@ if (Test-Path $TerraformDirectoryFull -PathType Container) {
 
     }
 
+
+    # -----------------------------------------------------------------
+    # AWS REGION
+    # -----------------------------------------------------------------
 
     Write-Check "AWS region configuration"
 
@@ -2205,11 +2549,19 @@ if (Test-Path $TerraformDirectoryFull -PathType Container) {
 
 
 # =====================================================================
-# 16. TERRAFORM FMT
+# 15. TERRAFORM FORMAT
 # =====================================================================
 
-if (Test-CommandExists "terraform" -and
-    (Test-Path $TerraformDirectoryFull -PathType Container)) {
+$TerraformInstalled = Test-CommandExists "terraform"
+
+$TerraformDirectoryExists = Test-Path `
+    $TerraformDirectoryFull `
+    -PathType Container
+
+if (
+    $TerraformInstalled -and
+    $TerraformDirectoryExists
+) {
 
     Write-Check "Terraform format"
 
@@ -2226,9 +2578,20 @@ if (Test-CommandExists "terraform" -and
         }
         else {
 
-            Write-Warn "Terraform formatting check failed. Run 'terraform fmt -recursive'."
+            Write-Warn "Terraform formatting check failed."
+
+            Write-Host ""
+            Write-Host "Recommended command:" -ForegroundColor Yellow
+            Write-Host "terraform fmt -recursive" -ForegroundColor Yellow
 
         }
+
+    }
+    catch {
+
+        Write-Fail "Terraform fmt check encountered an error."
+
+        Write-Host "        $($_.Exception.Message)" -ForegroundColor Red
 
     }
     finally {
@@ -2241,11 +2604,13 @@ if (Test-CommandExists "terraform" -and
 
 
 # =====================================================================
-# 17. TERRAFORM INIT
+# 16. TERRAFORM INIT
 # =====================================================================
 
-if (Test-CommandExists "terraform" -and
-    (Test-Path $TerraformDirectoryFull -PathType Container)) {
+if (
+    $TerraformInstalled -and
+    $TerraformDirectoryExists
+) {
 
     Write-Check "Terraform init"
 
@@ -2267,6 +2632,13 @@ if (Test-CommandExists "terraform" -and
         }
 
     }
+    catch {
+
+        Write-Fail "Terraform init encountered an error."
+
+        Write-Host "        $($_.Exception.Message)" -ForegroundColor Red
+
+    }
     finally {
 
         Pop-Location
@@ -2277,11 +2649,13 @@ if (Test-CommandExists "terraform" -and
 
 
 # =====================================================================
-# 18. TERRAFORM VALIDATE
+# 17. TERRAFORM VALIDATE
 # =====================================================================
 
-if (Test-CommandExists "terraform" -and
-    (Test-Path $TerraformDirectoryFull -PathType Container)) {
+if (
+    $TerraformInstalled -and
+    $TerraformDirectoryExists
+) {
 
     Write-Check "Terraform validate"
 
@@ -2303,6 +2677,13 @@ if (Test-CommandExists "terraform" -and
         }
 
     }
+    catch {
+
+        Write-Fail "Terraform validate encountered an error."
+
+        Write-Host "        $($_.Exception.Message)" -ForegroundColor Red
+
+    }
     finally {
 
         Pop-Location
@@ -2313,28 +2694,47 @@ if (Test-CommandExists "terraform" -and
 
 
 # =====================================================================
-# 19. MAIN WORKFLOW
+# 18. MAIN WORKFLOW
 # =====================================================================
 
-Write-Section "12. GitHub Actions Workflows"
+Write-Section "13. GitHub Actions Workflows"
 
 Write-Check "main-deploy.yaml"
 
-if (Test-Path $MainWorkflow -PathType Leaf) {
+if (
+    Test-Path $MainWorkflowFull -PathType Leaf
+) {
 
     Write-Pass "main-deploy.yaml exists."
 
-    $MainWorkflowText = Get-Content $MainWorkflow -Raw
+    try {
 
-    if ($MainWorkflowText -match 'terraform\.yml') {
+        $MainWorkflowText = Get-Content `
+            -Path $MainWorkflowFull `
+            -Raw `
+            -ErrorAction Stop
 
-        Write-Pass "main-deploy.yaml calls terraform.yml."
+        # -------------------------------------------------------------
+        # Check whether the main workflow references terraform.yml.
+        # -------------------------------------------------------------
+
+        if ($MainWorkflowText -match 'terraform\.yml') {
+
+            Write-Pass "main-deploy.yaml references terraform.yml."
+
+        }
+        else {
+
+            Write-Warn "main-deploy.yaml does not appear to reference terraform.yml."
+
+        }
 
     }
-    else {
+    catch {
 
-        Write-Warn "main-deploy.yaml does not appear to call terraform.yml."
+        Write-Fail "Could not read main-deploy.yaml."
 
+        Write-Host "        $($_.Exception.Message)" -ForegroundColor Red
     }
 
 }
@@ -2342,89 +2742,138 @@ else {
 
     Write-Fail "main-deploy.yaml was not found."
 
+    Write-Host ""
+    Write-Host "Expected:" -ForegroundColor Yellow
+    Write-Host "$MainWorkflowFull" -ForegroundColor Yellow
 }
 
 
 # =====================================================================
-# 20. TERRAFORM WORKFLOW
+# 19. TERRAFORM WORKFLOW
 # =====================================================================
 
 Write-Check "terraform.yml"
 
-if (Test-Path $TerraformWorkflow -PathType Leaf) {
+if (
+    Test-Path $TerraformWorkflowFull -PathType Leaf
+) {
 
     Write-Pass "terraform.yml exists."
 
-    $TerraformWorkflowText = Get-Content $TerraformWorkflow -Raw
+    try {
+
+        $TerraformWorkflowText = Get-Content `
+            -Path $TerraformWorkflowFull `
+            -Raw `
+            -ErrorAction Stop
 
 
-    Write-Check "workflow_call"
+        # =============================================================
+        # WORKFLOW_CALL
+        # =============================================================
 
-    if ($TerraformWorkflowText -match "workflow_call") {
+        Write-Check "workflow_call"
 
-        Write-Pass "terraform.yml supports workflow_call."
+        if ($TerraformWorkflowText -match "workflow_call") {
+
+            Write-Pass "terraform.yml supports workflow_call."
+
+        }
+        else {
+
+            Write-Fail "terraform.yml does not contain workflow_call."
+
+        }
+
+
+        # =============================================================
+        # OIDC PERMISSION
+        # =============================================================
+
+        Write-Check "GitHub OIDC permission"
+
+        if (
+            $TerraformWorkflowText -match "id-token:\s*write"
+        ) {
+
+            Write-Pass "terraform.yml has id-token: write."
+
+        }
+        else {
+
+            Write-Fail "terraform.yml is missing id-token: write."
+
+        }
+
+
+        # =============================================================
+        # AWS REGION
+        # =============================================================
+
+        Write-Check "AWS_REGION"
+
+        if (
+            $TerraformWorkflowText -match `
+                'aws-region:\s*\$\{\{\s*vars\.AWS_REGION\s*\}\}'
+        ) {
+
+            Write-Pass "terraform.yml uses vars.AWS_REGION."
+
+        }
+        else {
+
+            Write-Fail "terraform.yml does not use vars.AWS_REGION for aws-region."
+
+        }
+
+
+        # =============================================================
+        # AWS ROLE ARN
+        # =============================================================
+
+        Write-Check "AWS_ROLE_ARN"
+
+        if (
+            $TerraformWorkflowText -match `
+                'role-to-assume:\s*\$\{\{\s*secrets\.AWS_ROLE_ARN\s*\}\}'
+        ) {
+
+            Write-Pass "terraform.yml uses secrets.AWS_ROLE_ARN."
+
+        }
+        else {
+
+            Write-Fail "terraform.yml does not use secrets.AWS_ROLE_ARN."
+
+        }
+
+
+        # =============================================================
+        # CONFIGURE AWS CREDENTIALS
+        # =============================================================
+
+        Write-Check "configure-aws-credentials"
+
+        if (
+            $TerraformWorkflowText -match `
+                "aws-actions/configure-aws-credentials@v4"
+        ) {
+
+            Write-Pass "terraform.yml uses configure-aws-credentials@v4."
+
+        }
+        else {
+
+            Write-Fail "terraform.yml does not use configure-aws-credentials@v4."
+
+        }
 
     }
-    else {
+    catch {
 
-        Write-Fail "terraform.yml does not contain workflow_call."
+        Write-Fail "Could not read terraform.yml."
 
-    }
-
-
-    Write-Check "GitHub OIDC permission"
-
-    if ($TerraformWorkflowText -match "id-token:\s*write") {
-
-        Write-Pass "terraform.yml has id-token: write."
-
-    }
-    else {
-
-        Write-Fail "terraform.yml is missing id-token: write."
-
-    }
-
-
-    Write-Check "AWS_REGION"
-
-    if ($TerraformWorkflowText -match 'aws-region:\s*\$\{\{\s*vars\.AWS_REGION\s*\}\}') {
-
-        Write-Pass "terraform.yml uses vars.AWS_REGION."
-
-    }
-    else {
-
-        Write-Fail "terraform.yml does not use vars.AWS_REGION for aws-region."
-
-    }
-
-
-    Write-Check "AWS_ROLE_ARN"
-
-    if ($TerraformWorkflowText -match 'role-to-assume:\s*\$\{\{\s*secrets\.AWS_ROLE_ARN\s*\}\}') {
-
-        Write-Pass "terraform.yml uses secrets.AWS_ROLE_ARN."
-
-    }
-    else {
-
-        Write-Fail "terraform.yml does not use secrets.AWS_ROLE_ARN."
-
-    }
-
-
-    Write-Check "configure-aws-credentials"
-
-    if ($TerraformWorkflowText -match "aws-actions/configure-aws-credentials@v4") {
-
-        Write-Pass "terraform.yml uses configure-aws-credentials@v4."
-
-    }
-    else {
-
-        Write-Fail "terraform.yml does not use configure-aws-credentials@v4."
-
+        Write-Host "        $($_.Exception.Message)" -ForegroundColor Red
     }
 
 }
@@ -2432,77 +2881,144 @@ else {
 
     Write-Fail "terraform.yml was not found."
 
+    Write-Host ""
+    Write-Host "Expected:" -ForegroundColor Yellow
+    Write-Host "$TerraformWorkflowFull" -ForegroundColor Yellow
 }
 
 
 # =====================================================================
-# 21. GITHUB CONFIGURATION REMINDER
+# 20. GITHUB CONFIGURATION REMINDER
 # =====================================================================
 
-Write-Section "13. GitHub Repository Configuration"
+Write-Section "14. GitHub Repository Configuration"
 
 Write-Host ""
 Write-Host "The following values MUST exist in GitHub:" -ForegroundColor Yellow
 
+
+# ---------------------------------------------------------------------
+# GITHUB VARIABLE
+# ---------------------------------------------------------------------
+
 Write-Host ""
 Write-Host "Repository Variable:" -ForegroundColor Cyan
+
 Write-Host "    AWS_REGION = $ExpectedAwsRegion"
+
+
+# ---------------------------------------------------------------------
+# GITHUB SECRET
+# ---------------------------------------------------------------------
 
 Write-Host ""
 Write-Host "Repository Secret:" -ForegroundColor Cyan
-Write-Host "    AWS_ROLE_ARN = $RoleArn"
+
+if (-not [string]::IsNullOrWhiteSpace($RoleArn)) {
+
+    Write-Host "    AWS_ROLE_ARN = $RoleArn"
+
+}
+else {
+
+    Write-Host "    AWS_ROLE_ARN = <ROLE ARN COULD NOT BE DETECTED>" -ForegroundColor Yellow
+
+}
+
+
+# ---------------------------------------------------------------------
+# GITHUB REPOSITORY
+# ---------------------------------------------------------------------
 
 Write-Host ""
 Write-Host "GitHub Repository:" -ForegroundColor Cyan
+
 Write-Host "    $ExpectedGitHubRepository"
+
+
+# ---------------------------------------------------------------------
+# GITHUB BRANCH
+# ---------------------------------------------------------------------
 
 Write-Host ""
 Write-Host "GitHub Branch:" -ForegroundColor Cyan
+
 Write-Host "    $ExpectedGitHubBranch"
 
+
+# ---------------------------------------------------------------------
+# IMPORTANT NOTE
+# ---------------------------------------------------------------------
+
+Write-Host ""
+
 Write-Warn "GitHub Actions variables/secrets cannot be read directly using AWS CLI."
+
 Write-Warn "Verify AWS_REGION and AWS_ROLE_ARN manually in GitHub Settings."
 
 
 # =====================================================================
-# 22. FINAL SUMMARY
+# 21. FINAL SUMMARY
 # =====================================================================
 
 Write-Section "FINAL VERIFICATION SUMMARY"
 
 Write-Host ""
+
 Write-Host "PASS    : $Passed" -ForegroundColor Green
+
 Write-Host "FAIL    : $Failed" -ForegroundColor Red
+
 Write-Host "WARNING : $Warnings" -ForegroundColor Yellow
 
 Write-Host ""
 
+
+# =====================================================================
+# DISPLAY RESULT
+# =====================================================================
+
 if ($Failed -eq 0) {
 
     Write-Host "=======================================================================" -ForegroundColor Green
+
     Write-Host " RESULT: AWS/GitHub OIDC verification PASSED" -ForegroundColor Green
+
     Write-Host "=======================================================================" -ForegroundColor Green
 
     Write-Host ""
+
     Write-Host "AWS-side configuration looks ready for GitHub Actions OIDC." -ForegroundColor Green
+
     Write-Host ""
+
     Write-Host "NEXT STEP:" -ForegroundColor Cyan
+
+    Write-Host ""
+
     Write-Host "1. Verify AWS_REGION in GitHub:"
     Write-Host "   Settings -> Secrets and variables -> Actions -> Variables"
+
     Write-Host ""
+
     Write-Host "2. Verify AWS_ROLE_ARN in GitHub:"
     Write-Host "   Settings -> Secrets and variables -> Actions -> Secrets"
+
     Write-Host ""
-    Write-Host "3. Run Main Deployment again."
+
+    Write-Host "3. Run the main deployment workflow again."
 
 }
 else {
 
     Write-Host "=======================================================================" -ForegroundColor Red
+
     Write-Host " RESULT: VERIFICATION FAILED" -ForegroundColor Red
+
     Write-Host "=======================================================================" -ForegroundColor Red
 
     Write-Host ""
+
     Write-Host "Fix the FAIL items above before running Main Deployment again." -ForegroundColor Yellow
 
 }
@@ -2515,45 +3031,58 @@ else {
 Write-Section "EXPECTED FINAL CONFIGURATION"
 
 Write-Host ""
+
 Write-Host "IAM ROLE"
 Write-Host "    $ExpectedRoleName"
 
 Write-Host ""
+
 Write-Host "IAM POLICY"
 Write-Host "    $ExpectedPolicyName"
 
 Write-Host ""
+
 Write-Host "GITHUB OIDC"
 Write-Host "    $ExpectedOidcUrl"
 
 Write-Host ""
+
 Write-Host "OIDC AUDIENCE"
 Write-Host "    $ExpectedOidcAudience"
 
 Write-Host ""
+
 Write-Host "GITHUB REPOSITORY"
 Write-Host "    $ExpectedGitHubRepository"
 
 Write-Host ""
+
 Write-Host "GITHUB BRANCH"
 Write-Host "    $ExpectedGitHubBranch"
 
 Write-Host ""
+
 Write-Host "AWS REGION"
 Write-Host "    $ExpectedAwsRegion"
 
 Write-Host ""
+
 Write-Host "GITHUB SECRET"
 Write-Host "    AWS_ROLE_ARN"
 
 Write-Host ""
+
 Write-Host "GITHUB VARIABLE"
 Write-Host "    AWS_REGION"
 
 Write-Host ""
+
 Write-Host "======================================================================="
+
 Write-Host " Verification script finished."
+
 Write-Host "======================================================================="
+
 Write-Host ""
 ```
 
