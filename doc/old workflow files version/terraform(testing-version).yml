@@ -1,0 +1,1001 @@
+# ==========================================================
+# HYBRID TERRAFORM + CLOUDFORMATION AWS LAB
+# Terraform Deployment Workflow
+# ==========================================================
+#
+# Purpose:
+#
+# This workflow is responsible for deploying the AWS
+# infrastructure using Terraform.
+#
+# Terraform
+#     |
+#     +--> S3 CloudFormation template bucket
+#     |
+#     +--> Upload CloudFormation templates
+#     |
+#     +--> CloudFormation execution IAM role
+#     |
+#     +--> Main CloudFormation stack
+#     |
+#     +--> AWS infrastructure
+#
+# Authentication:
+#
+# GitHub Actions
+#     |
+#     +--> GitHub OIDC
+#             |
+#             +--> AWS STS
+#                     |
+#                     +--> IAM Role
+#
+# This workflow uses:
+#
+#   - GitHub Actions
+#   - GitHub OIDC
+#   - AWS IAM Role
+#   - AWS STS
+#   - Terraform
+#   - CloudFormation
+#
+# This workflow is called by:
+#
+#   main-deploy.yaml
+#
+# It can also be executed manually.
+#
+# ==========================================================
+
+
+name: Terraform Infrastructure
+
+
+# ==========================================================
+# TRIGGERS
+# ==========================================================
+#
+# workflow_call:
+#
+# Allows another GitHub Actions workflow, such as
+# main-deploy.yaml, to call this workflow.
+#
+# workflow_dispatch:
+#
+# Allows the workflow to be started manually from the
+# GitHub Actions interface.
+#
+# ==========================================================
+
+on:
+
+  # --------------------------------------------------------
+  # Allows main-deploy.yaml to call this workflow.
+  # --------------------------------------------------------
+
+  workflow_call:
+
+
+  # --------------------------------------------------------
+  # Allows manual execution from GitHub Actions.
+  # --------------------------------------------------------
+
+  workflow_dispatch:
+
+
+# ==========================================================
+# PERMISSIONS
+# ==========================================================
+#
+# These permissions are extremely important for GitHub OIDC.
+#
+# id-token: write
+#
+# Allows GitHub Actions to request a temporary OIDC token.
+#
+# contents: read
+#
+# Allows actions/checkout to read the repository.
+#
+# IMPORTANT:
+#
+# Without:
+#
+#     id-token: write
+#
+# GitHub cannot provide the OIDC token required by AWS.
+#
+# ==========================================================
+
+permissions:
+
+  # Required for GitHub OIDC authentication with AWS.
+  id-token: write
+
+  # Required to checkout the repository.
+  contents: read
+
+
+# ==========================================================
+# JOBS
+# ==========================================================
+
+jobs:
+
+
+  # ========================================================
+  # TERRAFORM JOB
+  # ========================================================
+
+  terraform:
+
+    # ------------------------------------------------------
+    # Human-readable job name.
+    # ------------------------------------------------------
+
+    name: Terraform Infrastructure Deployment
+
+
+    # ------------------------------------------------------
+    # GitHub-hosted runner.
+    #
+    # ubuntu-latest provides common Linux utilities such as:
+    #
+    #   - Bash
+    #   - curl
+    #   - jq
+    #   - Python 3
+    #   - Git
+    #   - base64
+    #
+    # ------------------------------------------------------
+
+    runs-on: ubuntu-latest
+
+
+    # ======================================================
+    # STEPS
+    # ======================================================
+
+    steps:
+
+
+      # ====================================================
+      # 1. CHECKOUT REPOSITORY
+      # ====================================================
+      #
+      # Downloads the repository source code onto the
+      # GitHub Actions runner.
+      #
+      # Terraform files and CloudFormation templates are
+      # therefore available to later steps.
+      #
+      # ====================================================
+
+      - name: Checkout Repository
+
+        uses: actions/checkout@v4
+
+
+      # ====================================================
+      # 2. DEBUG GITHUB OIDC CLAIMS
+      # ====================================================
+      #
+      # PURPOSE:
+      #
+      # This is a TEMPORARY diagnostic step.
+      #
+      # It verifies that GitHub Actions can request a GitHub
+      # OIDC token before the workflow attempts to authenticate
+      # with AWS.
+      #
+      # The OIDC token contains claims that AWS uses when
+      # evaluating the IAM role trust policy.
+      #
+      # This step displays only selected claims:
+      #
+      #   - aud
+      #   - sub
+      #   - repository
+      #   - repository_owner
+      #   - ref
+      #   - job_workflow_ref
+      #
+      # IMPORTANT SECURITY NOTE:
+      #
+      # The complete JWT token is NEVER printed.
+      #
+      # The GitHub OIDC request token is NEVER printed.
+      #
+      # The OIDC request URL is NEVER printed.
+      #
+      # ====================================================
+      #
+      # GitHub automatically provides:
+      #
+      #   ACTIONS_ID_TOKEN_REQUEST_URL
+      #   ACTIONS_ID_TOKEN_REQUEST_TOKEN
+      #
+      # because this workflow has:
+      #
+      #   permissions:
+      #     id-token: write
+      #
+      # ====================================================
+
+      - name: Debug GitHub OIDC Claims
+
+        shell: bash
+
+        run: |
+
+          # ------------------------------------------------
+          # Exit immediately when a command fails.
+          #
+          # -e:
+          #   Stop when a command returns a non-zero status.
+          #
+          # -u:
+          #   Treat unset variables as errors.
+          #
+          # -o pipefail:
+          #   Make pipelines fail if any command in the
+          #   pipeline fails.
+          #
+          # ------------------------------------------------
+
+          set -euo pipefail
+
+
+          echo "=========================================================="
+          echo "GitHub OIDC Diagnostic"
+          echo "=========================================================="
+          echo ""
+
+
+          # ------------------------------------------------
+          # Verify required utilities are available.
+          #
+          # ubuntu-latest normally includes these utilities.
+          # These checks make troubleshooting easier if the
+          # GitHub runner image changes.
+          # ------------------------------------------------
+
+          command -v curl >/dev/null 2>&1 || {
+            echo "ERROR: curl is not installed."
+            exit 1
+          }
+
+          command -v jq >/dev/null 2>&1 || {
+            echo "ERROR: jq is not installed."
+            exit 1
+          }
+
+          command -v python3 >/dev/null 2>&1 || {
+            echo "ERROR: python3 is not installed."
+            exit 1
+          }
+
+
+          # ------------------------------------------------
+          # Verify GitHub supplied the OIDC request variables.
+          #
+          # These variables are automatically provided by
+          # GitHub Actions when id-token: write is enabled.
+          # ------------------------------------------------
+
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+
+            echo "ERROR: ACTIONS_ID_TOKEN_REQUEST_URL is empty."
+            echo ""
+
+            echo "Make sure the workflow contains:"
+            echo ""
+
+            echo "permissions:"
+            echo "  id-token: write"
+
+            exit 1
+
+          fi
+
+
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+
+            echo "ERROR: ACTIONS_ID_TOKEN_REQUEST_TOKEN is empty."
+            echo ""
+
+            echo "Make sure the workflow contains:"
+            echo ""
+
+            echo "permissions:"
+            echo "  id-token: write"
+
+            exit 1
+
+          fi
+
+
+          echo "Requesting GitHub OIDC token..."
+          echo ""
+
+
+          # =================================================
+          # REQUEST GITHUB OIDC TOKEN
+          # =================================================
+          #
+          # GitHub provides a temporary authorization token
+          # that allows this workflow to request an OIDC JWT.
+          #
+          # audience=sts.amazonaws.com
+          #
+          # This is important because the AWS IAM trust policy
+          # normally expects the OIDC token audience to be:
+          #
+          #     sts.amazonaws.com
+          #
+          # AWS STS consumes this identity when performing:
+          #
+          #     AssumeRoleWithWebIdentity
+          #
+          # =================================================
+
+          TOKEN_RESPONSE=$(curl -sSf \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")
+
+
+          # ------------------------------------------------
+          # Extract the actual JWT from the JSON response.
+          #
+          # Expected response:
+          #
+          # {
+          #   "value": "eyJ...."
+          # }
+          #
+          # ------------------------------------------------
+
+          TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.value')
+
+
+          # ------------------------------------------------
+          # Verify that GitHub actually returned a token.
+          # ------------------------------------------------
+
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+
+            echo "ERROR: GitHub OIDC token was not returned."
+
+            exit 1
+
+          fi
+
+
+          # ------------------------------------------------
+          # IMPORTANT SECURITY NOTE:
+          #
+          # NEVER do:
+          #
+          #     echo "$TOKEN"
+          #
+          # The JWT is sensitive and should not be written
+          # to GitHub Actions logs.
+          #
+          # ------------------------------------------------
+
+
+          # =================================================
+          # EXTRACT JWT PAYLOAD
+          # =================================================
+          #
+          # A JWT normally has three sections:
+          #
+          #     HEADER.PAYLOAD.SIGNATURE
+          #
+          # We only need the PAYLOAD section.
+          #
+          # =================================================
+
+          PAYLOAD=$(echo "$TOKEN" | cut -d '.' -f 2)
+
+
+          # ------------------------------------------------
+          # Verify that the payload exists.
+          # ------------------------------------------------
+
+          if [ -z "$PAYLOAD" ]; then
+
+            echo "ERROR: OIDC JWT payload could not be extracted."
+
+            exit 1
+
+          fi
+
+
+          # =================================================
+          # DECODE JWT PAYLOAD
+          # =================================================
+          #
+          # JWT uses Base64URL encoding.
+          #
+          # Python is used here because it provides reliable
+          # Base64URL decoding and JSON parsing.
+          #
+          # The script:
+          #
+          #   1. Reads the JWT payload.
+          #   2. Adds required Base64 padding.
+          #   3. Decodes Base64URL.
+          #   4. Parses the JSON claims.
+          #   5. Displays only selected claims.
+          #
+          # =================================================
+
+          DECODED=$(python3 -c '
+
+          import sys
+          import base64
+          import json
+
+          payload = sys.stdin.read().strip()
+
+          # Add Base64 padding if necessary.
+          payload += "=" * ((4 - len(payload) % 4) % 4)
+
+          # Decode Base64URL payload.
+          decoded = base64.urlsafe_b64decode(payload)
+
+          # Convert decoded JSON into a Python dictionary.
+          claims = json.loads(decoded)
+
+          # Display only the claims useful for IAM trust
+          # policy troubleshooting.
+          print(json.dumps({
+              "aud": claims.get("aud"),
+              "sub": claims.get("sub"),
+              "repository": claims.get("repository"),
+              "repository_owner": claims.get("repository_owner"),
+              "ref": claims.get("ref"),
+              "job_workflow_ref": claims.get("job_workflow_ref")
+          }, indent=2))
+
+          ' <<< "$PAYLOAD")
+
+
+          # =================================================
+          # DISPLAY SELECTED OIDC CLAIMS
+          # =================================================
+          #
+          # These values are useful when troubleshooting the
+          # AWS IAM OIDC trust policy.
+          #
+          # Example:
+          #
+          # {
+          #   "aud": "sts.amazonaws.com",
+          #   "sub": "repo:OWNER/REPOSITORY:ref:refs/heads/main",
+          #   "repository": "OWNER/REPOSITORY",
+          #   "repository_owner": "OWNER",
+          #   "ref": "refs/heads/main",
+          #   "job_workflow_ref": "OWNER/REPOSITORY/.github/workflows/terraform.yml@refs/heads/main"
+          # }
+          #
+          # IMPORTANT:
+          #
+          # These claims are NOT AWS credentials.
+          #
+          # They are identity information used by AWS IAM
+          # when evaluating the GitHub OIDC trust relationship.
+          #
+          # =================================================
+
+          echo ""
+          echo "======================================"
+          echo "GitHub OIDC Claims"
+          echo "======================================"
+
+          echo "$DECODED"
+
+          echo "======================================"
+          echo ""
+
+
+          echo "GitHub OIDC diagnostic completed successfully."
+          echo ""
+
+
+      # ====================================================
+      # 3. DIRECT AWS STS OIDC TEST
+      # ====================================================
+      #
+      # PURPOSE:
+      #
+      # This is a TEMPORARY diagnostic step.
+      #
+      # It directly tests the complete authentication path:
+      #
+      # GitHub Actions
+      #       |
+      #       | Request OIDC token
+      #       v
+      # GitHub OIDC
+      #       |
+      #       | JWT
+      #       v
+      # AWS STS
+      #       |
+      #       | AssumeRoleWithWebIdentity
+      #       v
+      # AWS IAM Role
+      #
+      # This test bypasses the
+      # aws-actions/configure-aws-credentials action.
+      #
+      # Therefore, if this step succeeds, it proves that:
+      #
+      #   1. GitHub can issue an OIDC token.
+      #
+      #   2. The token has the expected audience.
+      #
+      #   3. AWS STS can validate the token.
+      #
+      #   4. AWS can find the IAM OIDC provider.
+      #
+      #   5. The IAM role trust policy accepts the token.
+      #
+      #   6. The AWS_ROLE_ARN secret points to the intended role.
+      #
+      # IMPORTANT SECURITY NOTE:
+      #
+      # The JWT itself is NEVER printed.
+      #
+      # The temporary AWS credentials returned by STS are
+      # NEVER printed.
+      #
+      # Only the result of the STS operation is displayed.
+      #
+      # This step should normally be REMOVED after OIDC
+      # troubleshooting is complete.
+      #
+      # ====================================================
+
+      - name: Direct STS OIDC Test
+
+        shell: bash
+
+        run: |
+
+          # ------------------------------------------------
+          # Fail immediately if any command fails.
+          #
+          # -e:
+          #   Exit when a command fails.
+          #
+          # -u:
+          #   Treat unset variables as errors.
+          #
+          # -o pipefail:
+          #   Pipeline failures are detected.
+          #
+          # ------------------------------------------------
+
+          set -euo pipefail
+
+
+          echo "=========================================================="
+          echo "Direct AWS STS OIDC Test"
+          echo "=========================================================="
+          echo ""
+
+
+          # ------------------------------------------------
+          # Verify required commands exist.
+          # ------------------------------------------------
+
+          command -v curl >/dev/null 2>&1 || {
+            echo "ERROR: curl is not installed."
+            exit 1
+          }
+
+          command -v jq >/dev/null 2>&1 || {
+            echo "ERROR: jq is not installed."
+            exit 1
+          }
+
+          command -v aws >/dev/null 2>&1 || {
+            echo "ERROR: AWS CLI is not installed."
+            exit 1
+          }
+
+
+          # ------------------------------------------------
+          # Verify GitHub OIDC environment variables exist.
+          # ------------------------------------------------
+
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+
+            echo "ERROR: ACTIONS_ID_TOKEN_REQUEST_URL is empty."
+
+            exit 1
+
+          fi
+
+
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+
+            echo "ERROR: ACTIONS_ID_TOKEN_REQUEST_TOKEN is empty."
+
+            exit 1
+
+          fi
+
+
+          # ------------------------------------------------
+          # Verify that AWS_ROLE_ARN exists.
+          #
+          # The secret is intentionally NOT printed.
+          # ------------------------------------------------
+
+          if [ -z "${{ secrets.AWS_ROLE_ARN }}" ]; then
+
+            echo "ERROR: GitHub secret AWS_ROLE_ARN is empty."
+
+            exit 1
+
+          fi
+
+
+          echo "Requesting GitHub OIDC token..."
+          echo ""
+
+
+          # =================================================
+          # REQUEST GITHUB OIDC TOKEN
+          # =================================================
+          #
+          # The audience is explicitly set to:
+          #
+          #     sts.amazonaws.com
+          #
+          # This must match the audience condition normally
+          # configured in the IAM trust policy.
+          #
+          # =================================================
+
+          TOKEN_RESPONSE=$(curl -sSf \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")
+
+
+          # ------------------------------------------------
+          # Extract JWT.
+          #
+          # The JWT is stored only in the shell variable.
+          # It is NOT printed.
+          # ------------------------------------------------
+
+          TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.value')
+
+
+          # ------------------------------------------------
+          # Confirm a token was returned.
+          # ------------------------------------------------
+
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+
+            echo "ERROR: GitHub OIDC token was not returned."
+
+            exit 1
+
+          fi
+
+
+          echo "GitHub OIDC token received successfully."
+          echo ""
+
+
+          echo "Calling AWS STS AssumeRoleWithWebIdentity..."
+          echo ""
+
+
+          # =================================================
+          # DIRECT AWS STS ASSUME ROLE
+          # =================================================
+          #
+          # AWS STS validates:
+          #
+          #   - GitHub OIDC issuer
+          #   - OIDC token signature
+          #   - token audience
+          #   - token expiration
+          #   - IAM role trust policy
+          #   - repository/branch restrictions
+          #
+          # If the command succeeds, the GitHub OIDC trust
+          # relationship is working.
+          #
+          # IMPORTANT:
+          #
+          # The STS response contains temporary AWS credentials.
+          #
+          # Therefore the response is captured into a variable
+          # and NOT printed.
+          #
+          # =================================================
+
+          STS_RESPONSE=$(aws sts assume-role-with-web-identity \
+            --role-arn "${{ secrets.AWS_ROLE_ARN }}" \
+            --role-session-name "github-actions-direct-test" \
+            --web-identity-token "$TOKEN" \
+            --duration-seconds 900)
+
+
+          # ------------------------------------------------
+          # Verify that AWS returned credentials.
+          #
+          # We check for AccessKeyId without printing the
+          # credentials themselves.
+          # ------------------------------------------------
+
+          ACCESS_KEY_ID=$(echo "$STS_RESPONSE" | jq -r '.Credentials.AccessKeyId // empty')
+
+
+          if [ -z "$ACCESS_KEY_ID" ]; then
+
+            echo "ERROR: AWS STS did not return temporary credentials."
+
+            exit 1
+
+          fi
+
+
+          # ------------------------------------------------
+          # SUCCESS
+          # ------------------------------------------------
+
+          echo "AWS STS AssumeRoleWithWebIdentity succeeded."
+          echo ""
+          echo "GitHub OIDC -> AWS STS -> IAM Role authentication is working."
+          echo ""
+          echo "Temporary AWS credentials were received successfully."
+          echo "The credentials were NOT printed."
+          echo ""
+          echo "Direct STS OIDC test completed successfully."
+          echo ""
+
+
+      # ====================================================
+      # 4. CONFIGURE AWS CREDENTIALS
+      # ====================================================
+      #
+      # This action exchanges the GitHub OIDC identity for
+      # temporary AWS credentials.
+      #
+      # Authentication flow:
+      #
+      # GitHub Actions
+      #       |
+      #       | OIDC token
+      #       v
+      # AWS STS
+      #       |
+      #       | AssumeRoleWithWebIdentity
+      #       v
+      # AWS IAM Role
+      #       |
+      #       v
+      # Temporary AWS credentials
+      #
+      # No long-lived:
+      #
+      #   AWS_ACCESS_KEY_ID
+      #   AWS_SECRET_ACCESS_KEY
+      #
+      # are required for this authentication method.
+      #
+      # ====================================================
+
+      - name: Configure AWS Credentials
+
+        uses: aws-actions/configure-aws-credentials@v4
+
+        with:
+
+          # ------------------------------------------------
+          # AWS region stored as a GitHub repository variable.
+          #
+          # GitHub:
+          #
+          # Settings
+          #   -> Secrets and variables
+          #   -> Actions
+          #   -> Variables
+          #
+          # Variable:
+          #
+          #   AWS_REGION
+          #
+          # Example:
+          #
+          #   us-east-1
+          #
+          # ------------------------------------------------
+
+          aws-region: ${{ vars.AWS_REGION }}
+
+
+          # ------------------------------------------------
+          # IAM role ARN stored as a GitHub repository secret.
+          #
+          # GitHub:
+          #
+          # Settings
+          #   -> Secrets and variables
+          #   -> Actions
+          #   -> Secrets
+          #
+          # Secret:
+          #
+          #   AWS_ROLE_ARN
+          #
+          # Example:
+          #
+          #   arn:aws:iam::123456789012:role/GitHubActionsRole
+          #
+          # ------------------------------------------------
+
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+
+
+      # ====================================================
+      # 5. VERIFY AWS IDENTITY
+      # ====================================================
+      #
+      # Confirms that GitHub Actions successfully
+      # authenticated with AWS.
+      #
+      # The command displays the temporary AWS identity:
+      #
+      #   - AWS Account ID
+      #   - IAM assumed role
+      #   - Temporary session identity
+      #
+      # ====================================================
+
+      - name: Verify AWS Identity
+
+        run: |
+
+          aws sts get-caller-identity
+
+
+      # ====================================================
+      # 6. SETUP TERRAFORM
+      # ====================================================
+      #
+      # Installs and configures Terraform on the GitHub
+      # Actions runner.
+      #
+      # ====================================================
+
+      - name: Setup Terraform
+
+        uses: hashicorp/setup-terraform@v3
+
+
+      # ====================================================
+      # 7. TERRAFORM INIT
+      # ====================================================
+      #
+      # Working directory:
+      #
+      #   infrastructure/terraform
+      #
+      # terraform init:
+      #
+      #   - Initializes the Terraform working directory.
+      #   - Downloads required providers.
+      #   - Configures the backend if configured.
+      #
+      # ====================================================
+
+      - name: Terraform Init
+
+        working-directory: infrastructure/terraform
+
+        run: terraform init
+
+
+      # ====================================================
+      # 8. TERRAFORM FORMAT CHECK
+      # ====================================================
+      #
+      # Checks Terraform files for correct formatting.
+      #
+      # -check:
+      #
+      # Returns a failure if files are not correctly formatted.
+      #
+      # -recursive:
+      #
+      # Checks Terraform files inside subdirectories.
+      #
+      # ====================================================
+
+      - name: Terraform Format Check
+
+        working-directory: infrastructure/terraform
+
+        run: terraform fmt -check -recursive
+
+
+      # ====================================================
+      # 9. TERRAFORM VALIDATE
+      # ====================================================
+      #
+      # Checks Terraform configuration for syntax and
+      # configuration errors.
+      #
+      # ====================================================
+
+      - name: Terraform Validate
+
+        working-directory: infrastructure/terraform
+
+        run: terraform validate
+
+
+      # ====================================================
+      # 10. TERRAFORM PLAN
+      # ====================================================
+      #
+      # Creates an execution plan showing what Terraform
+      # intends to create, modify, or destroy.
+      #
+      # Nothing is changed by terraform plan.
+      #
+      # ====================================================
+
+      - name: Terraform Plan
+
+        working-directory: infrastructure/terraform
+
+        run: terraform plan
+
+
+      # ====================================================
+      # 11. TERRAFORM APPLY
+      # ====================================================
+      #
+      # Applies the Terraform configuration.
+      #
+      # Terraform will:
+      #
+      #   1. Create AWS infrastructure.
+      #
+      #   2. Create the S3 CloudFormation template bucket.
+      #
+      #   3. Upload CloudFormation templates.
+      #
+      #   4. Create the CloudFormation execution IAM role.
+      #
+      #   5. Deploy the main CloudFormation stack.
+      #
+      #   6. Create/update the infrastructure defined by
+      #      the Terraform configuration.
+      #
+      # -auto-approve:
+      #
+      # Automatically approves the Terraform apply.
+      #
+      # This is appropriate for this automated CI/CD lab.
+      #
+      # ====================================================
+
+      - name: Terraform Apply
+
+        working-directory: infrastructure/terraform
+
+        run: terraform apply -auto-approve
+
