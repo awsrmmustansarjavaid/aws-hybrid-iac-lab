@@ -395,7 +395,7 @@ jobs:
           #
           # We only need the PAYLOAD section.
           #
-          # -------------------------------------------------
+          # =================================================
 
           PAYLOAD=$(echo "$TOKEN" | cut -d '.' -f 2)
 
@@ -506,7 +506,267 @@ jobs:
 
 
       # ====================================================
-      # 3. CONFIGURE AWS CREDENTIALS
+      # 3. DIRECT AWS STS OIDC TEST
+      # ====================================================
+      #
+      # PURPOSE:
+      #
+      # This is a TEMPORARY diagnostic step.
+      #
+      # It directly tests the complete authentication path:
+      #
+      # GitHub Actions
+      #       |
+      #       | Request OIDC token
+      #       v
+      # GitHub OIDC
+      #       |
+      #       | JWT
+      #       v
+      # AWS STS
+      #       |
+      #       | AssumeRoleWithWebIdentity
+      #       v
+      # AWS IAM Role
+      #
+      # This test bypasses the
+      # aws-actions/configure-aws-credentials action.
+      #
+      # Therefore, if this step succeeds, it proves that:
+      #
+      #   1. GitHub can issue an OIDC token.
+      #
+      #   2. The token has the expected audience.
+      #
+      #   3. AWS STS can validate the token.
+      #
+      #   4. AWS can find the IAM OIDC provider.
+      #
+      #   5. The IAM role trust policy accepts the token.
+      #
+      #   6. The AWS_ROLE_ARN secret points to the intended role.
+      #
+      # IMPORTANT SECURITY NOTE:
+      #
+      # The JWT itself is NEVER printed.
+      #
+      # The temporary AWS credentials returned by STS are
+      # NEVER printed.
+      #
+      # Only the result of the STS operation is displayed.
+      #
+      # This step should normally be REMOVED after OIDC
+      # troubleshooting is complete.
+      #
+      # ====================================================
+
+      - name: Direct STS OIDC Test
+
+        shell: bash
+
+        run: |
+
+          # ------------------------------------------------
+          # Fail immediately if any command fails.
+          #
+          # -e:
+          #   Exit when a command fails.
+          #
+          # -u:
+          #   Treat unset variables as errors.
+          #
+          # -o pipefail:
+          #   Pipeline failures are detected.
+          #
+          # ------------------------------------------------
+
+          set -euo pipefail
+
+
+          echo "=========================================================="
+          echo "Direct AWS STS OIDC Test"
+          echo "=========================================================="
+          echo ""
+
+
+          # ------------------------------------------------
+          # Verify required commands exist.
+          # ------------------------------------------------
+
+          command -v curl >/dev/null 2>&1 || {
+            echo "ERROR: curl is not installed."
+            exit 1
+          }
+
+          command -v jq >/dev/null 2>&1 || {
+            echo "ERROR: jq is not installed."
+            exit 1
+          }
+
+          command -v aws >/dev/null 2>&1 || {
+            echo "ERROR: AWS CLI is not installed."
+            exit 1
+          }
+
+
+          # ------------------------------------------------
+          # Verify GitHub OIDC environment variables exist.
+          # ------------------------------------------------
+
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+
+            echo "ERROR: ACTIONS_ID_TOKEN_REQUEST_URL is empty."
+
+            exit 1
+
+          fi
+
+
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+
+            echo "ERROR: ACTIONS_ID_TOKEN_REQUEST_TOKEN is empty."
+
+            exit 1
+
+          fi
+
+
+          # ------------------------------------------------
+          # Verify that AWS_ROLE_ARN exists.
+          #
+          # The secret is intentionally NOT printed.
+          # ------------------------------------------------
+
+          if [ -z "${{ secrets.AWS_ROLE_ARN }}" ]; then
+
+            echo "ERROR: GitHub secret AWS_ROLE_ARN is empty."
+
+            exit 1
+
+          fi
+
+
+          echo "Requesting GitHub OIDC token..."
+          echo ""
+
+
+          # =================================================
+          # REQUEST GITHUB OIDC TOKEN
+          # =================================================
+          #
+          # The audience is explicitly set to:
+          #
+          #     sts.amazonaws.com
+          #
+          # This must match the audience condition normally
+          # configured in the IAM trust policy.
+          #
+          # =================================================
+
+          TOKEN_RESPONSE=$(curl -sSf \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")
+
+
+          # ------------------------------------------------
+          # Extract JWT.
+          #
+          # The JWT is stored only in the shell variable.
+          # It is NOT printed.
+          # ------------------------------------------------
+
+          TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.value')
+
+
+          # ------------------------------------------------
+          # Confirm a token was returned.
+          # ------------------------------------------------
+
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+
+            echo "ERROR: GitHub OIDC token was not returned."
+
+            exit 1
+
+          fi
+
+
+          echo "GitHub OIDC token received successfully."
+          echo ""
+
+
+          echo "Calling AWS STS AssumeRoleWithWebIdentity..."
+          echo ""
+
+
+          # =================================================
+          # DIRECT AWS STS ASSUME ROLE
+          # =================================================
+          #
+          # AWS STS validates:
+          #
+          #   - GitHub OIDC issuer
+          #   - OIDC token signature
+          #   - token audience
+          #   - token expiration
+          #   - IAM role trust policy
+          #   - repository/branch restrictions
+          #
+          # If the command succeeds, the GitHub OIDC trust
+          # relationship is working.
+          #
+          # IMPORTANT:
+          #
+          # The STS response contains temporary AWS credentials.
+          #
+          # Therefore the response is captured into a variable
+          # and NOT printed.
+          #
+          # =================================================
+
+          STS_RESPONSE=$(aws sts assume-role-with-web-identity \
+            --role-arn "${{ secrets.AWS_ROLE_ARN }}" \
+            --role-session-name "github-actions-direct-test" \
+            --web-identity-token "$TOKEN" \
+            --duration-seconds 900)
+
+
+          # ------------------------------------------------
+          # Verify that AWS returned credentials.
+          #
+          # We check for AccessKeyId without printing the
+          # credentials themselves.
+          # ------------------------------------------------
+
+          ACCESS_KEY_ID=$(echo "$STS_RESPONSE" | jq -r '.Credentials.AccessKeyId // empty')
+
+
+          if [ -z "$ACCESS_KEY_ID" ]; then
+
+            echo "ERROR: AWS STS did not return temporary credentials."
+
+            exit 1
+
+          fi
+
+
+          # ------------------------------------------------
+          # SUCCESS
+          # ------------------------------------------------
+
+          echo "AWS STS AssumeRoleWithWebIdentity succeeded."
+          echo ""
+          echo "GitHub OIDC -> AWS STS -> IAM Role authentication is working."
+          echo ""
+          echo "Temporary AWS credentials were received successfully."
+          echo "The credentials were NOT printed."
+          echo ""
+          echo "Direct STS OIDC test completed successfully."
+          echo ""
+
+
+      # ====================================================
+      # 4. CONFIGURE AWS CREDENTIALS
       # ====================================================
       #
       # This action exchanges the GitHub OIDC identity for
@@ -589,7 +849,7 @@ jobs:
 
 
       # ====================================================
-      # 4. VERIFY AWS IDENTITY
+      # 5. VERIFY AWS IDENTITY
       # ====================================================
       #
       # Confirms that GitHub Actions successfully
@@ -611,7 +871,7 @@ jobs:
 
 
       # ====================================================
-      # 5. SETUP TERRAFORM
+      # 6. SETUP TERRAFORM
       # ====================================================
       #
       # Installs and configures Terraform on the GitHub
@@ -625,7 +885,7 @@ jobs:
 
 
       # ====================================================
-      # 6. TERRAFORM INIT
+      # 7. TERRAFORM INIT
       # ====================================================
       #
       # Working directory:
@@ -648,7 +908,7 @@ jobs:
 
 
       # ====================================================
-      # 7. TERRAFORM FORMAT CHECK
+      # 8. TERRAFORM FORMAT CHECK
       # ====================================================
       #
       # Checks Terraform files for correct formatting.
@@ -671,7 +931,7 @@ jobs:
 
 
       # ====================================================
-      # 8. TERRAFORM VALIDATE
+      # 9. TERRAFORM VALIDATE
       # ====================================================
       #
       # Checks Terraform configuration for syntax and
@@ -687,7 +947,7 @@ jobs:
 
 
       # ====================================================
-      # 9. TERRAFORM PLAN
+      # 10. TERRAFORM PLAN
       # ====================================================
       #
       # Creates an execution plan showing what Terraform
@@ -705,7 +965,7 @@ jobs:
 
 
       # ====================================================
-      # 10. TERRAFORM APPLY
+      # 11. TERRAFORM APPLY
       # ====================================================
       #
       # Applies the Terraform configuration.
