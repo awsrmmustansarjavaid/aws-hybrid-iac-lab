@@ -1,653 +1,289 @@
-# ==========================================================
-# HYBRID TERRAFORM + CLOUDFORMATION AWS LAB
-# Terraform Deployment Workflow
-# ==========================================================
+# ==============================================================
+# Terraform Infrastructure Deployment
 #
 # Purpose:
+# - Authenticate GitHub Actions to AWS using OIDC
+# - Use the dedicated S3 Terraform backend
+# - Validate and plan Terraform
+# - Apply the infrastructure automatically
 #
-# This GitHub Actions workflow deploys the AWS infrastructure
-# defined by Terraform.
+# IMPORTANT:
+# The Terraform state bucket must already exist before this
+# workflow runs.
 #
-# Terraform is responsible for orchestrating the deployment
-# and can create/manage CloudFormation resources as part of
-# the hybrid Infrastructure-as-Code architecture.
+# The state bucket is NOT created by this workflow.
+# It is created and managed separately by the bootstrap Terraform
+# configuration:
 #
-#
-# HIGH-LEVEL DEPLOYMENT FLOW
-#
-# GitHub Actions
-#       |
-#       v
-# GitHub OIDC
-#       |
-#       v
-# AWS STS
-#       |
-#       v
-# IAM Role
-# aws-hybrid-iac-lab-GitHubActions
-#       |
-#       v
-# Temporary AWS Credentials
-#       |
-#       v
-# Terraform
-#       |
-#       +--> S3 CloudFormation Template Bucket
-#       |
-#       +--> Upload CloudFormation Templates
-#       |
-#       +--> CloudFormation Execution IAM Role
-#       |
-#       +--> Main CloudFormation Stack
-#       |
-#       +--> AWS Infrastructure
-#
-#
-# AUTHENTICATION
-#
-# This workflow uses GitHub OIDC authentication.
-#
-# No permanent AWS access keys are stored in GitHub.
-#
-# Authentication flow:
-#
-# GitHub Actions
-#       |
-#       | OIDC identity token
-#       v
-# GitHub OIDC
-#       |
-#       | Web identity token
-#       v
-# AWS STS
-#       |
-#       | AssumeRoleWithWebIdentity
-#       v
-# IAM Role
-#       |
-#       v
-# Temporary AWS Credentials
-#
-#
-# GITHUB CONFIGURATION REQUIRED
-#
-# Repository Variable:
-#
-#   AWS_REGION
-#
-# Example:
-#
-#   us-east-1
-#
-#
-# Repository Secret:
-#
-#   AWS_ROLE_ARN
-#
-# Example:
-#
-#   arn:aws:iam::537236558357:role/aws-hybrid-iac-lab-GitHubActions
-#
-#
-# TERRAFORM DIRECTORY
-#
-#   infrastructure/terraform
-#
-#
-# WORKFLOW CALLER
-#
-# This workflow can be called by:
-#
-#   .github/workflows/main-deploy.yaml
-#
-#
-# MANUAL EXECUTION
-#
-# This workflow can also be started manually from:
-#
-# GitHub
-#   -> Actions
-#   -> Terraform Infrastructure
-#   -> Run workflow
-#
-# ==========================================================
-
+# infrastructure/bootstrap/terraform-state/
+# ==============================================================
 
 name: Terraform Infrastructure
 
 
-# ==========================================================
-# TRIGGERS
-# ==========================================================
-#
-# workflow_call:
-#
-# Allows another reusable GitHub Actions workflow to call
-# this workflow.
-#
-# workflow_dispatch:
-#
-# Allows manual execution from the GitHub Actions interface.
-#
-# ==========================================================
+# ==============================================================
+# WORKFLOW TRIGGERS
+# ==============================================================
 
 on:
 
-  # --------------------------------------------------------
-  # Allow main-deploy.yaml or another workflow to call this
-  # workflow.
-  # --------------------------------------------------------
-
+  # Allows another GitHub Actions workflow to call this workflow.
   workflow_call:
 
-
-  # --------------------------------------------------------
-  # Allow manual execution from GitHub Actions.
-  # --------------------------------------------------------
-
+  # Allows you to manually start the workflow from:
+  #
+  # GitHub → Actions → Terraform Infrastructure → Run workflow
+  #
   workflow_dispatch:
 
 
-# ==========================================================
+# ==============================================================
 # GITHUB ACTIONS PERMISSIONS
-# ==========================================================
-#
-# These permissions control what the GitHub Actions job is
-# allowed to request from GitHub.
-#
-#
-# id-token: write
-#
-# REQUIRED for GitHub OIDC authentication.
-#
-# It allows GitHub Actions to request an OIDC identity token.
-#
-#
-# contents: read
-#
-# REQUIRED by actions/checkout to read repository contents.
-#
-#
-# IMPORTANT:
-#
-# The id-token permission does NOT give AWS permissions.
-#
-# AWS permissions are granted only after:
-#
-# GitHub OIDC
-#       ->
-# AWS STS
-#       ->
-# IAM Role
-#
-# successfully authenticates the workflow.
-#
-# ==========================================================
+# ==============================================================
 
 permissions:
 
-  # Required for GitHub OIDC authentication with AWS.
+  # Required for GitHub OIDC authentication with AWS STS.
+  #
+  # This allows GitHub to issue an OIDC token which AWS uses to
+  # verify that this workflow is allowed to assume your IAM role.
   id-token: write
 
-  # Required to checkout repository files.
+  # Required by actions/checkout to read your repository.
   contents: read
 
 
-# ==========================================================
-# JOBS
-# ==========================================================
+# ==============================================================
+# JOB
+# ==============================================================
 
 jobs:
 
-
-  # ========================================================
-  # TERRAFORM DEPLOYMENT JOB
-  # ========================================================
-
   terraform:
 
-    # ------------------------------------------------------
-    # Human-readable job name.
-    # ------------------------------------------------------
-
+    # Name displayed in the GitHub Actions UI.
     name: Terraform Infrastructure Deployment
 
-
-    # ------------------------------------------------------
-    # GitHub-hosted Linux runner.
-    #
-    # ubuntu-latest provides the environment required for:
-    #
-    #   - Git
-    #   - Bash
-    #   - AWS CLI
-    #   - curl
-    #   - Terraform setup
-    #
-    # ------------------------------------------------------
-
+    # GitHub-hosted Ubuntu runner.
     runs-on: ubuntu-latest
 
 
-    # ======================================================
-    # WORKFLOW STEPS
-    # ======================================================
+    # ==========================================================
+    # STEPS
+    # ==========================================================
 
     steps:
 
 
-      # ====================================================
+      # ----------------------------------------------------------
       # 1. CHECKOUT REPOSITORY
-      # ====================================================
+      # ----------------------------------------------------------
       #
-      # Downloads the GitHub repository into the temporary
+      # Downloads your GitHub repository into the temporary
       # GitHub Actions runner.
       #
-      # After checkout, files such as:
+      # This gives Terraform access to:
       #
-      #   infrastructure/terraform
+      # infrastructure/terraform/
+      # infrastructure/cloudformation/
+      # etc.
       #
-      # and:
-      #
-      #   infrastructure/cloudformation
-      #
-      # are available to the workflow.
-      #
-      # ====================================================
+      # ----------------------------------------------------------
 
       - name: Checkout Repository
-
         uses: actions/checkout@v4
 
 
-      # ====================================================
+      # ----------------------------------------------------------
       # 2. CONFIGURE AWS CREDENTIALS
-      # ====================================================
+      # ----------------------------------------------------------
       #
-      # This step authenticates GitHub Actions with AWS using
-      # GitHub OIDC.
+      # Uses GitHub OIDC instead of storing long-lived AWS
+      # access keys in GitHub Secrets.
       #
+      # AWS_REGION:
+      #   GitHub Repository Variable
       #
-      # AUTHENTICATION FLOW
+      # AWS_ROLE_ARN:
+      #   GitHub Repository Secret
       #
-      # GitHub Actions
-      #       |
-      #       | OIDC token
-      #       v
-      # GitHub OIDC Provider
-      #       |
-      #       | Web identity token
-      #       v
-      # AWS STS
-      #       |
-      #       | AssumeRoleWithWebIdentity
-      #       v
-      # IAM Role
-      #       |
-      #       v
-      # Temporary AWS Credentials
+      # Example:
       #
+      # AWS_REGION = us-east-1
       #
-      # IMPORTANT:
+      # AWS_ROLE_ARN =
+      # arn:aws:iam::537236558357:role/aws-hybrid-iac-lab-GitHubActions
       #
-      # We do NOT use:
-      #
-      #   AWS_ACCESS_KEY_ID
-      #   AWS_SECRET_ACCESS_KEY
-      #
-      # for this workflow.
-      #
-      # Instead, GitHub obtains temporary AWS credentials by
-      # assuming the IAM role through OIDC.
-      #
-      #
-      # GitHub Secret:
-      #
-      #   AWS_ROLE_ARN
-      #
-      #
-      # GitHub Variable:
-      #
-      #   AWS_REGION
-      #
-      # ====================================================
+      # ----------------------------------------------------------
 
       - name: Configure AWS Credentials
-
         uses: aws-actions/configure-aws-credentials@v4
 
         with:
 
-          # ------------------------------------------------
-          # AWS region used by Terraform and AWS CLI.
-          #
-          # This value comes from:
-          #
-          # GitHub Repository
-          #   -> Settings
-          #   -> Secrets and variables
-          #   -> Actions
-          #   -> Variables
-          #
-          # Variable:
-          #
-          #   AWS_REGION
-          #
-          # Example:
-          #
-          #   us-east-1
-          #
-          # ------------------------------------------------
-
+          # AWS region stored in GitHub Repository Variables.
           aws-region: ${{ vars.AWS_REGION }}
 
-
-          # ------------------------------------------------
-          # IAM role that GitHub Actions assumes through
-          # GitHub OIDC.
-          #
-          # This value comes from:
-          #
-          # GitHub Repository
-          #   -> Settings
-          #   -> Secrets and variables
-          #   -> Actions
-          #   -> Secrets
-          #
-          # Secret:
-          #
-          #   AWS_ROLE_ARN
-          #
-          # Example:
-          #
-          #   arn:aws:iam::537236558357:role/aws-hybrid-iac-lab-GitHubActions
-          #
-          # ------------------------------------------------
-
+          # IAM role assumed using GitHub OIDC.
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
 
-      # ====================================================
+      # ----------------------------------------------------------
       # 3. VERIFY AWS IDENTITY
-      # ====================================================
+      # ----------------------------------------------------------
       #
-      # This step confirms that GitHub Actions successfully
-      # authenticated with AWS.
+      # Confirms which AWS IAM role GitHub Actions is actually
+      # using.
       #
-      # The AWS CLI uses the temporary credentials created by:
+      # This is extremely useful when troubleshooting OIDC,
+      # IAM permissions, or Terraform deployment problems.
       #
-      #   aws-actions/configure-aws-credentials
+      # Expected role:
       #
+      # arn:aws:iam::537236558357:role/
+      # aws-hybrid-iac-lab-GitHubActions
       #
-      # Expected output will identify the assumed role:
-      #
-      #   arn:aws:sts::537236558357:assumed-role/
-      #   aws-hybrid-iac-lab-GitHubActions/...
-      #
-      #
-      # SECURITY:
-      #
-      # This command does NOT display the AWS secret access key.
-      #
-      # It only displays the AWS caller identity.
-      #
-      # ====================================================
+      # ----------------------------------------------------------
 
       - name: Verify AWS Identity
-
         shell: bash
 
         run: |
-
-          # ------------------------------------------------
-          # Display the AWS identity currently being used by
-          # the GitHub Actions runner.
-          # ------------------------------------------------
-
           aws sts get-caller-identity
 
 
-      # ====================================================
-      # 4. SETUP TERRAFORM
-      # ====================================================
+      # ----------------------------------------------------------
+      # 4. INSTALL TERRAFORM
+      # ----------------------------------------------------------
       #
       # Installs Terraform on the GitHub Actions runner.
       #
-      # hashicorp/setup-terraform automatically downloads and
-      # configures Terraform for use by subsequent steps.
+      # The runner is temporary, so Terraform needs to be
+      # installed/configured for the workflow.
       #
-      # ====================================================
+      # ----------------------------------------------------------
 
       - name: Setup Terraform
-
         uses: hashicorp/setup-terraform@v3
 
 
-      # ====================================================
+      # ----------------------------------------------------------
       # 5. TERRAFORM INIT
-      # ====================================================
+      # ----------------------------------------------------------
       #
-      # Initializes the Terraform working directory.
+      # This is where Terraform connects to the persistent
+      # S3 backend defined in:
       #
-      # Working directory:
+      # infrastructure/terraform/backend.tf
       #
-      #   infrastructure/terraform
+      # The backend contains:
       #
+      # bucket:
+      #   aws-hybrid-iac-lab-terraform-state-537236558357
       #
-      # terraform init performs tasks such as:
+      # key:
+      #   aws-hybrid-iac-lab/dev/terraform.tfstate
       #
-      #   - Initializing Terraform
-      #   - Downloading Terraform providers
-      #   - Initializing the backend
-      #   - Preparing modules
+      # This means Terraform state is NOT stored on the temporary
+      # GitHub Actions runner.
       #
-      # ====================================================
+      # Instead, the state is stored permanently in S3.
+      #
+      # IMPORTANT:
+      # The backend bucket must already exist.
+      #
+      # ----------------------------------------------------------
 
       - name: Terraform Init
-
         working-directory: infrastructure/terraform
 
-        run: terraform init
+        run: |
+          terraform init
 
 
-      # ====================================================
+      # ----------------------------------------------------------
       # 6. TERRAFORM FORMAT CHECK
-      # ====================================================
+      # ----------------------------------------------------------
       #
-      # Checks whether Terraform files follow the standard
-      # Terraform formatting rules.
+      # Checks whether all Terraform files follow Terraform's
+      # standard formatting.
       #
+      # IMPORTANT:
+      # -check means Terraform does not automatically modify files.
       #
-      # -check
+      # If formatting is incorrect, the workflow stops here.
       #
-      # Causes the command to fail when formatting changes
-      # are required.
-      #
-      #
-      # -recursive
-      #
-      # Checks Terraform files in subdirectories as well.
-      #
-      # ====================================================
+      # ----------------------------------------------------------
 
       - name: Terraform Format Check
-
         working-directory: infrastructure/terraform
 
-        run: terraform fmt -check -recursive
+        run: |
+          terraform fmt -check -recursive
 
 
-      # ====================================================
+      # ----------------------------------------------------------
       # 7. TERRAFORM VALIDATE
-      # ====================================================
+      # ----------------------------------------------------------
       #
-      # Validates the Terraform configuration.
+      # Checks Terraform configuration syntax and validates the
+      # configuration structure.
       #
-      # Terraform checks:
+      # This does NOT create AWS resources.
       #
-      #   - Terraform syntax
-      #   - Configuration structure
-      #   - Required arguments
-      #   - Provider configuration
-      #   - Internal configuration consistency
-      #
-      #
-      # IMPORTANT:
-      #
-      # terraform validate does NOT create AWS resources.
-      #
-      # ====================================================
+      # ----------------------------------------------------------
 
       - name: Terraform Validate
-
         working-directory: infrastructure/terraform
 
-        run: terraform validate
+        run: |
+          terraform validate
 
 
-      # ====================================================
+      # ----------------------------------------------------------
       # 8. TERRAFORM PLAN
-      # ====================================================
+      # ----------------------------------------------------------
       #
-      # Creates a Terraform execution plan.
+      # Terraform compares:
       #
-      # The plan shows what Terraform intends to do.
+      # 1. Terraform configuration
+      # 2. Existing Terraform state in S3
+      # 3. Current AWS infrastructure
       #
-      # Possible actions include:
-      #
-      #   + create
-      #   ~ update
-      #   - destroy
-      #
+      # It then determines what needs to be created, changed,
+      # or destroyed.
       #
       # IMPORTANT:
+      # Terraform state now comes from the persistent S3 backend.
       #
-      # terraform plan does NOT normally make infrastructure
-      # changes.
-      #
-      # It compares the Terraform configuration and current
-      # infrastructure state and calculates the required
-      # changes.
-      #
-      # ====================================================
+      # ----------------------------------------------------------
 
       - name: Terraform Plan
-
         working-directory: infrastructure/terraform
 
-        run: terraform plan
+        run: |
+          terraform plan
 
 
-      # ====================================================
+      # ----------------------------------------------------------
       # 9. TERRAFORM APPLY
-      # ====================================================
+      # ----------------------------------------------------------
       #
-      # Applies the Terraform configuration to AWS.
+      # Applies the Terraform execution plan and creates/updates
+      # AWS infrastructure.
       #
+      # -auto-approve means GitHub Actions does not wait for a
+      # manual "yes" confirmation.
       #
-      # Terraform may create or manage resources such as:
+      # IMPORTANT:
+      # This should only run after the Terraform plan is confirmed
+      # to be correct.
       #
-      #   - S3
-      #   - IAM
-      #   - CloudFormation
-      #   - VPC
-      #   - EC2
-      #   - Other AWS services defined by the lab
-      #
-      #
-      # In this hybrid architecture Terraform can also
-      # orchestrate CloudFormation resources.
-      #
-      #
-      # -auto-approve
-      #
-      # Automatically approves the Terraform execution plan.
-      #
-      # This is useful for an automated GitHub Actions CI/CD
-      # lab because there is no interactive terminal available
-      # to manually approve the operation.
-      #
-      # ====================================================
+      # ----------------------------------------------------------
 
       - name: Terraform Apply
-
         working-directory: infrastructure/terraform
 
-        run: terraform apply -auto-approve
-
-
-# ==========================================================
-# END OF WORKFLOW
-# ==========================================================
-#
-# FINAL WORKFLOW FLOW
-#
-# 1. Checkout Repository
-#           |
-#           v
-# 2. Configure AWS Credentials
-#           |
-#           +--> GitHub OIDC
-#           |
-#           +--> AWS STS
-#           |
-#           +--> IAM Role
-#           |
-#           +--> Temporary AWS Credentials
-#           |
-#           v
-# 3. Verify AWS Identity
-#           |
-#           v
-# 4. Setup Terraform
-#           |
-#           v
-# 5. Terraform Init
-#           |
-#           v
-# 6. Terraform Format Check
-#           |
-#           v
-# 7. Terraform Validate
-#           |
-#           v
-# 8. Terraform Plan
-#           |
-#           v
-# 9. Terraform Apply
-#           |
-#           v
-#      AWS Infrastructure
-#
-#
-# OIDC DEBUGGING STEPS REMOVED
-#
-# The following temporary troubleshooting steps have
-# intentionally been removed from the final workflow:
-#
-#   - Debug GitHub OIDC Claims
-#   - Direct STS OIDC Test
-#
-# These were useful during troubleshooting but are not
-# required during normal Terraform deployments.
-#
-#
-# OIDC AUTHENTICATION HAS ALREADY BEEN VERIFIED
-#
-# The direct STS test successfully confirmed:
-#
-# GitHub OIDC
-#      ->
-# AWS STS
-#      ->
-# IAM Role
-#
-# Therefore the production workflow only needs:
-#
-#   configure-aws-credentials
-#
-# to perform the normal authentication process.
-#
-# ==========================================================
+        run: |
+          terraform apply -auto-approve
 
