@@ -768,5 +768,439 @@ One thing I would change from my earlier answer: don't create a huge `iam:*`/ser
 
 ----
 
+## Create this policy
+
+Create:
+
+```
+github-ci-cd-user-iam-role-management
+```
+
+with:
+
+```
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageGitHubActionsRoleTrustPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:UpdateAssumeRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::537236558357:role/aws-hybrid-iac-lab-GitHubActions"
+    }
+  ]
+}
+```
+
+This allows your local user to:
+
+```
+Get role information
+        +
+Update ONLY this role's trust policy
+```
+
+It does not give the user unrestricted IAM permissions.
+
+AWS's UpdateAssumeRolePolicy API is specifically the operation used to modify a role's trust policy.
+
+2. Since you're using PowerShell, create it like this
+
+Run from your repository:
+
+```
+@'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageGitHubActionsRoleTrustPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:UpdateAssumeRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::537236558357:role/aws-hybrid-iac-lab-GitHubActions"
+    }
+  ]
+}
+'@ | Set-Content -Path ".\github-ci-cd-user-iam-role-management.json"
+```
+
+Verify:
+
+```
+Get-Content .\github-ci-cd-user-iam-role-management.json
+```
+
+3. Attach it as an inline policy
+
+Run:
+
+```
+aws iam put-user-policy `
+  --user-name "github-ci-cd-user" `
+  --policy-name "ManageGitHubActionsRoleTrustPolicy" `
+  --policy-document "file://github-ci-cd-user-iam-role-management.json"
+```
+
+If successful, AWS should return no output.
+
+4. Verify the inline policy
+
+Run:
+
+```
+aws iam list-user-policies `
+  --user-name "github-ci-cd-user"
+```
+
+You should see:
+
+```
+ManageGitHubActionsRoleTrustPolicy
+```
+
+You can also inspect it:
+
+```
+aws iam get-user-policy `
+  --user-name "github-ci-cd-user" `
+  --policy-name "ManageGitHubActionsRoleTrustPolicy"
+```
+
+5. Test the permission
+
+Now run:
+
+```
+aws iam get-role `
+  --role-name "aws-hybrid-iac-lab-GitHubActions" `
+  --query "Role.Arn" `
+  --output text
+```
+
+Expected:
+
+```
+arn:aws:iam::537236558357:role/aws-hybrid-iac-lab-GitHubActions
+```
+
+Then your previous command should now be allowed:
+
+```
+aws iam update-assume-role-policy `
+  --role-name "aws-hybrid-iac-lab-GitHubActions" `
+  --policy-document "file://github-actions-trust-policy.json"
+```
+
+6. But here's the important part
+
+Do not immediately change the trust policy to * and leave it that way.
+
+Your current policy is:
+
+```
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "GitHubActionsOIDCTrust",
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::537236558357:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": "repo:awsrmmustansarjavaid/aws-hybrid-iac-lab:ref:refs/heads/main"
+        }
+      }
+    }
+  ]
+}
+```
+
+That is actually a good security restriction if your GitHub OIDC token has that exact sub.
+
+GitHub's AWS documentation recommends restricting the sub claim rather than trusting all GitHub repositories.
+
+
+## Iam Policy for User to Attach iam role 
+
+The policy:
+
+```
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageGitHubActionsRoleTrustPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:UpdateAssumeRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::537236558357:role/aws-hybrid-iac-lab-GitHubActions"
+    }
+  ]
+}
+```
+
+is an administrative policy for github-ci-cd-user. It should not be attached to the runtime GitHub Actions role.
+
+You should have two separate IAM identities:
+
+1. github-ci-cd-user
+
+This is the IAM user that performs IAM administration during your lab setup.
+
+Attach:
+
+```
+github-ci-cd-user-iam-role-management
+```
+
+to this user.
+
+2. aws-hybrid-iac-lab-GitHubActions
+
+This is the IAM role assumed by GitHub Actions through OIDC.
+
+Do not attach github-ci-cd-user-iam-role-management to this role.
+
+Your policy:
+
+```
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageGitHubActionsRoleTrustPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:UpdateAssumeRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::537236558357:role/aws-hybrid-iac-lab-GitHubActions"
+    }
+  ]
+}
+```
+
+belongs on:
+
+```
+User:
+github-ci-cd-user
+```
+not:
+
+```
+Role:
+aws-hybrid-iac-lab-GitHubActions
+```
+
+IAM Policy vs IAM Role — Your Case
+
+Yes — you created the correct type of resource.
+github-ci-cd-user-iam-role-management should be an IAM policy, not an IAM role.
+
+Your current policy is intended to be attached to the IAM user github-ci-cd-user, because that user needs permission to manage the trust policy of the GitHub Actions role.
+
+Your architecture should be
+github-ci-cd-user
+        │
+        │ has policy attached
+        ▼
+github-ci-cd-user-iam-role-management
+        │
+        │ allows:
+        │ iam:GetRole
+        │ iam:UpdateAssumeRolePolicy
+        ▼
+aws-hybrid-iac-lab-GitHubActions
+        │
+        │ assumed by GitHub Actions
+        ▼
+GitHub Actions Workflow
+1. Keep this as an IAM POLICY
+
+Your name is good:
+
+github-ci-cd-user-iam-role-management
+
+Do not create an IAM role with this name.
+
+Create:
+
+IAM → Policies → Create policy
+
+Policy name:
+
+github-ci-cd-user-iam-role-management
+2. Correct your JSON
+
+Your policy is essentially correct. Use this clean JSON:
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageGitHubActionsRoleTrustPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:UpdateAssumeRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::537236558357:role/aws-hybrid-iac-lab-GitHubActions"
+    }
+  ]
+}
+Important
+
+In the AWS IAM JSON editor, use normal characters:
+
+"iam:GetRole"
+
+and:
+
+"iam:UpdateAssumeRolePolicy"
+
+Do not manually enter backslashes like:
+
+iam\:GetRole
+
+The \ characters in the text you pasted appear to be escaping/formatting artifacts. In the actual IAM JSON editor, the clean version above is what you want.
+
+3. Attach the policy to the correct IAM user
+
+This is the important part.
+
+Find:
+
+IAM → Users → github-ci-cd-user
+
+Then:
+
+Permissions
+    ↓
+Add permissions
+    ↓
+Add permissions
+    ↓
+Attach policies directly
+
+Attach:
+
+github-ci-cd-user-iam-role-management
+
+So the relationship becomes:
+
+IAM USER
+github-ci-cd-user
+       │
+       └── github-ci-cd-user-iam-role-management
+4. Do NOT attach it to the GitHub Actions role
+
+Your GitHub Actions role is:
+
+aws-hybrid-iac-lab-GitHubActions
+
+Do not attach:
+
+github-ci-cd-user-iam-role-management
+
+to that role.
+
+Remove it if you already attached it there.
+
+The error you received:
+
+Your policy exceeds the non-whitespace character limit of 2048.
+
+is happening because you were adding this policy as an inline policy on github-ci-cd-user, and AWS counts the total inline-policy size for that user.
+
+Since you already created the policy as a managed IAM policy, you should attach the managed policy to the user rather than pasting it again as an inline policy.
+
+5. What should be attached where?
+
+For your lab, think about the two identities separately.
+
+github-ci-cd-user
+
+This is your administrative IAM user.
+
+It can have:
+
+github-ci-cd-user-iam-role-management
+
+attached.
+
+That policy allows it to manage the trust relationship of:
+
+aws-hybrid-iac-lab-GitHubActions
+aws-hybrid-iac-lab-GitHubActions
+
+This is the runtime role used by GitHub Actions.
+
+It should contain the permissions that your GitHub Actions Terraform workflow actually needs, for example permissions for the AWS resources your Terraform code manages.
+
+It should not need:
+
+github-ci-cd-user-iam-role-management
+
+unless you intentionally want GitHub Actions itself to modify its own IAM trust policy—which is generally something you should avoid.
+
+6. Final structure
+
+I recommend your setup look like this:
+
+AWS ACCOUNT
+│
+├── IAM USER
+│   └── github-ci-cd-user
+│       │
+│       └── Managed Policy
+│           └── github-ci-cd-user-iam-role-management
+│
+│               Allows:
+│               ├── iam:GetRole
+│               └── iam:UpdateAssumeRolePolicy
+│
+│               Resource:
+│               └── aws-hybrid-iac-lab-GitHubActions
+│
+│
+└── IAM ROLE
+    └── aws-hybrid-iac-lab-GitHubActions
+        │
+        ├── Trust policy
+        │   └── GitHub Actions OIDC
+        │
+        └── Permissions policies
+            └── Terraform/AWS resource permissions
+7. One more important distinction
+
+There are three different things here:
+
+Resource	Your name	Purpose
+IAM User	github-ci-cd-user	Administrative user
+IAM Policy	github-ci-cd-user-iam-role-management	Gives the user permission to modify the GitHub Actions role trust policy
+IAM Role	aws-hybrid-iac-lab-GitHubActions	Role assumed by GitHub Actions through OIDC
+
+So your answer is:
+
+Create an IAM Policy named github-ci-cd-user-iam-role-management, not an IAM Role.
+
+And attach that managed policy to github-ci-cd-user.
+
+If you show me the Permissions tab of github-ci-cd-user and aws-hybrid-iac-lab-GitHubActions, I can check the entire IAM arrangement and tell you exactly what to keep, remove, or add.
+
+---
 
 

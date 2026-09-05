@@ -1,0 +1,14 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageGitHubActionsRoleTrustPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:UpdateAssumeRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::537236558357:role/aws-hybrid-iac-lab-GitHubActions"
+    }
+  ]
+}

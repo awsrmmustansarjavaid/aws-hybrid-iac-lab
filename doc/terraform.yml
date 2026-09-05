@@ -139,14 +139,14 @@ jobs:
     # ------------------------------------------------------
     # GitHub-hosted runner.
     #
-    # ubuntu-latest provides common Linux utilities such as:
+    # ubuntu-latest provides:
     #
     #   - Bash
     #   - curl
     #   - jq
-    #   - Python 3
-    #   - Git
     #   - base64
+    #   - Git
+    #   - other common Linux utilities
     #
     # ------------------------------------------------------
 
@@ -183,31 +183,28 @@ jobs:
       #
       # PURPOSE:
       #
-      # This is a TEMPORARY diagnostic step.
+      # This permanently verifies that GitHub Actions can
+      # request a GitHub OIDC token.
       #
-      # It verifies that GitHub Actions can request a GitHub
-      # OIDC token before the workflow attempts to authenticate
-      # with AWS.
+      # The token contains claims that AWS uses when deciding
+      # whether GitHub Actions is allowed to assume the
+      # configured IAM role.
       #
-      # The OIDC token contains claims that AWS uses when
-      # evaluating the IAM role trust policy.
+      # IMPORTANT:
       #
-      # This step displays only selected claims:
+      # This step DOES NOT print the complete OIDC token.
       #
-      #   - aud
-      #   - sub
-      #   - repository
-      #   - repository_owner
-      #   - ref
-      #   - job_workflow_ref
+      # It only prints selected NON-SECRET claims:
       #
-      # IMPORTANT SECURITY NOTE:
+      #   aud
+      #   sub
+      #   repository
+      #   repository_owner
+      #   ref
+      #   job_workflow_ref
       #
-      # The complete JWT token is NEVER printed.
-      #
-      # The GitHub OIDC request token is NEVER printed.
-      #
-      # The OIDC request URL is NEVER printed.
+      # These claims are useful when troubleshooting an AWS
+      # IAM trust policy.
       #
       # ====================================================
       #
@@ -216,7 +213,7 @@ jobs:
       #   ACTIONS_ID_TOKEN_REQUEST_URL
       #   ACTIONS_ID_TOKEN_REQUEST_TOKEN
       #
-      # because this workflow has:
+      # when:
       #
       #   permissions:
       #     id-token: write
@@ -225,26 +222,37 @@ jobs:
 
       - name: Debug GitHub OIDC Claims
 
+        env:
+
+          # ------------------------------------------------
+          # GitHub OIDC token request URL.
+          # ------------------------------------------------
+
+          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+
+
+          # ------------------------------------------------
+          # Temporary authorization token provided by
+          # GitHub Actions for requesting the OIDC token.
+          #
+          # IMPORTANT:
+          #
+          # This value is used internally and is NOT printed.
+          #
+          # ------------------------------------------------
+
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
+
+
         shell: bash
 
         run: |
 
           # ------------------------------------------------
-          # Exit immediately when a command fails.
-          #
-          # -e:
-          #   Stop when a command returns a non-zero status.
-          #
-          # -u:
-          #   Treat unset variables as errors.
-          #
-          # -o pipefail:
-          #   Make pipelines fail if any command in the
-          #   pipeline fails.
-          #
+          # Stop immediately if any command fails.
           # ------------------------------------------------
 
-          set -euo pipefail
+          set -e
 
 
           echo "=========================================================="
@@ -257,8 +265,7 @@ jobs:
           # Verify required utilities are available.
           #
           # ubuntu-latest normally includes these utilities.
-          # These checks make troubleshooting easier if the
-          # GitHub runner image changes.
+          # This check makes failures easier to understand.
           # ------------------------------------------------
 
           command -v curl >/dev/null 2>&1 || {
@@ -271,48 +278,35 @@ jobs:
             exit 1
           }
 
-          command -v python3 >/dev/null 2>&1 || {
-            echo "ERROR: python3 is not installed."
+          command -v base64 >/dev/null 2>&1 || {
+            echo "ERROR: base64 is not installed."
             exit 1
           }
 
 
           # ------------------------------------------------
           # Verify GitHub supplied the OIDC request variables.
-          #
-          # These variables are automatically provided by
-          # GitHub Actions when id-token: write is enabled.
           # ------------------------------------------------
 
           if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
-
             echo "ERROR: ACTIONS_ID_TOKEN_REQUEST_URL is empty."
             echo ""
-
             echo "Make sure the workflow contains:"
             echo ""
-
             echo "permissions:"
             echo "  id-token: write"
-
             exit 1
-
           fi
 
 
           if [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
-
             echo "ERROR: ACTIONS_ID_TOKEN_REQUEST_TOKEN is empty."
             echo ""
-
             echo "Make sure the workflow contains:"
             echo ""
-
             echo "permissions:"
             echo "  id-token: write"
-
             exit 1
-
           fi
 
 
@@ -320,25 +314,14 @@ jobs:
           echo ""
 
 
-          # =================================================
-          # REQUEST GITHUB OIDC TOKEN
-          # =================================================
+          # ------------------------------------------------
+          # Request the GitHub OIDC token.
           #
-          # GitHub provides a temporary authorization token
-          # that allows this workflow to request an OIDC JWT.
+          # audience=sts.amazonaws.com is important because
+          # AWS STS is the service that will consume the
+          # token during AssumeRoleWithWebIdentity.
           #
-          # audience=sts.amazonaws.com
-          #
-          # This is important because the AWS IAM trust policy
-          # normally expects the OIDC token audience to be:
-          #
-          #     sts.amazonaws.com
-          #
-          # AWS STS consumes this identity when performing:
-          #
-          #     AssumeRoleWithWebIdentity
-          #
-          # =================================================
+          # ------------------------------------------------
 
           TOKEN_RESPONSE=$(curl -sSf \
             -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
@@ -346,9 +329,10 @@ jobs:
 
 
           # ------------------------------------------------
-          # Extract the actual JWT from the JSON response.
+          # Extract the actual JWT token from the JSON
+          # response.
           #
-          # Expected response:
+          # Expected response structure:
           #
           # {
           #   "value": "eyJ...."
@@ -360,7 +344,7 @@ jobs:
 
 
           # ------------------------------------------------
-          # Verify that GitHub actually returned a token.
+          # Make sure GitHub actually returned a token.
           # ------------------------------------------------
 
           if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
@@ -375,33 +359,31 @@ jobs:
           # ------------------------------------------------
           # IMPORTANT SECURITY NOTE:
           #
-          # NEVER do:
+          # Do NOT echo "$TOKEN".
           #
-          #     echo "$TOKEN"
-          #
-          # The JWT is sensitive and should not be written
-          # to GitHub Actions logs.
+          # The token itself is sensitive and should never
+          # be printed into GitHub Actions logs.
           #
           # ------------------------------------------------
 
 
           # =================================================
-          # EXTRACT JWT PAYLOAD
+          # DECODE JWT PAYLOAD
           # =================================================
           #
-          # A JWT normally has three sections:
+          # A JWT normally has three parts:
           #
-          #     HEADER.PAYLOAD.SIGNATURE
+          #   HEADER.PAYLOAD.SIGNATURE
           #
           # We only need the PAYLOAD section.
           #
-          # -------------------------------------------------
+          # =================================================
 
           PAYLOAD=$(echo "$TOKEN" | cut -d '.' -f 2)
 
 
           # ------------------------------------------------
-          # Verify that the payload exists.
+          # Verify the payload exists.
           # ------------------------------------------------
 
           if [ -z "$PAYLOAD" ]; then
@@ -413,94 +395,80 @@ jobs:
           fi
 
 
-          # =================================================
-          # DECODE JWT PAYLOAD
-          # =================================================
-          #
+          # ------------------------------------------------
           # JWT uses Base64URL encoding.
           #
-          # Python is used here because it provides reliable
-          # Base64URL decoding and JSON parsing.
+          # Convert:
           #
-          # The script:
+          #   -  -> +
+          #   _  -> /
           #
-          #   1. Reads the JWT payload.
-          #   2. Adds required Base64 padding.
-          #   3. Decodes Base64URL.
-          #   4. Parses the JSON claims.
-          #   5. Displays only selected claims.
+          # and add the required '=' padding.
           #
-          # =================================================
+          # ------------------------------------------------
 
-          DECODED=$(python3 -c '
+          PAYLOAD=$(echo "$PAYLOAD" | tr '_-' '/+')
 
-          import sys
-          import base64
-          import json
 
-          payload = sys.stdin.read().strip()
+          PADDING=$((4 - ${#PAYLOAD} % 4))
 
-          # Add Base64 padding if necessary.
-          payload += "=" * ((4 - len(payload) % 4) % 4)
 
-          # Decode Base64URL payload.
-          decoded = base64.urlsafe_b64decode(payload)
+          if [ "$PADDING" -lt 4 ]; then
 
-          # Convert decoded JSON into a Python dictionary.
-          claims = json.loads(decoded)
+            PAYLOAD="${PAYLOAD}$(printf '=%.0s' $(seq 1 "$PADDING"))"
 
-          # Display only the claims useful for IAM trust
-          # policy troubleshooting.
-          print(json.dumps({
-              "aud": claims.get("aud"),
-              "sub": claims.get("sub"),
-              "repository": claims.get("repository"),
-              "repository_owner": claims.get("repository_owner"),
-              "ref": claims.get("ref"),
-              "job_workflow_ref": claims.get("job_workflow_ref")
-          }, indent=2))
+          fi
 
-          ' <<< "$PAYLOAD")
+
+          # ------------------------------------------------
+          # Decode the Base64 payload.
+          # ------------------------------------------------
+
+          DECODED=$(echo "$PAYLOAD" | base64 -d 2>/dev/null)
+
+
+          # ------------------------------------------------
+          # Verify that the payload was decoded successfully.
+          # ------------------------------------------------
+
+          if [ -z "$DECODED" ]; then
+
+            echo "ERROR: Unable to decode GitHub OIDC payload."
+
+            exit 1
+
+          fi
 
 
           # =================================================
           # DISPLAY SELECTED OIDC CLAIMS
           # =================================================
           #
-          # These values are useful when troubleshooting the
-          # AWS IAM OIDC trust policy.
+          # These claims are useful for troubleshooting the
+          # AWS IAM OIDC trust relationship.
           #
-          # Example:
+          # We intentionally DO NOT display:
           #
-          # {
-          #   "aud": "sts.amazonaws.com",
-          #   "sub": "repo:OWNER/REPOSITORY:ref:refs/heads/main",
-          #   "repository": "OWNER/REPOSITORY",
-          #   "repository_owner": "OWNER",
-          #   "ref": "refs/heads/main",
-          #   "job_workflow_ref": "OWNER/REPOSITORY/.github/workflows/terraform.yml@refs/heads/main"
-          # }
-          #
-          # IMPORTANT:
-          #
-          # These claims are NOT AWS credentials.
-          #
-          # They are identity information used by AWS IAM
-          # when evaluating the GitHub OIDC trust relationship.
+          #   - the complete JWT
+          #   - the OIDC request token
+          #   - the OIDC request URL
           #
           # =================================================
 
           echo ""
-          echo "======================================"
-          echo "GitHub OIDC Claims"
-          echo "======================================"
+          echo "GitHub OIDC claims:"
+          echo "----------------------------------------------------------"
 
-          echo "$DECODED"
+          echo "$DECODED" | jq '{
+            aud,
+            sub,
+            repository,
+            repository_owner,
+            ref,
+            job_workflow_ref
+          }'
 
-          echo "======================================"
-          echo ""
-
-
+          echo "----------------------------------------------------------"
           echo "GitHub OIDC diagnostic completed successfully."
           echo ""
 
