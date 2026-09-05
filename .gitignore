@@ -237,8 +237,14 @@ Desktop.ini
 # architecture documentation, and deployment guides in Git.
 # =======================================================
 
-doc/*
+# Ignore everything inside doc/ by default
+# doc/*
+
+# Allow Markdown documentation
 !doc/*.md
+!doc/**/*.md
+
+# Ignore generated/binary documentation
 *.pdf
 *.doc
 *.docx
