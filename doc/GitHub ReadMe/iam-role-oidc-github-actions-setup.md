@@ -1,43 +1,3 @@
-
-# GitHub Configuration
-
-What you need to do
-
-Go to your GitHub repository:
-
-```
-Settings → Secrets and variables → Actions → Variables
-```
-
-Create this Repository variable:
-
-```
-Name	Value
-AWS_REGION	us-east-1
-```
-
-Then go to:
-
-```
-Settings → Secrets and variables → Actions → Secrets
-```
-
-Make sure you have:
-
-```
-Name	Value
-AWS_ROLE_ARN	arn:aws:iam::<YOUR_ACCOUNT_ID>:role/<YOUR_ROLE_NAME>
-```
-
-For example:
-
-```
-AWS_ROLE_ARN
-arn:aws:iam::123456789012:role/GitHubActionsRole
-```
-
-## an IAM Role for GitHub Actions OIDC
-
 # IAM Role and OIDC Setup for `aws-hybrid-iac-lab-GitHubActions`
 
 Because your workflow uses:
@@ -767,8 +727,3 @@ AWS infrastructure
 ## Note on Refining This Setup
 
 One thing I would change from my earlier answer: don't create a huge `iam:*`/service-wide policy permanently just because it makes the lab work. Since you have the actual Terraform and CloudFormation files, the best next step is to derive the exact IAM policy for your lab and restrict `iam:PassRole` and other sensitive permissions to your `aws-hybrid-iac-lab-*` resources wherever AWS supports resource-level restrictions. That will give you a much cleaner portfolio-grade GitHub OIDC setup.
-
-----
-
-
-
