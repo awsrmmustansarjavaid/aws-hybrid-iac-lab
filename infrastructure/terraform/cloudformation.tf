@@ -2,224 +2,359 @@
 # CloudFormation Root Stack
 # ============================================================
 #
-# This Terraform resource creates the MAIN CloudFormation stack.
+# Purpose:
 #
-# Architecture:
+# This Terraform resource creates the MAIN CloudFormation
+# root stack for the hybrid Infrastructure-as-Code lab.
+#
+#
+# HYBRID IaC ARCHITECTURE
 #
 # Terraform
-#    |
-#    | creates
-#    v
+#     |
+#     | creates/manages
+#     v
 # CloudFormation Root Stack
-#    |
-#    +----> VPC Nested Stack
-#    |
-#    +----> S3 Nested Stack
-#    |
-#    +----> DynamoDB Nested Stack
-#    |
-#    +----> ECR Nested Stack
+#     |
+#     +----> VPC Nested Stack
+#     |
+#     +----> S3 Nested Stack
+#     |
+#     +----> DynamoDB Nested Stack
+#     |
+#     +----> ECR Nested Stack
 #
-# This demonstrates a real-world HYBRID IaC approach:
 #
-# - Terraform manages the overall deployment/orchestration.
-# - CloudFormation manages AWS resources inside the CloudFormation
-#   stack hierarchy.
+# Design:
+#
+# Terraform is responsible for:
+#
+#   - Creating the CloudFormation template bucket
+#   - Uploading CloudFormation templates
+#   - Creating the CloudFormation execution IAM role
+#   - Creating the CloudFormation root stack
+#   - Orchestrating the overall deployment
+#
+#
+# CloudFormation is responsible for:
+#
+#   - Processing the root CloudFormation template
+#   - Creating nested CloudFormation stacks
+#   - Creating resources defined by those templates
+#
+#
+# IMPORTANT:
+#
+# The aws_cloudformation_stack resource in the current AWS
+# provider version does NOT accept a "role_arn" argument.
+#
+# Therefore we intentionally DO NOT use:
+#
+#   role_arn = aws_iam_role.cloudformation_execution.arn
+#
+# in this resource.
+#
+# The CloudFormation execution IAM role can still be created
+# and managed by Terraform elsewhere in the configuration.
 #
 # ============================================================
 
 
 resource "aws_cloudformation_stack" "main" {
 
-  # ----------------------------------------------------------
-  # CloudFormation Stack Name
-  # ----------------------------------------------------------
+  # ==========================================================
+  # 1. CLOUDFORMATION STACK NAME
+  # ==========================================================
   #
-  # local.name_prefix is expected to be defined in locals.tf.
+  # local.name_prefix should be defined in locals.tf.
   #
   # Example:
   #
-  # ProjectName = HybridIaCLab
-  # Environment = dev
+  #   local.name_prefix = "HybridIaCLab-dev"
   #
   # Result:
   #
-  # HybridIaCLab-dev-MainStack
+  #   HybridIaCLab-dev-MainStack
   #
+  # ==========================================================
+
   name = "${local.name_prefix}-MainStack"
 
 
-  # ----------------------------------------------------------
-  # CloudFormation Root Template
-  # ----------------------------------------------------------
+  # ==========================================================
+  # 2. ROOT CLOUDFORMATION TEMPLATE
+  # ==========================================================
   #
   # CloudFormation needs access to the root template.
   #
-  # The main.yaml file is uploaded to the dedicated
-  # CloudFormation template S3 bucket by Terraform.
+  # Terraform uploads main.yaml to the dedicated S3 bucket
+  # before this CloudFormation stack is created.
   #
-  # Example URL:
+  # Expected S3 structure:
   #
-  # https://bucket-name.s3.us-east-1.amazonaws.com/main.yaml
+  #   <bucket>/
+  #   |
+  #   +-- main.yaml
+  #   |
+  #   +-- nested/
+  #       |
+  #       +-- vpc.yaml
+  #       +-- s3.yaml
+  #       +-- dynamodb.yaml
+  #       +-- ecr.yaml
   #
-  # bucket_regional_domain_name automatically provides the
-  # regional S3 DNS name.
   #
+  # bucket_regional_domain_name provides the regional S3
+  # endpoint hostname.
+  #
+  # Example:
+  #
+  #   https://my-bucket.s3.us-east-1.amazonaws.com/main.yaml
+  #
+  # ==========================================================
+
   template_url = "https://${aws_s3_bucket.cloudformation_templates.bucket_regional_domain_name}/main.yaml"
 
 
-  # ----------------------------------------------------------
-  # CloudFormation Capabilities
-  # ----------------------------------------------------------
+  # ==========================================================
+  # 3. CLOUDFORMATION CAPABILITIES
+  # ==========================================================
   #
   # These capabilities tell CloudFormation that the template
-  # may create IAM resources.
+  # is allowed to create IAM resources.
+  #
   #
   # CAPABILITY_IAM
-  #     Allows CloudFormation to create standard IAM resources.
+  #
+  # Allows CloudFormation to create standard IAM resources.
+  #
   #
   # CAPABILITY_NAMED_IAM
-  #     Allows CloudFormation to create IAM resources that use
-  #     explicitly specified names.
   #
-  # We include both because this lab may grow to contain
-  # IAM-related CloudFormation resources.
+  # Allows CloudFormation to create IAM resources that use
+  # explicitly specified names.
   #
+  #
+  # If your CloudFormation templates do not create IAM
+  # resources, these capabilities may not be necessary.
+  #
+  # They are retained here because this lab is designed to
+  # include IAM-related infrastructure.
+  #
+  # ==========================================================
+
   capabilities = [
     "CAPABILITY_IAM",
     "CAPABILITY_NAMED_IAM"
   ]
 
 
-  # ----------------------------------------------------------
-  # Parameters Passed to CloudFormation
-  # ----------------------------------------------------------
+  # ==========================================================
+  # 4. CLOUDFORMATION PARAMETERS
+  # ==========================================================
   #
-  # These values correspond to the Parameters section of the
-  # CloudFormation root template:
+  # These values are passed from Terraform into the
+  # CloudFormation root template.
   #
-  # main.yaml
+  # The parameter names MUST match the Parameters section
+  # of main.yaml.
   #
-  # Parameters:
+  # Expected CloudFormation parameters:
+  #
   #   ProjectName
   #   Environment
   #   TemplateBucket
   #   TemplatePrefix
   #
-  # Terraform supplies the actual values here.
-  #
+  # ==========================================================
+
   parameters = {
 
+    # --------------------------------------------------------
     # Project/application name.
     #
-    # Comes from Terraform:
-    # var.project_name
+    # Terraform variable:
     #
+    #   var.project_name
+    #
+    # Example:
+    #
+    #   HybridIaCLab
+    #
+    # --------------------------------------------------------
+
     ProjectName = var.project_name
 
 
+    # --------------------------------------------------------
     # Deployment environment.
     #
-    # Example:
-    # dev
-    # staging
-    # prod
+    # Terraform variable:
     #
+    #   var.environment
+    #
+    # Example:
+    #
+    #   dev
+    #
+    # --------------------------------------------------------
+
     Environment = var.environment
 
 
     # --------------------------------------------------------
-    # CloudFormation Template Bucket
+    # CloudFormation template bucket.
+    #
+    # This bucket is created by Terraform and contains the
+    # root and nested CloudFormation templates.
+    #
+    # Terraform resource:
+    #
+    #   aws_s3_bucket.cloudformation_templates
+    #
+    # The bucket name is passed to CloudFormation so that the
+    # root template can construct references to nested
+    # templates.
+    #
     # --------------------------------------------------------
-    #
-    # This is the S3 bucket containing:
-    #
-    # main.yaml
-    # nested/vpc.yaml
-    # nested/s3.yaml
-    # nested/dynamodb.yaml
-    # nested/ecr.yaml
-    #
-    # Terraform creates this bucket.
-    #
+
     TemplateBucket = aws_s3_bucket.cloudformation_templates.bucket
 
 
     # --------------------------------------------------------
-    # CloudFormation Template Prefix
+    # CloudFormation template prefix.
+    #
+    # Current S3 layout:
+    #
+    #   main.yaml
+    #   nested/vpc.yaml
+    #   nested/s3.yaml
+    #   nested/dynamodb.yaml
+    #   nested/ecr.yaml
+    #
+    # Therefore main.yaml is located at the bucket root and
+    # no additional prefix is required.
+    #
     # --------------------------------------------------------
-    #
-    # Our current S3 layout places main.yaml at the bucket
-    # root and nested templates under:
-    #
-    # nested/
-    #
-    # Therefore no additional prefix is required.
-    #
-    # Result:
-    #
-    # main.yaml
-    # nested/vpc.yaml
-    #
+
     TemplatePrefix = ""
   }
 
 
-  # ----------------------------------------------------------
-  # CloudFormation Execution Role
-  # ----------------------------------------------------------
+  # ==========================================================
+  # 5. EXPLICIT TERRAFORM DEPENDENCIES
+  # ==========================================================
   #
-  # CloudFormation will assume this IAM role while creating
-  # and managing resources defined inside the CloudFormation
-  # templates.
+  # Terraform already understands dependencies created through
+  # resource references.
   #
-  # This is an important real-world security pattern:
+  # For example:
   #
-  # Terraform
-  #     |
-  #     | creates stack
-  #     v
-  # CloudFormation
-  #     |
-  #     | assumes
-  #     v
-  # Execution IAM Role
-  #     |
-  #     v
-  # AWS Resources
+  #   template_url
   #
-  # The role must have permissions required by the CloudFormation
-  # templates.
+  # references:
   #
-  role_arn = aws_iam_role.cloudformation_execution.arn
+  #   aws_s3_bucket.cloudformation_templates
+  #
+  # and the parameters also reference that bucket.
+  #
+  #
+  # However, we explicitly declare dependencies for the
+  # CloudFormation template objects and execution-role policy.
+  #
+  #
+  # CloudFormation must not start until:
+  #
+  #   1. The CloudFormation templates have been uploaded.
+  #
+  #   2. The CloudFormation execution-role policy has been
+  #      created.
+  #
+  #
+  # This helps prevent a deployment race condition.
+  #
+  # ==========================================================
 
-
-  # ----------------------------------------------------------
-  # Terraform Dependency Control
-  # ----------------------------------------------------------
-  #
-  # Terraform normally creates resources based on references.
-  #
-  # However, we explicitly declare dependencies here because
-  # CloudFormation must NOT start until:
-  #
-  # 1. All CloudFormation templates have been uploaded to S3.
-  #
-  # 2. The CloudFormation execution role has its required
-  #    permissions.
-  #
-  # This prevents a race condition where CloudFormation starts
-  # before the templates or IAM permissions are ready.
-  #
   depends_on = [
 
-    # Ensures main.yaml and nested CloudFormation templates
-    # have been uploaded to S3.
+    # --------------------------------------------------------
+    # Ensure the CloudFormation templates are uploaded before
+    # CloudFormation attempts to read main.yaml.
+    #
+    # This resource is expected to upload:
+    #
+    #   main.yaml
+    #   nested templates
+    #
+    # --------------------------------------------------------
+
     aws_s3_object.cloudformation_templates,
 
 
-    # Ensures the CloudFormation execution role has the required
-    # IAM policy before the stack is created.
+    # --------------------------------------------------------
+    # Ensure the CloudFormation execution-role permissions
+    # exist before the CloudFormation stack is created.
+    #
+    # IMPORTANT:
+    #
+    # This dependency does NOT pass role_arn to the
+    # aws_cloudformation_stack resource.
+    #
+    # It only controls Terraform resource creation order.
+    #
+    # --------------------------------------------------------
+
     aws_iam_role_policy.cloudformation_lab_permissions
   ]
 }
+
+
+# ============================================================
+# END OF CLOUDFORMATION ROOT STACK
+# ============================================================
+#
+# FINAL DEPLOYMENT FLOW
+#
+# Terraform
+#     |
+#     +--> S3 Template Bucket
+#     |
+#     +--> CloudFormation Templates
+#     |
+#     +--> CloudFormation Execution IAM Role
+#     |
+#     +--> CloudFormation Root Stack
+#              |
+#              +--> VPC Nested Stack
+#              |
+#              +--> S3 Nested Stack
+#              |
+#              +--> DynamoDB Nested Stack
+#              |
+#              +--> ECR Nested Stack
+#
+#
+# IMPORTANT:
+#
+# The GitHub Actions OIDC IAM role is separate from the
+# CloudFormation execution role.
+#
+#
+# GitHub OIDC Role:
+#
+#   aws-hybrid-iac-lab-GitHubActions
+#
+# is used by GitHub Actions to authenticate to AWS.
+#
+#
+# CloudFormation Execution Role:
+#
+#   aws_iam_role.cloudformation_execution
+#
+# is intended for CloudFormation's own resource operations.
+#
+#
+# These two IAM roles should NOT be confused with each other.
+#
+# ============================================================
+
