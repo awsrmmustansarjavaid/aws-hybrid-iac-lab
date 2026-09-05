@@ -109,7 +109,27 @@ jobs:
 
 
       # ----------------------------------------------------
-      # 3. Setup Terraform
+      # 3. Verify AWS identity
+      # ----------------------------------------------------
+      #
+      # Confirms that GitHub Actions successfully authenticated
+      # with AWS using GitHub OIDC and assumed the IAM role.
+      #
+      # This command displays:
+      #
+      #   - AWS Account ID
+      #   - Assumed IAM role
+      #   - Temporary AWS identity
+      #
+      # ----------------------------------------------------
+
+      - name: Verify AWS Identity
+
+        run: |
+          aws sts get-caller-identity
+
+      # ----------------------------------------------------
+      # 4. Setup Terraform
       # ----------------------------------------------------
 
       - name: Setup Terraform
@@ -118,7 +138,7 @@ jobs:
 
 
       # ----------------------------------------------------
-      # 4. Terraform Init
+      # 5. Terraform Init
       # ----------------------------------------------------
 
       - name: Terraform Init
@@ -129,7 +149,7 @@ jobs:
 
 
       # ----------------------------------------------------
-      # 5. Terraform Format Check
+      # 6. Terraform Format Check
       # ----------------------------------------------------
 
       - name: Terraform Format Check
