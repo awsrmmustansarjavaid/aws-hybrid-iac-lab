@@ -206,7 +206,7 @@ Use this trust policy:
       "Condition": {
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": "repo:awsrmmustansarjavaid/aws-hybrid-iac-lab:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:sub": "repo:awsrmmustansarjavaid@242676971/aws-hybrid-iac-lab@1357303207:ref:refs/heads/main"
         }
       }
     }
