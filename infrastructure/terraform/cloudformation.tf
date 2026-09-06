@@ -103,14 +103,6 @@ resource "aws_cloudformation_stack" "main" {
   #       +-- dynamodb.yaml
   #       +-- ecr.yaml
   #
-  #
-  # bucket_regional_domain_name provides the regional S3
-  # endpoint hostname.
-  #
-  # Example:
-  #
-  #   https://my-bucket.s3.us-east-1.amazonaws.com/main.yaml
-  #
   # ==========================================================
 
   template_url = "https://${aws_s3_bucket.cloudformation_templates.bucket_regional_domain_name}/main.yaml"
@@ -122,24 +114,6 @@ resource "aws_cloudformation_stack" "main" {
   #
   # These capabilities tell CloudFormation that the template
   # is allowed to create IAM resources.
-  #
-  #
-  # CAPABILITY_IAM
-  #
-  # Allows CloudFormation to create standard IAM resources.
-  #
-  #
-  # CAPABILITY_NAMED_IAM
-  #
-  # Allows CloudFormation to create IAM resources that use
-  # explicitly specified names.
-  #
-  #
-  # If your CloudFormation templates do not create IAM
-  # resources, these capabilities may not be necessary.
-  #
-  # They are retained here because this lab is designed to
-  # include IAM-related infrastructure.
   #
   # ==========================================================
 
@@ -156,15 +130,18 @@ resource "aws_cloudformation_stack" "main" {
   # These values are passed from Terraform into the
   # CloudFormation root template.
   #
-  # The parameter names MUST match the Parameters section
-  # of main.yaml.
+  # IMPORTANT:
   #
-  # Expected CloudFormation parameters:
+  # Every parameter name on the LEFT side must exactly match
+  # the parameter name defined inside main.yaml.
   #
-  #   ProjectName
-  #   Environment
-  #   TemplateBucket
-  #   TemplatePrefix
+  # Terraform variable/resource
+  #             |
+  #             v
+  # CloudFormation parameter
+  #             |
+  #             v
+  # Root stack / nested stacks
   #
   # ==========================================================
 
@@ -173,9 +150,13 @@ resource "aws_cloudformation_stack" "main" {
     # --------------------------------------------------------
     # Project/application name.
     #
-    # Terraform variable:
+    # Passed from Terraform:
     #
     #   var.project_name
+    #
+    # CloudFormation parameter:
+    #
+    #   ProjectName
     #
     # Example:
     #
@@ -189,7 +170,7 @@ resource "aws_cloudformation_stack" "main" {
     # --------------------------------------------------------
     # Deployment environment.
     #
-    # Terraform variable:
+    # Passed from Terraform:
     #
     #   var.environment
     #
@@ -205,15 +186,17 @@ resource "aws_cloudformation_stack" "main" {
     # --------------------------------------------------------
     # CloudFormation template bucket.
     #
-    # This bucket is created by Terraform and contains the
-    # root and nested CloudFormation templates.
+    # This bucket is created and managed by Terraform.
     #
-    # Terraform resource:
+    # It contains:
     #
-    #   aws_s3_bucket.cloudformation_templates
+    #   main.yaml
+    #   nested/vpc.yaml
+    #   nested/s3.yaml
+    #   nested/dynamodb.yaml
+    #   nested/ecr.yaml
     #
-    # The bucket name is passed to CloudFormation so that the
-    # root template can construct references to nested
+    # CloudFormation uses this value to locate the nested
     # templates.
     #
     # --------------------------------------------------------
@@ -224,7 +207,7 @@ resource "aws_cloudformation_stack" "main" {
     # --------------------------------------------------------
     # CloudFormation template prefix.
     #
-    # Current S3 layout:
+    # Current S3 structure:
     #
     #   main.yaml
     #   nested/vpc.yaml
@@ -232,12 +215,264 @@ resource "aws_cloudformation_stack" "main" {
     #   nested/dynamodb.yaml
     #   nested/ecr.yaml
     #
-    # Therefore main.yaml is located at the bucket root and
-    # no additional prefix is required.
+    # main.yaml is located at the bucket root, therefore
+    # no prefix is currently required.
     #
     # --------------------------------------------------------
 
     TemplatePrefix = ""
+
+
+    # ========================================================
+    # ADDITIONAL APPLICATION INFRASTRUCTURE PARAMETERS
+    # ========================================================
+    #
+    # The following parameters allow Terraform to pass
+    # existing infrastructure values into CloudFormation.
+    #
+    # These are useful when Terraform and CloudFormation
+    # operate together in the same hybrid IaC architecture.
+    #
+    # ========================================================
+
+
+    # --------------------------------------------------------
+    # Existing VPC ID.
+    #
+    # Terraform variable:
+    #
+    #   var.vpc_id
+    #
+    # CloudFormation parameter:
+    #
+    #   VpcId
+    #
+    # Example:
+    #
+    #   vpc-0123456789abcdef0
+    #
+    # This allows CloudFormation resources to reference
+    # an existing VPC.
+    #
+    # --------------------------------------------------------
+
+    VpcId = var.vpc_id
+
+
+    # --------------------------------------------------------
+    # Public subnet ID.
+    #
+    # Terraform variable:
+    #
+    #   var.public_subnet_id
+    #
+    # CloudFormation parameter:
+    #
+    #   PublicSubnetId
+    #
+    # Used when a CloudFormation resource needs a specific
+    # public subnet.
+    #
+    # --------------------------------------------------------
+
+    PublicSubnetId = var.public_subnet_id
+
+
+    # --------------------------------------------------------
+    # Public subnet 1 ID.
+    #
+    # Terraform variable:
+    #
+    #   var.public_subnet_1_id
+    #
+    # CloudFormation parameter:
+    #
+    #   PublicSubnet1Id
+    #
+    # Typically used for Multi-AZ resources that require
+    # more than one public subnet.
+    #
+    # --------------------------------------------------------
+
+    PublicSubnet1Id = var.public_subnet_1_id
+
+
+    # --------------------------------------------------------
+    # Public subnet 2 ID.
+    #
+    # Terraform variable:
+    #
+    #   var.public_subnet_2_id
+    #
+    # CloudFormation parameter:
+    #
+    #   PublicSubnet2Id
+    #
+    # Typically used as the second Availability Zone subnet.
+    #
+    # --------------------------------------------------------
+
+    PublicSubnet2Id = var.public_subnet_2_id
+
+
+    # --------------------------------------------------------
+    # Private subnet 1 ID.
+    #
+    # Terraform variable:
+    #
+    #   var.private_subnet_1_id
+    #
+    # CloudFormation parameter:
+    #
+    #   PrivateSubnet1Id
+    #
+    # Typically used for private application/database
+    # resources.
+    #
+    # --------------------------------------------------------
+
+    PrivateSubnet1Id = var.private_subnet_1_id
+
+
+    # --------------------------------------------------------
+    # Private subnet 2 ID.
+    #
+    # Terraform variable:
+    #
+    #   var.private_subnet_2_id
+    #
+    # CloudFormation parameter:
+    #
+    #   PrivateSubnet2Id
+    #
+    # Provides a second private subnet for Multi-AZ
+    # architecture.
+    #
+    # --------------------------------------------------------
+
+    PrivateSubnet2Id = var.private_subnet_2_id
+
+
+    # --------------------------------------------------------
+    # EC2 AMI ID.
+    #
+    # Terraform variable:
+    #
+    #   var.ami_id
+    #
+    # CloudFormation parameter:
+    #
+    #   AmiId
+    #
+    # Example:
+    #
+    #   ami-xxxxxxxxxxxxxxxxx
+    #
+    # CloudFormation can use this AMI when creating EC2
+    # instances.
+    #
+    # --------------------------------------------------------
+
+    AmiId = var.ami_id
+
+
+    # --------------------------------------------------------
+    # Application S3 bucket name.
+    #
+    # Terraform variable:
+    #
+    #   var.application_bucket_name
+    #
+    # CloudFormation parameter:
+    #
+    #   ApplicationBucketName
+    #
+    # This allows CloudFormation resources to reference the
+    # application bucket created or managed elsewhere.
+    #
+    # --------------------------------------------------------
+
+    ApplicationBucketName = var.application_bucket_name
+
+
+    # --------------------------------------------------------
+    # Lambda function ARN.
+    #
+    # Terraform variable:
+    #
+    #   var.lambda_function_arn
+    #
+    # CloudFormation parameter:
+    #
+    #   LambdaFunctionArn
+    #
+    # This allows CloudFormation resources to integrate with
+    # an existing Lambda function.
+    #
+    # Example:
+    #
+    #   arn:aws:lambda:region:account:function:name
+    #
+    # --------------------------------------------------------
+
+    LambdaFunctionArn = var.lambda_function_arn
+
+
+    # --------------------------------------------------------
+    # ECR container image URI.
+    #
+    # Terraform variable:
+    #
+    #   var.ecr_image_uri
+    #
+    # CloudFormation parameter:
+    #
+    #   EcrImageUri
+    #
+    # Used by container-based resources such as ECS when
+    # CloudFormation needs to deploy an existing container image.
+    #
+    # Example:
+    #
+    #   123456789012.dkr.ecr.us-east-1.amazonaws.com/app:latest
+    #
+    # --------------------------------------------------------
+
+    EcrImageUri = var.ecr_image_uri
+
+
+    # --------------------------------------------------------
+    # Database password.
+    #
+    # Terraform variable:
+    #
+    #   var.database_password
+    #
+    # CloudFormation parameter:
+    #
+    #   DatabasePassword
+    #
+    # This value can be passed to CloudFormation resources
+    # that require a database password.
+    #
+    # SECURITY WARNING:
+    #
+    # Database passwords are sensitive values.
+    #
+    # Prefer AWS Secrets Manager rather than passing plaintext
+    # passwords through Terraform and CloudFormation whenever
+    # possible.
+    #
+    # If this parameter is used, ensure that:
+    #
+    #   - var.database_password is marked sensitive
+    #   - The password is not hard-coded
+    #   - The password is not committed to Git
+    #   - Terraform state security is properly configured
+    #
+    # --------------------------------------------------------
+
+    DatabasePassword = var.database_password
   }
 
 
@@ -256,12 +491,11 @@ resource "aws_cloudformation_stack" "main" {
   #
   #   aws_s3_bucket.cloudformation_templates
   #
-  # and the parameters also reference that bucket.
+  # The parameters also reference the template bucket.
   #
   #
-  # However, we explicitly declare dependencies for the
-  # CloudFormation template objects and execution-role policy.
-  #
+  # We explicitly declare dependencies for the CloudFormation
+  # template objects and execution-role policy.
   #
   # CloudFormation must not start until:
   #
@@ -269,9 +503,6 @@ resource "aws_cloudformation_stack" "main" {
   #
   #   2. The CloudFormation execution-role policy has been
   #      created.
-  #
-  #
-  # This helps prevent a deployment race condition.
   #
   # ==========================================================
 

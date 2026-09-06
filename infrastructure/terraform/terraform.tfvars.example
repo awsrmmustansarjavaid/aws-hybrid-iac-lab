@@ -1,70 +1,331 @@
 # ============================================================
-# Terraform Variable Values
-# ============================================================
-#
-# This file contains the actual values used by Terraform
-# variables.
-#
-# The variables themselves should be declared in:
-#
-#     variables.tf
-#
-# This file provides their values for this environment.
-#
-# Current environment:
-#
-#     AWS Region  = us-east-1
-#     Project     = HybridIaCLab
-#     Environment = dev
-#
-# ============================================================
 
+# HYBRID TERRAFORM + CLOUDFORMATION AWS DEVOPS LAB
 
 # ============================================================
-# AWS Region
+
+#
+
+# File:
+
+# infrastructure/terraform/terraform.tfvars
+
+#
+
+# Purpose:
+
+# Provides environment-specific values to Terraform.
+
+#
+
+# Architecture:
+
+#
+
+# Terraform
+
+# |
+
+# +--> CloudFormation template S3 bucket
+
+# |
+
+# +--> CloudFormation root stack
+
+# |
+
+# +--> VPC nested stack
+
+# +--> S3 nested stack
+
+# +--> DynamoDB nested stack
+
+# +--> ECR nested stack
+
+# +--> Lambda nested stack
+
+# +--> API Gateway nested stack
+
+# +--> CloudFront nested stack
+
+# +--> EC2 nested stack
+
+# +--> ECS nested stack
+
+# +--> EKS nested stack
+
+# +--> RDS nested stack
+
+#
+
+# IMPORTANT:
+
+#
+
+# This file is intended for LOCAL Terraform execution.
+
+#
+
+# DO NOT commit the real terraform.tfvars file to GitHub.
+
+#
+
+# Recommended .gitignore entries:
+
+#
+
+# terraform.tfvars
+
+# *.tfvars
+
+# *.tfvars.json
+
+#
+
+# For GitHub Actions, use GitHub Secrets / Variables or another
+
+# secure secret-management mechanism instead of committing this
+
+# file.
+
+#
+
 # ============================================================
+
+# ============================================================
+
+# AWS REGION
+
+# ============================================================
+
 #
-# AWS region where Terraform will create the infrastructure.
+
+# AWS region where the complete lab will be deployed.
+
 #
-# us-east-1 = US East (N. Virginia)
+
+# The current lab uses:
+
 #
-# You can change this later if you want to deploy the lab
-# into another AWS region.
+
+# us-east-1
+
 #
+
+# IMPORTANT:
+
+#
+
+# The CloudFormation resources created by this lab will be
+
+# deployed into this region.
+
+#
+
+# ============================================================
+
 aws_region = "us-east-1"
 
+# ============================================================
+
+# PROJECT NAME
 
 # ============================================================
-# Project Name
+
+#
+
+# Common project name used by Terraform and CloudFormation.
+
+#
+
+# This value is passed to the root CloudFormation stack and then
+
+# forwarded to the nested stacks.
+
+#
+
+# Examples of generated resource names include:
+
+#
+
+# HybridIaCLab-dev-VPC
+
+# HybridIaCLab-dev-LambdaRole
+
+# HybridIaCLab-dev-app
+
+#
+
 # ============================================================
-#
-# Main project/lab name.
-#
-# This value is used throughout the Terraform configuration
-# and is also passed into the CloudFormation root stack.
-#
-# Example resource naming:
-#
-#     HybridIaCLab-dev-...
-#
+
 project_name = "HybridIaCLab"
 
+# ============================================================
+
+# ENVIRONMENT
 
 # ============================================================
-# Environment
+
+#
+
+# Deployment environment.
+
+#
+
+# Current lab:
+
+#
+
+# dev
+
+#
+
+# Other possible environments:
+
+#
+
+# test
+
+# staging
+
+# prod
+
+#
+
 # ============================================================
-#
-# Identifies the deployment environment.
-#
-# Current environment:
-#
-#     dev
-#
-# Other common values are:
-#
-#     staging
-#     prod
-#
-# This value is also passed from Terraform to CloudFormation.
-#
+
 environment = "dev"
+
+# ============================================================
+
+# AMAZON LINUX 2023 AMI
+
+# ============================================================
+
+#
+
+# The EC2 nested stack requires an Amazon Linux 2023 AMI ID.
+
+#
+
+# IMPORTANT:
+
+#
+
+# This is NOT a resource created by your vpc.yaml.
+
+#
+
+# Therefore an AMI must be supplied to the EC2 portion of the
+
+# CloudFormation deployment.
+
+#
+
+# For us-east-1, retrieve the current Amazon Linux 2023 AMI with:
+
+#
+
+# aws ssm get-parameter `
+
+# --name "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64" `
+
+# --query "Parameter.Value" `
+
+# --output text `
+
+# --region us-east-1
+
+#
+
+# Copy the returned value below.
+
+#
+
+# Example:
+
+#
+
+# ami-0123456789abcdef0
+
+#
+
+# DO NOT use the example value.
+
+#
+
+# ============================================================
+
+ami_id = "REPLACE_WITH_REAL_AMAZON_LINUX_2023_AMI_ID"
+
+# ============================================================
+
+# DATABASE PASSWORD
+
+# ============================================================
+
+#
+
+# Password for the RDS MySQL database.
+
+#
+
+# The root CloudFormation template passes this value to the
+
+# RDS nested stack.
+
+#
+
+# The root template defines DatabasePassword as NoEcho=true.
+
+#
+
+# IMPORTANT SECURITY WARNING:
+
+#
+
+# Even though CloudFormation uses NoEcho, the value can still
+
+# become part of Terraform state because Terraform supplies it
+
+# to CloudFormation.
+
+#
+
+# Therefore:
+
+#
+
+# 1. NEVER commit the real password.
+
+# 2. Keep terraform.tfvars in .gitignore.
+
+# 3. Protect your Terraform state.
+
+# 4. For CI/CD, use GitHub Secrets or AWS Secrets Manager.
+
+#
+
+# Requirements from the current root template:
+
+#
+
+# Minimum length: 8 characters
+
+#
+
+# Example only:
+
+#
+
+# "ChangeMe123!"
+
+#
+
+# Replace it with your own strong password.
+
+#
+
+# ============================================================
+
+database_password = "REPLACE_WITH_STRONG_DATABASE_PASSWORD"
