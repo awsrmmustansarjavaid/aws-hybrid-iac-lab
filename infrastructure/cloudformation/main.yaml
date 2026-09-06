@@ -1,19 +1,24 @@
 AWSTemplateFormatVersion: "2010-09-09"
 
 # ============================================================
-# HYBRID IaC AWS DEVOPS LAB
+# HYBRID TERRAFORM + CLOUDFORMATION AWS DEVOPS LAB
 # ============================================================
 #
 # File:
 #   infrastructure/cloudformation/main.yaml
 #
 # Purpose:
-#   This is the ROOT CloudFormation stack for the lab.
+#   Root CloudFormation stack for the entire Hybrid IaC Lab.
 #
-#   The root stack does NOT directly create the AWS resources.
-#   Instead, it calls multiple nested CloudFormation stacks.
+#   This template does NOT directly create the application
+#   resources.
 #
-# Architecture:
+#   Instead, it creates and coordinates multiple nested
+#   CloudFormation stacks.
+#
+# ============================================================
+#
+# ROOT STACK ARCHITECTURE
 #
 #   main.yaml
 #       |
@@ -24,18 +29,92 @@ AWSTemplateFormatVersion: "2010-09-09"
 #       +----> nested/dynamodb.yaml
 #       |
 #       +----> nested/ecr.yaml
+#       |
+#       +----> nested/ec2.yaml
+#       |
+#       +----> nested/ecs.yaml
+#       |
+#       +----> nested/eks.yaml
+#       |
+#       +----> nested/lambda.yaml
+#       |
+#       +----> nested/rds.yaml
+#       |
+#       +----> nested/api-gateway.yaml
+#       |
+#       +----> nested/cloudfront.yaml
 #
-# This gives us a modular CloudFormation architecture.
+# ============================================================
 #
-# The CloudFormation templates are stored in an S3 bucket.
-# CloudFormation downloads the nested templates from S3
-# using TemplateURL.
+# IMPORTANT DESIGN DECISION
+#
+# Some nested templates require resources created by other
+# stacks, for example:
+#
+#   API Gateway
+#       |
+#       +----> Lambda ARN
+#
+#   CloudFront
+#       |
+#       +----> S3 application bucket
+#
+#   EC2
+#       |
+#       +----> VPC ID
+#       +----> Public Subnet ID
+#       +----> AMI ID
+#
+#   ECS
+#       |
+#       +----> VPC ID
+#       +----> Public Subnet 1
+#       +----> Public Subnet 2
+#       +----> ECR Image URI
+#
+#   RDS
+#       |
+#       +----> VPC ID
+#       +----> Private Subnet 1
+#       +----> Private Subnet 2
+#
+# To keep this ROOT template independent from the exact output
+# names inside your VPC/S3/ECR nested templates, those values
+# are supplied as parameters.
+#
+# This makes main.yaml predictable and avoids hard-coding
+# unknown nested-stack output names.
+#
+# ============================================================
+#
+# DEPLOYMENT MODEL
+#
+# Terraform
+#     |
+#     +----> S3 bucket containing CloudFormation templates
+#     |
+#     +----> Supporting AWS infrastructure
+#     |
+#     v
+# CloudFormation Root Stack
+#     |
+#     +----> VPC
+#     +----> S3
+#     +----> DynamoDB
+#     +----> ECR
+#     +----> Lambda
+#     +----> API Gateway
+#     +----> CloudFront
+#     +----> EC2
+#     +----> ECS
+#     +----> EKS
+#     +----> RDS
 #
 # ============================================================
 
 
 # ============================================================
-# TEMPLATE DESCRIPTION
+# DESCRIPTION
 # ============================================================
 
 Description: >
@@ -47,379 +126,903 @@ Description: >
 # PARAMETERS
 # ============================================================
 #
-# Parameters allow values to be supplied when the stack is
-# deployed instead of hard-coding them inside the template.
+# Parameters allow Terraform, AWS CLI, GitHub Actions, or the
+# CloudFormation console to supply environment-specific values.
 #
 # ============================================================
 
 Parameters:
 
   # ----------------------------------------------------------
-  # ProjectName
+  # PROJECT NAME
   # ----------------------------------------------------------
   #
-  # Common name used by the nested CloudFormation stacks.
+  # Common project name used by all nested stacks.
   #
   # Example:
+  #
   #   HybridIaCLab
   #
+  # ----------------------------------------------------------
+
   ProjectName:
     Type: String
-
     Default: HybridIaCLab
-
     Description: >
-      Name of the project used by the nested CloudFormation
-      stacks for resource naming and tagging.
+      Common project name used by the nested CloudFormation
+      stacks.
 
 
   # ----------------------------------------------------------
-  # Environment
+  # ENVIRONMENT
   # ----------------------------------------------------------
   #
-  # Identifies the deployment environment.
+  # Deployment environment.
   #
-  # Example:
+  # Examples:
+  #
   #   dev
   #   test
+  #   staging
   #   prod
   #
+  # ----------------------------------------------------------
+
   Environment:
     Type: String
-
     Default: dev
-
-    Description: >
-      Deployment environment for the lab.
+    Description: Deployment environment.
 
 
-  # ----------------------------------------------------------
-  # TemplateBucket
-  # ----------------------------------------------------------
+  # ==========================================================
+  # CLOUDFORMATION TEMPLATE S3 BUCKET
+  # ==========================================================
   #
-  # S3 bucket containing the CloudFormation nested templates.
+  # Terraform creates this bucket.
   #
-  # Example:
-  #
-  #   hybrid-iac-lab-cfn-templates
-  #
-  # CloudFormation uses this bucket to download:
+  # The bucket stores:
   #
   #   nested/vpc.yaml
   #   nested/s3.yaml
   #   nested/dynamodb.yaml
   #   nested/ecr.yaml
+  #   nested/ec2.yaml
+  #   nested/ecs.yaml
+  #   nested/eks.yaml
+  #   nested/lambda.yaml
+  #   nested/rds.yaml
+  #   nested/api-gateway.yaml
+  #   nested/cloudfront.yaml
   #
+  # ----------------------------------------------------------
+
   TemplateBucket:
     Type: String
-
     Description: >
-      S3 bucket containing the CloudFormation nested stack
-      templates.
+      S3 bucket containing the CloudFormation nested templates.
 
 
   # ----------------------------------------------------------
-  # TemplatePrefix
+  # TEMPLATE PREFIX
   # ----------------------------------------------------------
   #
-  # Optional S3 prefix/folder before the nested directory.
+  # Optional prefix before the nested/ directory.
   #
-  # If the templates are stored like this:
-  #
-  #   s3://bucket/nested/vpc.yaml
-  #
-  # then TemplatePrefix should be:
+  # Example:
   #
   #   ""
   #
-  # If they are stored like this:
+  # produces:
   #
-  #   s3://bucket/cloudformation/nested/vpc.yaml
+  #   s3://bucket/nested/vpc.yaml
   #
-  # then TemplatePrefix should be:
+  # Example:
   #
   #   cloudformation/
   #
+  # produces:
+  #
+  #   s3://bucket/cloudformation/nested/vpc.yaml
+  #
+  # ----------------------------------------------------------
+
   TemplatePrefix:
     Type: String
-
     Default: ""
-
     Description: >
-      Optional S3 key prefix used before the nested template
-      directory.
+      Optional S3 key prefix before the nested template directory.
+
+
+  # ==========================================================
+  # VPC ID
+  # ==========================================================
+  #
+  # Required by:
+  #
+  #   EC2
+  #   ECS
+  #   RDS
+  #
+  # ----------------------------------------------------------
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: >
+      VPC where compute and database resources will be deployed.
+
+
+  # ==========================================================
+  # EC2 PUBLIC SUBNET
+  # ==========================================================
+  #
+  # Required by EC2.
+  #
+  # ----------------------------------------------------------
+
+  PublicSubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: >
+      Public subnet for the EC2 web server.
+
+
+  # ==========================================================
+  # ECS PUBLIC SUBNET 1
+  # ==========================================================
+
+  PublicSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: >
+      First public subnet for ECS Fargate.
+
+
+  # ==========================================================
+  # ECS PUBLIC SUBNET 2
+  # ==========================================================
+
+  PublicSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: >
+      Second public subnet for ECS Fargate.
+
+
+  # ==========================================================
+  # RDS PRIVATE SUBNET 1
+  # ==========================================================
+
+  PrivateSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: >
+      First private subnet for RDS.
+
+
+  # ==========================================================
+  # RDS PRIVATE SUBNET 2
+  # ==========================================================
+
+  PrivateSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: >
+      Second private subnet for RDS.
+
+
+  # ==========================================================
+  # EC2 AMI
+  # ==========================================================
+  #
+  # Amazon Linux 2023 AMI.
+  #
+  # AMI IDs are region-specific.
+  #
+  # ----------------------------------------------------------
+
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: >
+      Amazon Linux 2023 AMI ID for the selected AWS region.
+
+
+  # ==========================================================
+  # EC2 INSTANCE TYPE
+  # ==========================================================
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+
+    AllowedValues:
+      - t3.micro
+      - t3.small
+
+    Description: EC2 instance type.
+
+
+  # ==========================================================
+  # APPLICATION S3 BUCKET
+  # ==========================================================
+  #
+  # CloudFront uses this bucket as its origin.
+  #
+  # The bucket should be private and CloudFront should access
+  # it through Origin Access Control.
+  #
+  # ----------------------------------------------------------
+
+  ApplicationBucketName:
+    Type: String
+    Description: >
+      Existing S3 application bucket used by CloudFront.
+
+
+  # ==========================================================
+  # LAMBDA FUNCTION ARN
+  # ==========================================================
+  #
+  # API Gateway requires the Lambda function ARN.
+  #
+  # ----------------------------------------------------------
+
+  LambdaFunctionArn:
+    Type: String
+    Description: >
+      ARN of the Lambda function invoked by API Gateway.
+
+
+  # ==========================================================
+  # ECR IMAGE URI
+  # ==========================================================
+  #
+  # ECS requires a complete container image URI.
+  #
+  # Example:
+  #
+  #   123456789012.dkr.ecr.us-east-1.amazonaws.com/
+  #   hybrid-iac-lab:latest
+  #
+  # ----------------------------------------------------------
+
+  EcrImageUri:
+    Type: String
+    Description: >
+      Full URI of the Docker image stored in Amazon ECR.
+
+
+  # ==========================================================
+  # RDS DATABASE USERNAME
+  # ==========================================================
+
+  DatabaseUsername:
+    Type: String
+    Default: admin
+    Description: RDS MySQL master username.
+
+
+  # ==========================================================
+  # RDS DATABASE PASSWORD
+  # ==========================================================
+  #
+  # NoEcho prevents the password from being displayed by
+  # CloudFormation interfaces.
+  #
+  # IMPORTANT:
+  # For a production architecture, use AWS Secrets Manager
+  # instead of passing database passwords directly.
+  #
+  # ----------------------------------------------------------
+
+  DatabasePassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    Description: RDS MySQL master password.
 
 
 # ============================================================
 # RESOURCES
-# ============================================================
-#
-# The root stack creates four nested CloudFormation stacks.
-#
-# Nested stacks allow us to divide infrastructure into smaller,
-# reusable CloudFormation templates.
-#
 # ============================================================
 
 Resources:
 
 
   # ==========================================================
-  # VPC NESTED STACK
+  # 1. VPC NESTED STACK
   # ==========================================================
   #
-  # Responsible for networking infrastructure.
+  # Responsible for the networking layer.
   #
-  # The actual resources are defined inside:
+  # The nested template is:
   #
   #   nested/vpc.yaml
   #
-  # Possible resources created by that template include:
+  # Typical resources include:
   #
-  #   - VPC
-  #   - Internet Gateway
-  #   - Subnets
-  #   - Route Tables
-  #   - Security Groups
+  #   VPC
+  #   Internet Gateway
+  #   Public Subnets
+  #   Private Subnets
+  #   Route Tables
+  #   Security Groups
   #
   # ==========================================================
 
   VPCStack:
-
-    # Tell CloudFormation that this resource is another
-    # CloudFormation stack.
     Type: AWS::CloudFormation::Stack
 
     Properties:
 
       # --------------------------------------------------------
-      # TemplateURL
+      # Nested template location
       # --------------------------------------------------------
-      #
-      # CloudFormation downloads the nested template from S3.
-      #
-      # !Sub allows us to dynamically insert:
-      #
-      #   ${TemplateBucket}
-      #   ${AWS::Region}
-      #   ${TemplatePrefix}
-      #
-      # Example resulting URL:
-      #
-      # https://my-bucket.s3.us-east-1.amazonaws.com/nested/vpc.yaml
-      #
-      TemplateURL: !Sub >
-        https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/
-        ${TemplatePrefix}nested/vpc.yaml
 
+      TemplateURL: !Sub
+        https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/vpc.yaml
 
       # --------------------------------------------------------
-      # PARAMETERS PASSED TO VPC STACK
+      # Parameters passed to VPC stack
       # --------------------------------------------------------
-      #
-      # These values are sent from the root stack to the
-      # nested VPC template.
-      #
+
       Parameters:
 
-        # Pass the project name to nested/vpc.yaml
         ProjectName: !Ref ProjectName
 
-        # Pass the environment name to nested/vpc.yaml
         Environment: !Ref Environment
 
 
   # ==========================================================
-  # S3 NESTED STACK
+  # 2. S3 NESTED STACK
   # ==========================================================
   #
   # Responsible for S3 infrastructure.
   #
-  # The actual resources are defined inside:
+  # Template:
   #
   #   nested/s3.yaml
-  #
-  # Depending on the lab design, this stack can contain:
-  #
-  #   - S3 bucket
-  #   - Bucket policies
-  #   - Versioning
-  #   - Encryption
   #
   # ==========================================================
 
   S3Stack:
-
-    # Create a nested CloudFormation stack.
     Type: AWS::CloudFormation::Stack
 
     Properties:
 
-      # Location of the S3 nested template.
-      TemplateURL: !Sub >
-        https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/
-        ${TemplatePrefix}nested/s3.yaml
+      TemplateURL: !Sub
+        https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/s3.yaml
 
-
-      # Parameters passed from the root stack to the S3 stack.
       Parameters:
 
-        # Project name used by the S3 template.
         ProjectName: !Ref ProjectName
 
-        # Environment used by the S3 template.
         Environment: !Ref Environment
 
 
   # ==========================================================
-  # DYNAMODB NESTED STACK
+  # 3. DYNAMODB NESTED STACK
   # ==========================================================
   #
-  # Responsible for DynamoDB infrastructure.
+  # Responsible for DynamoDB resources.
   #
-  # The actual resources are defined inside:
+  # Template:
   #
   #   nested/dynamodb.yaml
-  #
-  # This keeps database-related infrastructure separate from
-  # networking and storage infrastructure.
   #
   # ==========================================================
 
   DynamoDBStack:
-
-    # Create a nested CloudFormation stack.
     Type: AWS::CloudFormation::Stack
 
     Properties:
 
-      # Location of the DynamoDB nested template.
-      TemplateURL: !Sub >
-        https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/
-        ${TemplatePrefix}nested/dynamodb.yaml
+      TemplateURL: !Sub
+        https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/dynamodb.yaml
 
-
-      # Parameters passed from the root stack to DynamoDB.
       Parameters:
 
-        # Project name used by the DynamoDB template.
         ProjectName: !Ref ProjectName
 
-        # Environment used by the DynamoDB template.
         Environment: !Ref Environment
 
 
   # ==========================================================
-  # ECR NESTED STACK
+  # 4. ECR NESTED STACK
   # ==========================================================
   #
-  # Responsible for Amazon ECR infrastructure.
+  # Responsible for the Amazon ECR repository.
   #
-  # The actual resources are defined inside:
+  # Template:
   #
   #   nested/ecr.yaml
-  #
-  # ECR will store Docker container images used by the lab.
-  #
-  # Example future flow:
-  #
-  #   Developer
-  #       |
-  #       v
-  #   GitHub
-  #       |
-  #       v
-  #   Docker Build
-  #       |
-  #       v
-  #   Amazon ECR
-  #       |
-  #       v
-  #   ECS / Kubernetes
   #
   # ==========================================================
 
   ECRStack:
-
-    # Create a nested CloudFormation stack.
     Type: AWS::CloudFormation::Stack
 
     Properties:
 
-      # Location of the ECR nested template.
-      TemplateURL: !Sub >
-        https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/
-        ${TemplatePrefix}nested/ecr.yaml
+      TemplateURL: !Sub
+        https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/ecr.yaml
 
-
-      # Parameters passed from the root stack to ECR.
       Parameters:
 
-        # Project name used by the ECR template.
         ProjectName: !Ref ProjectName
 
-        # Environment used by the ECR template.
         Environment: !Ref Environment
+
+
+  # ==========================================================
+  # 5. LAMBDA NESTED STACK
+  # ==========================================================
+  #
+  # Responsible for the application Lambda function.
+  #
+  # Template:
+  #
+  #   nested/lambda.yaml
+  #
+  # The Lambda template creates:
+  #
+  #   IAM execution role
+  #   Lambda function
+  #   CloudWatch logging permissions
+  #   DynamoDB permissions
+  #
+  # The source template defines a Python 3.12 Lambda function
+  # and exposes its function ARN as an output. 
+  #
+  # ==========================================================
+
+  LambdaStack:
+    Type: AWS::CloudFormation::Stack
+
+    Properties:
+
+      TemplateURL: !Sub
+        https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/lambda.yaml
+
+      Parameters:
+
+        ProjectName: !Ref ProjectName
+
+        Environment: !Ref Environment
+
+    # Lambda should exist before API Gateway is created.
+    #
+    # API Gateway requires the Lambda ARN supplied through
+    # LambdaFunctionArn.
+    #
+    # Because LambdaFunctionArn is supplied externally as a
+    # parameter, this dependency is mainly an orchestration
+    # dependency.
+
+
+  # ==========================================================
+  # 6. API GATEWAY NESTED STACK
+  # ==========================================================
+  #
+  # Responsible for the REST API.
+  #
+  # Template:
+  #
+  #   nested/api-gateway.yaml
+  #
+  # API:
+  #
+  #   POST /orders
+  #
+  # Flow:
+  #
+  #   Client
+  #      |
+  #      v
+  #   API Gateway
+  #      |
+  #      v
+  #   Lambda
+  #
+  # ==========================================================
+
+  APIGatewayStack:
+    Type: AWS::CloudFormation::Stack
+
+    DependsOn:
+      - LambdaStack
+
+    Properties:
+
+      TemplateURL: !Sub
+        https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/api-gateway.yaml
+
+      Parameters:
+
+        ProjectName: !Ref ProjectName
+
+        Environment: !Ref Environment
+
+        LambdaFunctionArn: !Ref LambdaFunctionArn
+
+
+  # ==========================================================
+  # 7. CLOUDFRONT NESTED STACK
+  # ==========================================================
+  #
+  # Responsible for the CDN layer.
+  #
+  # Template:
+  #
+  #   nested/cloudfront.yaml
+  #
+  # Architecture:
+  #
+  #   Internet
+  #       |
+  #       v
+  #   CloudFront
+  #       |
+  #       | OAC + SigV4
+  #       v
+  #   Private S3 Bucket
+  #
+  # ==========================================================
+
+  CloudFrontStack:
+    Type: AWS::CloudFormation::Stack
+
+    DependsOn:
+      - S3Stack
+
+    Properties:
+
+      TemplateURL: !Sub
+        https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/cloudfront.yaml
+
+      Parameters:
+
+        ProjectName: !Ref ProjectName
+
+        Environment: !Ref Environment
+
+        ApplicationBucketName: !Ref ApplicationBucketName
+
+
+  # ==========================================================
+  # 8. EC2 NESTED STACK
+  # ==========================================================
+  #
+  # Responsible for the EC2 web server.
+  #
+  # Template:
+  #
+  #   nested/ec2.yaml
+  #
+  # Resources created by the nested template include:
+  #
+  #   Security Group
+  #   IAM Role
+  #   Instance Profile
+  #   EC2 Instance
+  #   Nginx
+  #
+  # ==========================================================
+
+  EC2Stack:
+    Type: AWS::CloudFormation::Stack
+
+    DependsOn:
+      - VPCStack
+
+    Properties:
+
+      TemplateURL: !Sub
+        https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/ec2.yaml
+
+      Parameters:
+
+        ProjectName: !Ref ProjectName
+
+        Environment: !Ref Environment
+
+        VpcId: !Ref VpcId
+
+        PublicSubnetId: !Ref PublicSubnetId
+
+        AmiId: !Ref AmiId
+
+        InstanceType: !Ref InstanceType
+
+
+  # ==========================================================
+  # 9. ECS NESTED STACK
+  # ==========================================================
+  #
+  # Responsible for ECS/Fargate container infrastructure.
+  #
+  # Template:
+  #
+  #   nested/ecs.yaml
+  #
+  # Architecture:
+  #
+  #   ECR
+  #     |
+  #     v
+  #   Docker Image
+  #     |
+  #     v
+  #   ECS Fargate
+  #
+  # ==========================================================
+
+  ECSStack:
+    Type: AWS::CloudFormation::Stack
+
+    DependsOn:
+      - VPCStack
+      - ECRStack
+
+    Properties:
+
+      TemplateURL: !Sub
+        https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/ecs.yaml
+
+      Parameters:
+
+        ProjectName: !Ref ProjectName
+
+        Environment: !Ref Environment
+
+        VpcId: !Ref VpcId
+
+        PublicSubnet1Id: !Ref PublicSubnet1Id
+
+        PublicSubnet2Id: !Ref PublicSubnet2Id
+
+        EcrImageUri: !Ref EcrImageUri
+
+
+  # ==========================================================
+  # 10. EKS NESTED STACK
+  # ==========================================================
+  #
+  # Responsible for Amazon EKS.
+  #
+  # Template:
+  #
+  #   nested/eks.yaml
+  #
+  # The supplied EKS template currently requires:
+  #
+  #   ProjectName
+  #   Environment
+  #
+  # ==========================================================
+
+  EKSStack:
+    Type: AWS::CloudFormation::Stack
+
+    Properties:
+
+      TemplateURL: !Sub
+        https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/eks.yaml
+
+      Parameters:
+
+        ProjectName: !Ref ProjectName
+
+        Environment: !Ref Environment
+
+
+  # ==========================================================
+  # 11. RDS NESTED STACK
+  # ==========================================================
+  #
+  # Responsible for the MySQL database layer.
+  #
+  # Template:
+  #
+  #   nested/rds.yaml
+  #
+  # Architecture:
+  #
+  #   EC2 / Application
+  #          |
+  #          | TCP 3306
+  #          v
+  #      RDS Security Group
+  #          |
+  #          v
+  #       RDS MySQL
+  #
+  # The database should remain private.
+  #
+  # ==========================================================
+
+  RDSStack:
+    Type: AWS::CloudFormation::Stack
+
+    DependsOn:
+      - VPCStack
+
+    Properties:
+
+      TemplateURL: !Sub
+        https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/rds.yaml
+
+      Parameters:
+
+        ProjectName: !Ref ProjectName
+
+        Environment: !Ref Environment
+
+        VpcId: !Ref VpcId
+
+        PrivateSubnet1Id: !Ref PrivateSubnet1Id
+
+        PrivateSubnet2Id: !Ref PrivateSubnet2Id
+
+        DatabaseUsername: !Ref DatabaseUsername
+
+        DatabasePassword: !Ref DatabasePassword
 
 
 # ============================================================
 # OUTPUTS
 # ============================================================
 #
-# Outputs allow us to retrieve useful information after the
-# root CloudFormation stack has been deployed.
+# Outputs expose useful information from the root stack.
 #
-# The values below expose the nested stack resources.
+# Nested stack outputs can also be exposed using:
+#
+#   !GetAtt NestedStack.Outputs.OutputName
+#
+# However, because the exact output names of the external
+# vpc.yaml and s3.yaml templates are not defined in this
+# root template, this version intentionally exposes the nested
+# stack IDs and the supplied integration values.
 #
 # ============================================================
 
 Outputs:
 
 
-  # ----------------------------------------------------------
-  # VPC STACK OUTPUT
-  # ----------------------------------------------------------
+  # ==========================================================
+  # ROOT STACK INFORMATION
+  # ==========================================================
+
+  ProjectName:
+    Description: Project name used by the root stack.
+    Value: !Ref ProjectName
+
+
+  Environment:
+    Description: Deployment environment.
+    Value: !Ref Environment
+
+
+  # ==========================================================
+  # VPC NESTED STACK
+  # ==========================================================
 
   VPCStackId:
-
-    Description: >
-      ID of the nested VPC CloudFormation stack.
-
+    Description: ID of the nested VPC CloudFormation stack.
     Value: !Ref VPCStack
 
 
-  # ----------------------------------------------------------
-  # S3 STACK OUTPUT
-  # ----------------------------------------------------------
+  # ==========================================================
+  # S3 NESTED STACK
+  # ==========================================================
 
   S3StackId:
-
-    Description: >
-      ID of the nested S3 CloudFormation stack.
-
+    Description: ID of the nested S3 CloudFormation stack.
     Value: !Ref S3Stack
 
 
-  # ----------------------------------------------------------
-  # DYNAMODB STACK OUTPUT
-  # ----------------------------------------------------------
+  # ==========================================================
+  # DYNAMODB NESTED STACK
+  # ==========================================================
 
   DynamoDBStackId:
-
-    Description: >
-      ID of the nested DynamoDB CloudFormation stack.
-
+    Description: ID of the nested DynamoDB CloudFormation stack.
     Value: !Ref DynamoDBStack
 
 
-  # ----------------------------------------------------------
-  # ECR STACK OUTPUT
-  # ----------------------------------------------------------
+  # ==========================================================
+  # ECR NESTED STACK
+  # ==========================================================
 
   ECRStackId:
-
-    Description: >
-      ID of the nested ECR CloudFormation stack.
-
+    Description: ID of the nested ECR CloudFormation stack.
     Value: !Ref ECRStack
+
+
+  # ==========================================================
+  # LAMBDA NESTED STACK
+  # ==========================================================
+
+  LambdaStackId:
+    Description: ID of the nested Lambda CloudFormation stack.
+    Value: !Ref LambdaStack
+
+
+  # ==========================================================
+  # API GATEWAY NESTED STACK
+  # ==========================================================
+
+  APIGatewayStackId:
+    Description: ID of the nested API Gateway CloudFormation stack.
+    Value: !Ref APIGatewayStack
+
+
+  # ==========================================================
+  # CLOUDFRONT NESTED STACK
+  # ==========================================================
+
+  CloudFrontStackId:
+    Description: ID of the nested CloudFront CloudFormation stack.
+    Value: !Ref CloudFrontStack
+
+
+  # ==========================================================
+  # EC2 NESTED STACK
+  # ==========================================================
+
+  EC2StackId:
+    Description: ID of the nested EC2 CloudFormation stack.
+    Value: !Ref EC2Stack
+
+
+  # ==========================================================
+  # ECS NESTED STACK
+  # ==========================================================
+
+  ECSStackId:
+    Description: ID of the nested ECS CloudFormation stack.
+    Value: !Ref ECSStack
+
+
+  # ==========================================================
+  # EKS NESTED STACK
+  # ==========================================================
+
+  EKSStackId:
+    Description: ID of the nested EKS CloudFormation stack.
+    Value: !Ref EKSStack
+
+
+  # ==========================================================
+  # RDS NESTED STACK
+  # ==========================================================
+
+  RDSStackId:
+    Description: ID of the nested RDS CloudFormation stack.
+    Value: !Ref RDSStack
+
+
+  # ==========================================================
+  # API GATEWAY LAMBDA ARN
+  # ==========================================================
+  #
+  # This is the Lambda ARN supplied to API Gateway.
+  #
+  # ==========================================================
+
+  LambdaFunctionArn:
+    Description: Lambda function ARN used by API Gateway.
+    Value: !Ref LambdaFunctionArn
+
+
+  # ==========================================================
+  # APPLICATION BUCKET
+  # ==========================================================
+
+  ApplicationBucketName:
+    Description: S3 application bucket used by CloudFront.
+    Value: !Ref ApplicationBucketName
+
+
+  # ==========================================================
+  # ECR IMAGE
+  # ==========================================================
+
+  EcrImageUri:
+    Description: Docker image URI supplied to ECS.
+    Value: !Ref EcrImageUri
 
