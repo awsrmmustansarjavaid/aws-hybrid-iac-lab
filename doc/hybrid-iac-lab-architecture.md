@@ -2096,4 +2096,52 @@ Important: the bootstrap Terraform files are useful documentation and for manual
 
 ---
 
+1. The architecture we should use
+
+Your lab should become:
+
+                    Terraform
+                       |
+                       |
+          +------------+-------------+
+          |                          |
+          v                          v
+  CloudFormation              CFN Template S3
+    execution                  bucket
+      stack
+          |
+          v
+     main.yaml
+          |
+    +-----+------+----------------+----------------+
+    |            |                |                |
+    v            v                v                v
+ VPCStack     S3Stack         ECRStack        LambdaStack
+    |            |                |                |
+    v            v                v                v
+   VPC       App Bucket       ECR Repo          Lambda
+    |            |                |                |
+    |            |                |                |
+    +------------+----------------+----------------+
+                         |
+                         v
+              Other nested stacks
+                         |
+       +-----------------+------------------+
+       |                 |                  |
+       v                 v                  v
+      EC2              ECS                RDS
+       |                 |                  |
+       |                 |                  |
+       +---------> API Gateway <------------+
+                         |
+                         v
+                     CloudFront
+
+The important principle is:
+
+CloudFormation owns the application infrastructure. Terraform owns the orchestration/bootstrap layer.
+
+That is a much cleaner hybrid IaC design.
+---
 
