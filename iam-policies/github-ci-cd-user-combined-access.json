@@ -81,6 +81,18 @@
       "Resource": "arn:aws:iam::537236558357:role/aws-hybrid-iac-lab-GitHubActions"
     },
     {
+      "Sid": "ManageHybridIaCCloudFormationExecutionRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:PutRolePolicy",
+        "iam:GetRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:DeleteRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::537236558357:role/HybridIaCLab-dev-CloudFormationExecutionRole"
+    },
+    {
       "Sid": "AmazonEC2FullAccess",
       "Effect": "Allow",
       "Action": [

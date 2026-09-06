@@ -126,3 +126,38 @@ output "cloudformation_execution_role_arn" {
   #
   value = aws_iam_role.cloudformation_execution.arn
 }
+
+# ============================================================
+# GitHub Actions IAM Role ARN
+# ============================================================
+
+output "github_actions_role_arn" {
+
+  description = "ARN of the IAM role used by GitHub Actions through OIDC."
+
+  value = aws_iam_role.github_actions.arn
+}
+
+
+# ============================================================
+# GitHub Actions IAM Role Name
+# ============================================================
+
+output "github_actions_role_name" {
+
+  description = "Name of the IAM role used by GitHub Actions."
+
+  value = aws_iam_role.github_actions.name
+}
+
+
+# ============================================================
+# GitHub Actions OIDC Provider ARN
+# ============================================================
+
+output "github_actions_oidc_provider_arn" {
+
+  description = "ARN of the GitHub Actions OIDC provider."
+
+  value = aws_iam_openid_connect_provider.github_actions.arn
+}

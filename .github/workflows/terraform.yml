@@ -1,125 +1,232 @@
 # ============================================================
-# GitHub Actions - Terraform Infrastructure
-# Project: aws-hybrid-iac-lab
+# GitHub Actions - Terraform Infrastructure Deployment
+#
+# Project:
+#   aws-hybrid-iac-lab
+#
+# File:
+#   .github/workflows/main-deploy.yaml
 #
 # Purpose:
 #   1. Authenticate GitHub Actions to AWS using OIDC.
-#   2. Automatically bootstrap the Terraform state bucket.
-#   3. Initialize Terraform with an S3 remote backend.
-#   4. Validate Terraform configuration.
-#   5. Generate a Terraform plan.
-#   6. Apply the Terraform configuration.
+#   2. Verify the AWS identity.
+#   3. Bootstrap/verify the Terraform state bucket.
+#   4. Initialize Terraform using the S3 backend.
+#   5. Format-check Terraform.
+#   6. Validate Terraform.
+#   7. Generate a Terraform plan.
+#   8. Apply the exact generated plan.
+#
+#
+# AWS AUTHENTICATION ARCHITECTURE
+# ------------------------------------------------------------
+#
+#   GitHub Actions
+#        |
+#        | OIDC token
+#        v
+#   GitHub OIDC Provider
+#        |
+#        | sts:AssumeRoleWithWebIdentity
+#        v
+#   aws-hybrid-iac-lab-GitHubActions
+#        |
+#        | temporary AWS credentials
+#        v
+#   AWS
+#
 #
 # IMPORTANT:
-#   The S3 backend bucket must exist BEFORE "terraform init".
-#   Therefore, the workflow creates/verifies the backend bucket
-#   before Terraform initialization.
+# ------------------------------------------------------------
+# No AWS access key or secret access key is required.
 #
-# AWS Authentication:
-#   GitHub OIDC -> AWS STS -> GitHub Actions IAM Role
+# GitHub receives temporary AWS credentials through STS.
 #
+# ============================================================
+
+
+# ============================================================
+# Workflow Name
 # ============================================================
 
 name: Terraform Infrastructure
 
-# ------------------------------------------------------------
-# Workflow triggers
-# ------------------------------------------------------------
+
+# ============================================================
+# Workflow Triggers
+# ============================================================
+#
+# workflow_dispatch:
+#   Allows manual execution.
+#
+# workflow_call:
+#   Allows another workflow to call this workflow.
+#
+# push:
+#   Uncomment if you want automatic deployment whenever main
+#   changes.
+#
+# ============================================================
+
 on:
 
-  # Allows this workflow to be called by another workflow.
-  workflow_call:
-
-  # Allows manual execution from GitHub Actions.
   workflow_dispatch:
 
+  workflow_call:
 
-# ------------------------------------------------------------
-# Prevent two Terraform deployments from modifying the same
-# remote state at the same time.
+
+# ============================================================
+# Concurrency Protection
+# ============================================================
 #
-# This is an additional protection at the GitHub Actions level.
-# Terraform itself also uses the S3 lockfile.
-# ------------------------------------------------------------
+# Prevent multiple Terraform deployments from modifying the
+# same remote state simultaneously.
+#
+# ============================================================
+
 concurrency:
+
   group: terraform-${{ github.ref }}
+
   cancel-in-progress: false
 
 
-# ------------------------------------------------------------
-# GitHub Actions permissions
+# ============================================================
+# GitHub Token Permissions
+# ============================================================
 #
 # id-token: write
-#   Required to request the GitHub OIDC token.
+#   REQUIRED for GitHub OIDC authentication.
 #
 # contents: read
-#   Required by actions/checkout.
-# ------------------------------------------------------------
+#   REQUIRED by actions/checkout.
+#
+# ============================================================
+
 permissions:
+
   id-token: write
+
   contents: read
 
 
+# ============================================================
+# Terraform Deployment Job
+# ============================================================
+
 jobs:
 
-  # ==========================================================
-  # Terraform deployment job
-  # ==========================================================
   terraform:
 
     name: Terraform Infrastructure Deployment
 
-    # GitHub-hosted Ubuntu runner.
     runs-on: ubuntu-latest
 
 
     steps:
 
-      # --------------------------------------------------------
-      # Step 1 - Checkout repository
-      # --------------------------------------------------------
+      # ======================================================
+      # Step 1 - Checkout Repository
+      # ======================================================
+
       - name: Checkout Repository
+
         uses: actions/checkout@v4
 
 
-      # --------------------------------------------------------
-      # Step 2 - Configure AWS credentials using GitHub OIDC
+      # ======================================================
+      # Step 2 - Configure AWS Credentials Using OIDC
+      # ======================================================
       #
-      # No long-lived AWS access key is stored in GitHub.
+      # IMPORTANT:
       #
-      # GitHub requests an OIDC token and AWS STS exchanges
-      # that token for temporary credentials.
-      # --------------------------------------------------------
+      # This step does NOT use:
+      #
+      #   AWS_ACCESS_KEY_ID
+      #   AWS_SECRET_ACCESS_KEY
+      #
+      # Instead:
+      #
+      #   GitHub OIDC
+      #       ↓
+      #   AWS STS
+      #       ↓
+      #   Temporary credentials
+      #
+      # ======================================================
+
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
+
+        uses: aws-actions/configure-aws-credentials@v6
 
         with:
 
+          # --------------------------------------------------
+          # AWS region
+          #
           # Repository variable:
+          #
           # Settings
-          #   -> Secrets and variables
-          #   -> Actions
-          #   -> Variables
+          #   → Secrets and variables
+          #   → Actions
+          #   → Variables
+          #
+          # Variable:
+          #
+          #   AWS_REGION
+          # --------------------------------------------------
+
           aws-region: ${{ vars.AWS_REGION }}
 
-          # Repository secret:
-          # Settings
-          #   -> Secrets and variables
-          #   -> Actions
-          #   -> Secrets
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+
+          # --------------------------------------------------
+          # IAM role assumed through GitHub OIDC.
+          #
+          # Recommended repository variable:
+          #
+          #   AWS_ROLE_ARN
+          #
+          # Example:
+          #
+          #   arn:aws:iam::537236558357:role/
+          #   awshybrid...-GitHubActions
+          #
+          # --------------------------------------------------
+
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
 
 
-      # --------------------------------------------------------
-      # Step 3 - Verify AWS identity
+          # --------------------------------------------------
+          # Give the session a recognizable name.
+          # --------------------------------------------------
+
+          role-session-name: GitHubActions-Terraform
+
+
+      # ======================================================
+      # Step 3 - Verify AWS Identity
+      # ======================================================
       #
-      # This confirms that GitHub Actions successfully assumed
-      # the intended IAM role.
-      # --------------------------------------------------------
+      # This is an important diagnostic step.
+      #
+      # If this step fails:
+      #
+      #   Terraform has NOT started yet.
+      #
+      # The problem is authentication/OIDC/IAM.
+      #
+      # If this step succeeds:
+      #
+      #   OIDC authentication is working.
+      #
+      # ======================================================
+
       - name: Verify AWS Identity
+
         shell: bash
 
         run: |
+
           set -euo pipefail
 
           echo "=============================================="
@@ -129,48 +236,36 @@ jobs:
           aws sts get-caller-identity
 
           echo ""
+
           echo "AWS Region:"
+
           echo "${AWS_REGION}"
 
 
-      # ========================================================
+      # ======================================================
       # Step 4 - Bootstrap Terraform State Bucket
+      # ======================================================
       #
-      # IMPORTANT:
+      # Terraform cannot initialize an S3 backend if the
+      # backend bucket does not already exist.
       #
-      # Terraform cannot create its own backend bucket inside
-      # the same configuration because Terraform must access
-      # the backend during "terraform init".
+      # Therefore this workflow verifies/creates the bucket
+      # before terraform init.
       #
-      # Therefore this preflight step creates/verifies the
-      # bucket before terraform init.
-      #
-      # This step is IDEMPOTENT:
-      #
-      # - If the bucket does not exist -> create it.
-      # - If it already exists -> keep using it.
-      #
-      # The bucket is configured with:
-      #
-      # - Versioning
-      # - Server-side encryption (SSE-S3)
-      # - Block Public Access
-      # - Tags
-      #
-      # The bucket is NOT destroyed by Terraform.
-      # ========================================================
+      # ======================================================
+
       - name: Bootstrap Terraform State Bucket
+
         shell: bash
 
         env:
 
-          # Dedicated Terraform state bucket.
           TF_STATE_BUCKET: aws-hybrid-iac-lab-terraform-state-537236558357
 
-          # AWS region comes from the GitHub repository variable.
           TF_STATE_REGION: ${{ vars.AWS_REGION }}
 
         run: |
+
           set -euo pipefail
 
           echo "=============================================="
@@ -180,11 +275,19 @@ jobs:
           echo "State bucket:"
           echo "${TF_STATE_BUCKET}"
 
+          echo ""
+
           echo "AWS region:"
           echo "${TF_STATE_REGION}"
 
           echo ""
-          echo "Checking whether Terraform state bucket exists..."
+
+          echo "Checking Terraform state bucket..."
+
+
+          # --------------------------------------------------
+          # Check whether bucket already exists.
+          # --------------------------------------------------
 
           if aws s3api head-bucket \
             --bucket "${TF_STATE_BUCKET}" \
@@ -192,18 +295,19 @@ jobs:
             2>/dev/null
           then
 
-            echo ""
             echo "Terraform state bucket already exists."
-            echo "No bucket creation is required."
 
           else
 
-            echo ""
             echo "Terraform state bucket does not exist."
+
             echo "Creating bucket..."
 
-            # us-east-1 requires a slightly different create-bucket
-            # command because LocationConstraint is not used there.
+
+            # ------------------------------------------------
+            # us-east-1 does not use LocationConstraint.
+            # ------------------------------------------------
+
             if [ "${TF_STATE_REGION}" = "us-east-1" ]; then
 
               aws s3api create-bucket \
@@ -220,20 +324,18 @@ jobs:
 
             fi
 
-            echo ""
             echo "Terraform state bucket created."
 
           fi
 
 
-          # ------------------------------------------------------
-          # Enable S3 Versioning
-          #
-          # Versioning allows previous Terraform state versions
-          # to be recovered after accidental modification/deletion.
-          # ------------------------------------------------------
+          # --------------------------------------------------
+          # Enable versioning.
+          # --------------------------------------------------
+
           echo ""
-          echo "Enabling S3 bucket versioning..."
+
+          echo "Enabling S3 versioning..."
 
           aws s3api put-bucket-versioning \
             --bucket "${TF_STATE_BUCKET}" \
@@ -241,13 +343,13 @@ jobs:
             --versioning-configuration Status=Enabled
 
 
-          # ------------------------------------------------------
-          # Enable default server-side encryption.
-          #
-          # SSE-S3 uses Amazon S3 managed encryption keys.
-          # ------------------------------------------------------
+          # --------------------------------------------------
+          # Enable SSE-S3 encryption.
+          # --------------------------------------------------
+
           echo ""
-          echo "Enabling S3 server-side encryption..."
+
+          echo "Enabling S3 encryption..."
 
           aws s3api put-bucket-encryption \
             --bucket "${TF_STATE_BUCKET}" \
@@ -264,14 +366,13 @@ jobs:
             }'
 
 
-          # ------------------------------------------------------
-          # Block all public access.
-          #
-          # Terraform state can contain sensitive infrastructure
-          # information, so the state bucket must never be public.
-          # ------------------------------------------------------
+          # --------------------------------------------------
+          # Block public access.
+          # --------------------------------------------------
+
           echo ""
-          echo "Enabling S3 Block Public Access..."
+
+          echo "Blocking public access..."
 
           aws s3api put-public-access-block \
             --bucket "${TF_STATE_BUCKET}" \
@@ -280,11 +381,13 @@ jobs:
             BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
 
 
-          # ------------------------------------------------------
-          # Add bucket tags.
-          # ------------------------------------------------------
+          # --------------------------------------------------
+          # Apply bucket tags.
+          # --------------------------------------------------
+
           echo ""
-          echo "Applying Terraform state bucket tags..."
+
+          echo "Applying bucket tags..."
 
           aws s3api put-bucket-tagging \
             --bucket "${TF_STATE_BUCKET}" \
@@ -315,127 +418,159 @@ jobs:
             }'
 
 
-          # ------------------------------------------------------
-          # Verify the bucket configuration.
-          # ------------------------------------------------------
-          echo ""
-          echo "=============================================="
-          echo "Terraform State Bucket Verification"
-          echo "=============================================="
+          # --------------------------------------------------
+          # Verify bucket.
+          # --------------------------------------------------
 
           echo ""
+
+          echo "=============================================="
+
+          echo "Terraform State Bucket Verification"
+
+          echo "=============================================="
+
+
+          echo ""
+
           echo "Bucket:"
+
           aws s3api head-bucket \
             --bucket "${TF_STATE_BUCKET}" \
             --region "${TF_STATE_REGION}"
 
+
           echo ""
+
           echo "Versioning:"
+
           aws s3api get-bucket-versioning \
             --bucket "${TF_STATE_BUCKET}" \
             --region "${TF_STATE_REGION}"
 
+
           echo ""
+
           echo "Encryption:"
+
           aws s3api get-bucket-encryption \
             --bucket "${TF_STATE_BUCKET}" \
             --region "${TF_STATE_REGION}"
 
+
           echo ""
+
           echo "Public Access Block:"
+
           aws s3api get-public-access-block \
             --bucket "${TF_STATE_BUCKET}" \
             --region "${TF_STATE_REGION}"
 
+
           echo ""
-          echo "Terraform state backend bootstrap completed successfully."
+
+          echo "Terraform state backend bootstrap completed."
 
 
-      # --------------------------------------------------------
-      # Step 5 - Setup Terraform
-      # --------------------------------------------------------
+      # ======================================================
+      # Step 5 - Install Terraform
+      # ======================================================
+
       - name: Setup Terraform
+
         uses: hashicorp/setup-terraform@v3
 
 
-      # --------------------------------------------------------
+      # ======================================================
       # Step 6 - Terraform Init
-      #
-      # backend.tf tells Terraform to store state remotely in:
-      #
-      # S3 bucket:
-      #   aws-hybrid-iac-lab-terraform-state-537236558357
-      #
-      # State key:
-      #   aws-hybrid-iac-lab/dev/terraform.tfstate
-      #
-      # use_lockfile=true enables S3 native state locking.
-      # --------------------------------------------------------
+      # ======================================================
+
       - name: Terraform Init
+
         working-directory: infrastructure/terraform
 
         run: |
-          terraform init -input=false
+
+          terraform init \
+            -input=false
 
 
-      # --------------------------------------------------------
+      # ======================================================
       # Step 7 - Terraform Format Check
-      # --------------------------------------------------------
+      # ======================================================
+
       - name: Terraform Format Check
+
         working-directory: infrastructure/terraform
 
         run: |
-          terraform fmt -check -recursive
+
+          terraform fmt \
+            -check \
+            -recursive
 
 
-      # --------------------------------------------------------
+      # ======================================================
       # Step 8 - Terraform Validate
-      # --------------------------------------------------------
+      # ======================================================
+
       - name: Terraform Validate
+
         working-directory: infrastructure/terraform
 
         run: |
+
           terraform validate
 
 
-      # --------------------------------------------------------
-      # Step 9 - Show Terraform State
-      #
-      # This helps confirm that Terraform is now using the
-      # remote S3 backend.
-      # --------------------------------------------------------
+      # ======================================================
+      # Step 9 - Terraform State Information
+      # ======================================================
+
       - name: Terraform State Information
+
         working-directory: infrastructure/terraform
 
         run: |
+
           echo "=============================================="
+
           echo "Terraform State"
+
           echo "=============================================="
 
           terraform state list || true
 
 
-      # --------------------------------------------------------
+      # ======================================================
       # Step 10 - Terraform Plan
-      # --------------------------------------------------------
+      # ======================================================
+
       - name: Terraform Plan
+
         working-directory: infrastructure/terraform
 
         run: |
+
           terraform plan \
             -input=false \
             -out=tfplan
 
 
-      # --------------------------------------------------------
+      # ======================================================
       # Step 11 - Terraform Apply
+      # ======================================================
       #
-      # Only applies the exact plan generated above.
-      # --------------------------------------------------------
+      # Applies the exact plan generated in the previous step.
+      #
+      # ======================================================
+
       - name: Terraform Apply
+
         working-directory: infrastructure/terraform
 
         run: |
+
           terraform apply \
             -input=false \
             -auto-approve \
