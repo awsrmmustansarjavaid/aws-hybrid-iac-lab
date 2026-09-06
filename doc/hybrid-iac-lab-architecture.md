@@ -2057,3 +2057,43 @@ terraform apply
 you will be practicing the exact concept you wanted:
 
 > **Terraform is the front door; CloudFormation is the backend IaC engine; S3 is the template delivery layer; nested CloudFormation stacks divide the infrastructure into manageable modules.**
+
+----
+## 1. Final directory structure
+
+Your relevant structure should be:
+
+```
+aws-hybrid-iac-lab/
+│
+├── .github/
+│   └── workflows/
+│       └── terraform.yml
+│
+├── infrastructure/
+│   │
+│   ├── terraform/
+│   │   ├── backend.tf
+│   │   ├── providers.tf
+│   │   ├── variables.tf
+│   │   ├── locals.tf
+│   │   ├── iam.tf
+│   │   ├── template_bucket.tf
+│   │   ├── template_objects.tf
+│   │   ├── cloudformation.tf
+│   │   └── ...
+│   │
+│   └── bootstrap/
+│       └── terraform-state/
+│           ├── main.tf
+│           ├── variables.tf
+│           └── outputs.tf
+│
+└── README.md
+```
+
+Important: the bootstrap Terraform files are useful documentation and for manually bootstrapping the backend if necessary, but the GitHub Actions workflow below will automatically create/secure the bucket before terraform init.
+
+---
+
+

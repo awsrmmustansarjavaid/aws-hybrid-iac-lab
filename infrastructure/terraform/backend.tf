@@ -1,23 +1,71 @@
+# ============================================================
+# Terraform Remote Backend
+# Project: aws-hybrid-iac-lab
+#
+# Purpose:
+#   Store Terraform state remotely in Amazon S3.
+#
+# IMPORTANT:
+#   The S3 bucket must exist before "terraform init".
+#
+#   GitHub Actions automatically creates/verifies the bucket
+#   before running terraform init.
+#
+# State bucket:
+#   aws-hybrid-iac-lab-terraform-state-537236558357
+#
+# State file:
+#   aws-hybrid-iac-lab/dev/terraform.tfstate
+#
+# State locking:
+#   S3 lockfile (.tflock)
+#
+# ============================================================
+
 terraform {
+
   backend "s3" {
-    # S3 bucket where Terraform stores the remote state file.
-    # This bucket should already exist before running Terraform init.
+
+    # --------------------------------------------------------
+    # Dedicated Terraform state bucket.
+    #
+    # This bucket is DIFFERENT from the CloudFormation
+    # template bucket.
+    # --------------------------------------------------------
     bucket = "aws-hybrid-iac-lab-terraform-state-537236558357"
 
-    # Path and filename of the Terraform state file inside the S3 bucket.
-    # "dev" keeps the state organized for the development environment.
+
+    # --------------------------------------------------------
+    # Location of the Terraform state file.
+    # --------------------------------------------------------
     key = "aws-hybrid-iac-lab/dev/terraform.tfstate"
 
-    # AWS Region where the S3 state bucket is located.
+
+    # --------------------------------------------------------
+    # AWS region containing the state bucket.
+    # --------------------------------------------------------
     region = "us-east-1"
 
-    # Encrypts the Terraform state file while it is stored in S3.
-    # This helps protect sensitive information contained in the state.
+
+    # --------------------------------------------------------
+    # Encrypt Terraform state objects.
+    #
+    # The bucket also has default SSE-S3 encryption configured
+    # by the GitHub Actions bootstrap step.
+    # --------------------------------------------------------
     encrypt = true
 
-    # Enables Terraform's native S3 state locking mechanism.
-    # This prevents multiple Terraform operations from modifying
-    # the same state at the same time.
+
+    # --------------------------------------------------------
+    # Enable native S3 state locking.
+    #
+    # Terraform creates:
+    #
+    #   aws-hybrid-iac-lab/dev/terraform.tfstate.tflock
+    #
+    # DynamoDB locking is NOT required.
+    # --------------------------------------------------------
     use_lockfile = true
   }
 }
+
