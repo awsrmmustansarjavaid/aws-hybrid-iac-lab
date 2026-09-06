@@ -1,0 +1,16 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "PassCharlieCafeCloudFormationRole",
+            "Effect": "Allow",
+            "Action": "iam:PassRole",
+            "Resource": "arn:aws:iam::537236558357:role/CharlieCafe-CloudFormation-ServiceRole",
+            "Condition": {
+                "StringEquals": {
+                    "iam:PassedToService": "cloudformation.amazonaws.com"
+                }
+            }
+        }
+    ]
+}

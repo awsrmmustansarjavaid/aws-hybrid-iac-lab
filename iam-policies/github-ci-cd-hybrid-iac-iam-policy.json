@@ -1,0 +1,17 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageHybridIaCCloudFormationExecutionRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:PutRolePolicy",
+        "iam:GetRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:DeleteRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::537236558357:role/HybridIaCLab-dev-CloudFormationExecutionRole"
+    }
+  ]
+}
