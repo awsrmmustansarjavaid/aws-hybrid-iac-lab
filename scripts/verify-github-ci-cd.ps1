@@ -1,1928 +1,2781 @@
 # ==========================================================
-# verify-github-ci-cd.ps1
+# FILE: verify-github-ci-cd.ps1
 # ==========================================================
 #
-# Purpose:
-# Complete READ/VERIFY-oriented verification of:
-#
-# - AWS account
-# - AWS region
-# - Combined IAM policy
-# - GitHub Actions IAM role
-# - IAM policy attachment
-# - GitHub OIDC provider
-# - GitHub Actions role trust policy
-# - IAM PassRole
-# - EC2
-# - S3
-# - SSM
-# - Lambda
-# - ECR
-# - ECS
-# - CloudFormation
-# - Secrets Manager
-# - Terraform
-# - Git repository
-# - GitHub Actions workflow files
+# PURPOSE:
+#   Verify the AWS/GitHub Actions CI/CD configuration for
+#   the aws-hybrid-iac-lab project.
 #
 # IMPORTANT:
-# This script DOES NOT:
+#   This script is READ/VERIFY ONLY.
 #
-# - Create AWS resources
-# - Delete AWS resources
-# - Modify IAM roles
-# - Modify IAM policies
-# - Detach IAM policies
-# - Run terraform apply
-# - Deploy applications
-# - Push to GitHub
+#   It does NOT:
+#     - create AWS resources
+#     - delete AWS resources
+#     - detach IAM policies
+#     - modify IAM policies
+#     - modify trust policies
+#     - run terraform apply
 #
-# The script creates:
+#   Terraform commands used:
+#     - terraform fmt -check
+#     - terraform init
+#     - terraform validate
+#     - terraform plan
 #
-# github-ci-cd-verification-report-YYYYMMDD-HHmmss.txt
-#
-# in the current directory.
-#
-# ==========================================================
-
-
-# ==========================================================
-# 1. CONFIGURATION
 # ==========================================================
 
 $ErrorActionPreference = "Continue"
 
-# Expected AWS account
+# ==========================================================
+# CONFIGURATION
+# ==========================================================
+
 $ExpectedAccountId = "537236558357"
+$ExpectedRegion    = "us-east-1"
 
-# Expected AWS region
-$AwsRegion = "us-east-1"
+# IAM USER
+$GitHubIamUserName = "github-ci-cd-user"
 
-# Combined IAM policy
-$CombinedPolicyName = "github-ci-cd-user-combined-access"
-
-$CombinedPolicyArn = `
-    "arn:aws:iam::$ExpectedAccountId`:policy/$CombinedPolicyName"
-
-# GitHub Actions IAM role
+# GITHUB ACTIONS OIDC ROLE
 $GitHubRoleName = "aws-hybrid-iac-lab-GitHubActions"
 
-$GitHubRoleArn = `
-    "arn:aws:iam::$ExpectedAccountId`:role/$GitHubRoleName"
-
-# CloudFormation service role
+# CLOUDFORMATION SERVICE ROLE
 $CloudFormationRoleName = "CharlieCafe-CloudFormation-ServiceRole"
 
-$CloudFormationRoleArn = `
-    "arn:aws:iam::$ExpectedAccountId`:role/$CloudFormationRoleName"
+# NEW COMBINED CUSTOMER-MANAGED POLICY
+$CombinedPolicyName = "github-ci-cd-user-combined-access"
 
-# Terraform directory
-$TerraformDirectory = (Get-Location).Path
+# GITHUB OIDC PROVIDER
+$OidcProviderArn =
+    "arn:aws:iam::$ExpectedAccountId:oidc-provider/token.actions.githubusercontent.com"
 
-# Optional Secrets Manager secret
+# GITHUB REPOSITORY
+$ExpectedRepository =
+    "awsrmmustansarjavaid/aws-hybrid-iac-lab"
+
+# IMPORTANT:
+# Use ${ExpectedRepository} because ':' immediately follows
+# the variable value in the resulting string.
+$ExpectedSubjectPattern =
+    "repo:${ExpectedRepository}:*"
+
+$ExpectedAudience =
+    "sts.amazonaws.com"
+
+# SECRET USED BY THE LAB
 $SecretName = "CafeDevDBSM"
 
-
 # ==========================================================
-# 2. REPORT VARIABLES
-# ==========================================================
-
-$Passed = @()
-$Warnings = @()
-$Errors = @()
-
-$StartTime = Get-Date
-
-$ReportFile = Join-Path `
-    $TerraformDirectory `
-    (
-        "github-ci-cd-verification-report-" +
-        $StartTime.ToString("yyyyMMdd-HHmmss") +
-        ".txt"
-    )
-
-
-# ==========================================================
-# 3. REPORT HEADER
+# PROJECT PATHS
 # ==========================================================
 
-$ReportHeader = @"
-============================================================
- GitHub Actions + AWS + Terraform Verification Report
-============================================================
+# This script lives in:
+#
+#   project-root\scripts\verify-github-ci-cd.ps1
+#
+# Therefore PSScriptRoot is:
+#
+#   project-root\scripts
+#
+# and the project root is its parent.
+#
+$ProjectRoot =
+    Split-Path -Parent $PSScriptRoot
 
-Started:
-$StartTime
+if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 
-Expected AWS Account:
-$ExpectedAccountId
-
-Expected AWS Region:
-$AwsRegion
-
-Combined IAM Policy:
-$CombinedPolicyName
-
-GitHub Actions Role:
-$GitHubRoleName
-
-CloudFormation Service Role:
-$CloudFormationRoleName
-
-Terraform Directory:
-$TerraformDirectory
-
-============================================================
-
-"@
-
-$ReportHeader | Out-File `
-    -FilePath $ReportFile `
-    -Encoding utf8
-
-
-# ==========================================================
-# 4. OUTPUT FUNCTIONS
-# ==========================================================
-
-function Write-Test {
-
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Name
-    )
-
-    Write-Host ""
-    Write-Host "==========================================================" `
-        -ForegroundColor Cyan
-
-    Write-Host "TEST: $Name" `
-        -ForegroundColor Cyan
-
-    Write-Host "==========================================================" `
-        -ForegroundColor Cyan
-
-    Add-Content `
-        -Path $ReportFile `
-        -Value ""
-
-    Add-Content `
-        -Path $ReportFile `
-        -Value "=========================================================="
-
-    Add-Content `
-        -Path $ReportFile `
-        -Value "TEST: $Name"
-
-    Add-Content `
-        -Path $ReportFile `
-        -Value "=========================================================="
+    $ProjectRoot =
+        (Get-Location).Path
 }
 
+$WorkflowDirectory =
+    Join-Path $ProjectRoot ".github\workflows"
 
-function Write-Pass {
+$ReportFile =
+    Join-Path `
+        $ProjectRoot `
+        (
+            "github-ci-cd-verification-report-" +
+            (Get-Date -Format "yyyyMMdd-HHmmss") +
+            ".txt"
+        )
+
+# ==========================================================
+# RESULT COUNTERS
+# ==========================================================
+
+$Passed   = 0
+$Warnings = 0
+$Errors   = 0
+
+$ReportLines =
+    New-Object System.Collections.Generic.List[string]
+
+# ==========================================================
+# REPORT FUNCTIONS
+# ==========================================================
+
+function Add-ReportLine {
 
     param(
-        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
         [string]$Message
     )
 
-    $script:Passed += $Message
+    if ($null -eq $Message) {
+        return
+    }
 
-    Write-Host "[PASS] $Message" `
-        -ForegroundColor Green
-
-    Add-Content `
-        -Path $ReportFile `
-        -Value "[PASS] $Message"
+    $ReportLines.Add($Message)
 }
-
-
-function Write-WarningResult {
-
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Message
-    )
-
-    $script:Warnings += $Message
-
-    Write-Host "[WARN] $Message" `
-        -ForegroundColor Yellow
-
-    Add-Content `
-        -Path $ReportFile `
-        -Value "[WARN] $Message"
-}
-
-
-function Write-Fail {
-
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Message
-    )
-
-    $script:Errors += $Message
-
-    Write-Host "[FAIL] $Message" `
-        -ForegroundColor Red
-
-    Add-Content `
-        -Path $ReportFile `
-        -Value "[FAIL] $Message"
-}
-
 
 function Write-Info {
 
     param(
-        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
         [string]$Message
     )
 
-    Write-Host "[INFO] $Message" `
-        -ForegroundColor Gray
-
-    Add-Content `
-        -Path $ReportFile `
-        -Value "[INFO] $Message"
-}
-
-
-# ==========================================================
-# 5. AWS CLI AVAILABILITY
-# ==========================================================
-
-Write-Test "AWS CLI Availability"
-
-try {
-
-    $AwsVersion = aws --version 2>&1
-
-    if ($LASTEXITCODE -eq 0) {
-
-        Write-Pass "AWS CLI is installed."
-        Write-Info "AWS CLI version: $AwsVersion"
-
-    }
-    else {
-
-        Write-Fail "AWS CLI is not available."
-
+    if ($null -eq $Message) {
+        return
     }
 
-}
-catch {
+    Write-Host "[INFO] $Message"
 
-    Write-Fail `
-        "AWS CLI check failed: $($_.Exception.Message)"
+    Add-ReportLine "[INFO] $Message"
 }
 
+function Write-Pass {
 
-# ==========================================================
-# 6. TERRAFORM AVAILABILITY
-# ==========================================================
+    param(
+        [string]$Message
+    )
 
-Write-Test "Terraform Availability"
+    $script:Passed++
 
-try {
+    Write-Host "[PASS] $Message"
 
-    $TerraformVersion = terraform version 2>&1
-
-    if ($LASTEXITCODE -eq 0) {
-
-        Write-Pass "Terraform is installed."
-        Write-Info "Terraform version:"
-        Write-Info "$TerraformVersion"
-
-    }
-    else {
-
-        Write-Fail "Terraform is not available."
-
-    }
-
-}
-catch {
-
-    Write-Fail `
-        "Terraform check failed: $($_.Exception.Message)"
+    Add-ReportLine "[PASS] $Message"
 }
 
+function Write-Warn {
 
-# ==========================================================
-# 7. AWS ACCOUNT IDENTITY
-# ==========================================================
+    param(
+        [string]$Message
+    )
 
-Write-Test "AWS Account Identity"
+    $script:Warnings++
 
-try {
+    Write-Host "[WARN] $Message"
 
-    $IdentityJson = aws sts get-caller-identity `
-        --output json 2>&1
-
-    if ($LASTEXITCODE -eq 0) {
-
-        $Identity = $IdentityJson | ConvertFrom-Json
-
-        Write-Info "AWS Account: $($Identity.Account)"
-        Write-Info "AWS ARN: $($Identity.Arn)"
-        Write-Info "AWS User ID: $($Identity.UserId)"
-
-        if ($Identity.Account -eq $ExpectedAccountId) {
-
-            Write-Pass `
-                "AWS account matches expected account $ExpectedAccountId."
-
-        }
-        else {
-
-            Write-Fail `
-                "AWS account mismatch. Expected $ExpectedAccountId but found $($Identity.Account)."
-
-        }
-
-    }
-    else {
-
-        Write-Fail `
-            "Unable to authenticate to AWS."
-
-        Write-Info "$IdentityJson"
-    }
-
-}
-catch {
-
-    Write-Fail `
-        "AWS identity check failed: $($_.Exception.Message)"
+    Add-ReportLine "[WARN] $Message"
 }
 
+function Write-Fail {
+
+    param(
+        [string]$Message
+    )
+
+    $script:Errors++
+
+    Write-Host "[FAIL] $Message"
+
+    Add-ReportLine "[FAIL] $Message"
+}
+
+function Write-TestHeader {
+
+    param(
+        [string]$Title
+    )
+
+    Write-Host ""
+    Write-Host "=========================================================="
+    Write-Host "TEST: $Title"
+    Write-Host "=========================================================="
+
+    Add-ReportLine ""
+    Add-ReportLine "=========================================================="
+    Add-ReportLine "TEST: $Title"
+    Add-ReportLine "=========================================================="
+}
 
 # ==========================================================
-# 8. AWS REGION
+# AWS JSON HELPER
 # ==========================================================
 
-Write-Test "AWS Region"
+function Get-AwsJson {
 
-try {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
 
-    $ConfiguredRegion = aws configure get region 2>&1
+    $Output =
+        & aws @Arguments --no-cli-pager 2>&1
 
-    if ($ConfiguredRegion -eq $AwsRegion) {
+    if ($LASTEXITCODE -ne 0) {
 
-        Write-Pass `
-            "AWS CLI region is $AwsRegion."
-
-    }
-    else {
-
-        Write-WarningResult `
-            "Configured AWS region is '$ConfiguredRegion'. Expected '$AwsRegion'."
-
+        return $null
     }
 
-}
-catch {
+    try {
 
-    Write-WarningResult `
-        "Unable to determine AWS CLI region."
-}
+        $Text =
+            $Output -join "`n"
 
-
-# ==========================================================
-# 9. COMBINED IAM POLICY EXISTS
-# ==========================================================
-
-$DefaultVersionId = $null
-
-Write-Test "Combined IAM Policy Exists"
-
-try {
-
-    $PolicyJson = aws iam get-policy `
-        --policy-arn $CombinedPolicyArn `
-        --output json 2>&1
-
-    if ($LASTEXITCODE -eq 0) {
-
-        $Policy = $PolicyJson | ConvertFrom-Json
-
-        Write-Pass `
-            "Combined IAM policy exists: $CombinedPolicyName"
-
-        Write-Info `
-            "Policy ARN: $($Policy.Policy.Arn)"
-
-        Write-Info `
-            "Policy ID: $($Policy.Policy.PolicyId)"
-
-        $DefaultVersionId = `
-            $Policy.Policy.DefaultVersionId
-
-        Write-Info `
-            "Default policy version: $DefaultVersionId"
-
+        return (
+            $Text | ConvertFrom-Json
+        )
     }
-    else {
+    catch {
 
-        Write-Fail `
-            "Combined IAM policy was not found: $CombinedPolicyArn"
+        return $null
+    }
+}
 
+# ==========================================================
+# IAM POLICY DOCUMENT DECODER
+# ==========================================================
+
+function Get-IamPolicyDocument {
+
+    param(
+        [string]$PolicyArn,
+
+        [string]$VersionId
+    )
+
+    $Raw =
+        & aws iam get-policy-version `
+            --policy-arn $PolicyArn `
+            --version-id $VersionId `
+            --output json `
+            --no-cli-pager 2>&1
+
+    if ($LASTEXITCODE -ne 0) {
+
+        return $null
     }
 
-}
-catch {
+    try {
 
-    Write-Fail `
-        "Combined IAM policy check failed: $($_.Exception.Message)"
-}
+        $Json =
+            ($Raw -join "`n") |
+            ConvertFrom-Json
 
+        $DocumentText =
+            [string]$Json.PolicyVersion.Document
 
-# ==========================================================
-# 10. READ COMBINED POLICY DOCUMENT
-# ==========================================================
+        # IAM policy documents returned by AWS CLI can be
+        # URL encoded.
+        if ($DocumentText -match '%[0-9A-Fa-f]{2}') {
 
-$PolicyVersionJson = $null
-$PolicyText = ""
-
-Write-Test "Combined IAM Policy Document"
-
-try {
-
-    if ($DefaultVersionId) {
-
-        $PolicyVersionJson = aws iam get-policy-version `
-            --policy-arn $CombinedPolicyArn `
-            --version-id $DefaultVersionId `
-            --output json 2>&1
-
-        if ($LASTEXITCODE -eq 0) {
-
-            $PolicyVersion = `
-                $PolicyVersionJson | ConvertFrom-Json
-
-            Write-Pass `
-                "Combined IAM policy document can be read."
-
-            $Statements = `
-                @($PolicyVersion.PolicyVersion.Document.Statement)
-
-            Write-Info `
-                "Policy statement count: $($Statements.Count)"
-
-            $PolicyText = $PolicyVersionJson.ToString()
-
-        }
-        else {
-
-            Write-Fail `
-                "Unable to read combined IAM policy version."
-
+            $DocumentText =
+                [System.Net.WebUtility]::UrlDecode(
+                    $DocumentText
+                )
         }
 
+        return (
+            $DocumentText |
+            ConvertFrom-Json
+        )
     }
-    else {
+    catch {
 
-        Write-WarningResult `
-            "Policy version cannot be checked because the policy was not found."
-
+        return $null
     }
-
-}
-catch {
-
-    Write-Fail `
-        "Policy document check failed: $($_.Exception.Message)"
 }
 
+# ==========================================================
+# IAM ACTION CHECK
+# ==========================================================
+
+function Test-IamActionAllowed {
+
+    param(
+        [Parameter(Mandatory = $true)]
+        $PolicyDocument,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RequiredAction
+    )
+
+    $AllowMatch = $null
+    $DenyMatch  = $null
+
+    foreach ($Statement in @($PolicyDocument.Statement)) {
+
+        if ($null -eq $Statement) {
+            continue
+        }
+
+        $Actions = @()
+
+        if ($null -ne $Statement.Action) {
+
+            $Actions =
+                @($Statement.Action)
+        }
+
+        foreach ($ActionPattern in $Actions) {
+
+            if (
+                [string]::IsNullOrWhiteSpace(
+                    [string]$ActionPattern
+                )
+            ) {
+                continue
+            }
+
+            # PowerShell -like supports the IAM-style '*'
+            # wildcard for the action checks we need here.
+            if (
+                $RequiredAction -like
+                [string]$ActionPattern
+            ) {
+
+                if ($Statement.Effect -eq "Deny") {
+
+                    $DenyMatch =
+                        [string]$ActionPattern
+                }
+
+                if ($Statement.Effect -eq "Allow") {
+
+                    $AllowMatch =
+                        [string]$ActionPattern
+                }
+            }
+        }
+    }
+
+    if ($null -ne $DenyMatch) {
+
+        return [pscustomobject]@{
+            Status  = "ExplicitDeny"
+            Pattern = $DenyMatch
+        }
+    }
+
+    if ($null -ne $AllowMatch) {
+
+        return [pscustomobject]@{
+            Status  = "Allowed"
+            Pattern = $AllowMatch
+        }
+    }
+
+    return [pscustomobject]@{
+        Status  = "Missing"
+        Pattern = ""
+    }
+}
 
 # ==========================================================
-# 11. CHECK REQUIRED IAM PERMISSIONS
+# TRUST POLICY CONDITION HELPER
 # ==========================================================
 
-Write-Test "Required IAM Policy Permissions"
+function Get-ConditionValue {
 
-$RequiredActions = @(
-    "lambda:UpdateFunctionCode",
-    "lambda:UpdateFunctionConfiguration",
-    "lambda:PublishLayerVersion",
-    "ssm:SendCommand",
-    "secretsmanager:GetSecretValue",
-    "ecr:PutImage",
-    "ecs:UpdateService",
-    "iam:PassRole",
-    "ec2:*",
-    "s3:*",
-    "cloudformation:*",
-    "ssm:*"
-)
+    param(
+        $Condition,
 
-if ([string]::IsNullOrWhiteSpace($PolicyText)) {
+        [string]$Operator,
 
-    Write-WarningResult `
-        "Combined policy document is unavailable; required action checks were skipped."
+        [string]$Key
+    )
 
+    if ($null -eq $Condition) {
+
+        return @()
+    }
+
+    $OperatorProperty =
+        $Condition.PSObject.Properties[$Operator]
+
+    if ($null -eq $OperatorProperty) {
+
+        return @()
+    }
+
+    $KeyProperty =
+        $OperatorProperty.Value.PSObject.Properties[$Key]
+
+    if ($null -eq $KeyProperty) {
+
+        return @()
+    }
+
+    return @(
+        $KeyProperty.Value
+    )
+}
+
+# ==========================================================
+# TRUST POLICY VALIDATION
+# ==========================================================
+
+function Test-TrustPolicy {
+
+    param(
+        [Parameter(Mandatory = $true)]
+        $TrustPolicy
+    )
+
+    $Result = [ordered]@{
+
+        OidcProvider = $false
+
+        Action = $false
+
+        Audience = $false
+
+        Subject = $false
+    }
+
+    foreach ($Statement in @($TrustPolicy.Statement)) {
+
+        if ($null -eq $Statement) {
+            continue
+        }
+
+        # --------------------------------------------------
+        # OIDC PROVIDER
+        # --------------------------------------------------
+
+        $FederatedValues = @()
+
+        if ($null -ne $Statement.Principal) {
+
+            $FederatedProperty =
+                $Statement.Principal.PSObject.Properties[
+                    "Federated"
+                ]
+
+            if ($null -ne $FederatedProperty) {
+
+                $FederatedValues =
+                    @($FederatedProperty.Value)
+            }
+        }
+
+        foreach ($Federated in $FederatedValues) {
+
+            if (
+                [string]$Federated -eq
+                $OidcProviderArn
+            ) {
+
+                $Result.OidcProvider = $true
+            }
+        }
+
+        # --------------------------------------------------
+        # ASSUME ROLE WITH WEB IDENTITY
+        # --------------------------------------------------
+
+        foreach ($Action in @($Statement.Action)) {
+
+            if (
+                [string]$Action -eq
+                "sts:AssumeRoleWithWebIdentity"
+            ) {
+
+                $Result.Action = $true
+            }
+        }
+
+        # --------------------------------------------------
+        # AUDIENCE
+        #
+        # IMPORTANT:
+        # The property name contains ':' and '.'
+        # so normal PowerShell property syntax is avoided.
+        # --------------------------------------------------
+
+        $AudienceValues =
+            Get-ConditionValue `
+                -Condition $Statement.Condition `
+                -Operator "StringEquals" `
+                -Key "token.actions.githubusercontent.com:aud"
+
+        foreach ($Audience in $AudienceValues) {
+
+            if (
+                [string]$Audience -eq
+                $ExpectedAudience
+            ) {
+
+                $Result.Audience = $true
+            }
+        }
+
+        # --------------------------------------------------
+        # SUBJECT
+        # --------------------------------------------------
+
+        $SubjectValues =
+            Get-ConditionValue `
+                -Condition $Statement.Condition `
+                -Operator "StringLike" `
+                -Key "token.actions.githubusercontent.com:sub"
+
+        foreach ($Subject in $SubjectValues) {
+
+            if (
+                [string]$Subject -like
+                $ExpectedSubjectPattern
+            ) {
+
+                $Result.Subject = $true
+            }
+        }
+    }
+
+    return [pscustomobject]$Result
+}
+
+# ==========================================================
+# TERRAFORM ROOT DISCOVERY
+# ==========================================================
+
+function Find-TerraformRoot {
+
+    param(
+        [string]$Root
+    )
+
+    # ------------------------------------------------------
+    # Prefer the known application Terraform directory.
+    #
+    # Your project contains:
+    #
+    # infrastructure\terraform
+    #
+    # and also:
+    #
+    # infrastructure\bootstrap\terraform-state
+    #
+    # The first is the main application Terraform root.
+    # ------------------------------------------------------
+
+    $PreferredDirectories = @(
+
+        (
+            Join-Path `
+                $Root `
+                "infrastructure\terraform"
+        ),
+
+        (
+            Join-Path `
+                $Root `
+                "terraform"
+        ),
+
+        (
+            Join-Path `
+                $Root `
+                "infrastructure\iac"
+        ),
+
+        (
+            Join-Path `
+                $Root `
+                "iac"
+        )
+    )
+
+    foreach ($Directory in $PreferredDirectories) {
+
+        if (-not (Test-Path $Directory)) {
+            continue
+        }
+
+        $TfFiles =
+            Get-ChildItem `
+                -Path $Directory `
+                -Filter "*.tf" `
+                -File `
+                -ErrorAction SilentlyContinue
+
+        if ($TfFiles.Count -gt 0) {
+
+            return $Directory
+        }
+    }
+
+    # ------------------------------------------------------
+    # FALLBACK:
+    # Search recursively for Terraform files.
+    # ------------------------------------------------------
+
+    $AllTfFiles =
+        Get-ChildItem `
+            -Path $Root `
+            -Filter "*.tf" `
+            -File `
+            -Recurse `
+            -ErrorAction SilentlyContinue |
+        Where-Object {
+
+            $_.FullName -notmatch "\\.terraform\\" -and
+            $_.FullName -notmatch "\\.git\\"
+        }
+
+    if ($AllTfFiles.Count -eq 0) {
+
+        return $null
+    }
+
+    $Groups =
+        $AllTfFiles |
+        Group-Object DirectoryName
+
+    $Candidates = @()
+
+    foreach ($Group in $Groups) {
+
+        $Score =
+            $Group.Count
+
+        $Names =
+            @(
+                $Group.Group |
+                Select-Object -ExpandProperty Name
+            )
+
+        if ($Names -contains "main.tf") {
+            $Score += 10
+        }
+
+        if ($Names -contains "variables.tf") {
+            $Score += 3
+        }
+
+        if ($Names -contains "outputs.tf") {
+            $Score += 3
+        }
+
+        if ($Names -contains "provider.tf") {
+            $Score += 3
+        }
+
+        if ($Names -contains "terraform.tf") {
+            $Score += 3
+        }
+
+        $Candidates +=
+            [pscustomobject]@{
+
+                Directory = $Group.Name
+
+                FileCount = $Group.Count
+
+                Score = $Score
+            }
+    }
+
+    return (
+        $Candidates |
+        Sort-Object Score, FileCount -Descending |
+        Select-Object -First 1 |
+        Select-Object -ExpandProperty Directory
+    )
+}
+
+# ==========================================================
+# START
+# ==========================================================
+
+Write-Host ""
+Write-Host "=========================================================="
+Write-Host " AWS HYBRID IAC LAB - CI/CD VERIFICATION"
+Write-Host "=========================================================="
+Write-Host ""
+
+Add-ReportLine `
+    "AWS HYBRID IAC LAB - CI/CD VERIFICATION"
+
+Add-ReportLine `
+    "Verification started: $(Get-Date)"
+
+Add-ReportLine `
+    "Project root: $ProjectRoot"
+
+# ==========================================================
+# TEST 1 - AWS CLI
+# ==========================================================
+
+Write-TestHeader "AWS CLI Availability"
+
+$AwsCommand =
+    Get-Command aws `
+        -ErrorAction SilentlyContinue
+
+if ($null -ne $AwsCommand) {
+
+    Write-Pass "AWS CLI is installed."
+
+    $AwsVersion =
+        aws --version 2>&1
+
+    Write-Info `
+        "AWS CLI version: $AwsVersion"
 }
 else {
 
-    foreach ($Action in $RequiredActions) {
+    Write-Fail `
+        "AWS CLI is not installed or is not in PATH."
+}
 
-        if ($PolicyText -match [regex]::Escape($Action)) {
+# ==========================================================
+# TEST 2 - TERRAFORM
+# ==========================================================
 
-            Write-Pass `
-                "Policy contains required permission: $Action"
+Write-TestHeader "Terraform Availability"
 
-        }
-        else {
+$TerraformCommand =
+    Get-Command terraform `
+        -ErrorAction SilentlyContinue
 
-            Write-Fail `
-                "Policy is missing expected permission: $Action"
+if ($null -ne $TerraformCommand) {
 
+    Write-Pass "Terraform is installed."
+
+    $TerraformVersion =
+        terraform version 2>&1
+
+    foreach ($Line in @($TerraformVersion)) {
+
+        if (
+            -not [string]::IsNullOrWhiteSpace(
+                [string]$Line
+            )
+        ) {
+
+            Write-Info ([string]$Line)
         }
     }
 }
+else {
 
+    Write-Fail `
+        "Terraform is not installed or is not in PATH."
+}
 
 # ==========================================================
-# 12. GITHUB ACTIONS IAM ROLE
+# TEST 3 - AWS ACCOUNT IDENTITY
 # ==========================================================
 
-Write-Test "GitHub Actions IAM Role"
+Write-TestHeader "AWS Account Identity"
 
-try {
+$Identity =
+    Get-AwsJson @(
+        "sts",
+        "get-caller-identity"
+    )
 
-    $RoleJson = aws iam get-role `
-        --role-name $GitHubRoleName `
-        --output json 2>&1
+if ($null -ne $Identity) {
 
-    if ($LASTEXITCODE -eq 0) {
+    $CurrentAccount =
+        [string]$Identity.Account
 
-        $Role = $RoleJson | ConvertFrom-Json
+    $CurrentArn =
+        [string]$Identity.Arn
+
+    $CurrentUserId =
+        [string]$Identity.UserId
+
+    Write-Info `
+        "AWS Account: $CurrentAccount"
+
+    Write-Info `
+        "AWS ARN: $CurrentArn"
+
+    Write-Info `
+        "AWS User ID: $CurrentUserId"
+
+    if (
+        $CurrentAccount -eq
+        $ExpectedAccountId
+    ) {
 
         Write-Pass `
-            "GitHub Actions role exists: $GitHubRoleName"
-
-        Write-Info `
-            "Role ARN: $($Role.Role.Arn)"
-
-        Write-Info `
-            "Role ID: $($Role.Role.RoleId)"
-
+            "AWS account matches expected account $ExpectedAccountId."
     }
     else {
 
         Write-Fail `
-            "GitHub Actions role does not exist."
-
+            "AWS account does not match expected account $ExpectedAccountId."
     }
 
+    if (
+        $CurrentArn -eq
+        "arn:aws:iam::$ExpectedAccountId:user/$GitHubIamUserName"
+    ) {
+
+        Write-Pass `
+            "Current AWS CLI identity is IAM user '$GitHubIamUserName'."
+    }
+    else {
+
+        Write-Info `
+            "Current AWS CLI identity is not the expected IAM user. IAM API checks will still continue."
+    }
 }
-catch {
+else {
 
     Write-Fail `
-        "GitHub Actions role check failed: $($_.Exception.Message)"
+        "Unable to retrieve AWS caller identity."
 }
 
+# ==========================================================
+# TEST 4 - AWS REGION
+# ==========================================================
+
+Write-TestHeader "AWS Region"
+
+$CurrentRegion =
+    aws configure get region 2>&1
+
+if (
+    [string]$CurrentRegion -eq
+    $ExpectedRegion
+) {
+
+    Write-Pass `
+        "AWS CLI region is $ExpectedRegion."
+}
+else {
+
+    Write-Fail `
+        "AWS CLI region is '$CurrentRegion'. Expected '$ExpectedRegion'."
+}
 
 # ==========================================================
-# 13. CHECK ATTACHED POLICIES
+# ARN VARIABLES
 # ==========================================================
 
-Write-Test "IAM Policies Attached to GitHub Actions Role"
+$GitHubIamUserArn =
+    "arn:aws:iam::$ExpectedAccountId:user/$GitHubIamUserName"
 
-try {
+$GitHubRoleArn =
+    "arn:aws:iam::$ExpectedAccountId:role/$GitHubRoleName"
 
-    $AttachedJson = aws iam list-attached-role-policies `
-        --role-name $GitHubRoleName `
-        --output json 2>&1
+$CloudFormationRoleArn =
+    "arn:aws:iam::$ExpectedAccountId:role/$CloudFormationRoleName"
 
-    if ($LASTEXITCODE -eq 0) {
+$CombinedPolicyArn =
+    "arn:aws:iam::$ExpectedAccountId:policy/$CombinedPolicyName"
 
-        $Attached = `
-            $AttachedJson | ConvertFrom-Json
+# ==========================================================
+# TEST 5 - IAM USER
+# ==========================================================
 
-        $PolicyNames = @(
-            $Attached.AttachedPolicies |
-            ForEach-Object {
-                $_.PolicyName
-            }
-        )
+Write-TestHeader "IAM User"
 
-        if ($PolicyNames -contains $CombinedPolicyName) {
+$User =
+    Get-AwsJson @(
+        "iam",
+        "get-user",
+        "--user-name",
+        $GitHubIamUserName
+    )
 
-            Write-Pass `
-                "Combined policy is attached to GitHub Actions role."
+if ($null -ne $User) {
 
-        }
-        else {
+    Write-Pass `
+        "IAM user exists: $GitHubIamUserName"
 
-            Write-Fail `
-                "Combined policy is NOT attached to GitHub Actions role."
+    Write-Info `
+        "IAM User ARN: $($User.User.Arn)"
 
-        }
+    Write-Info `
+        "IAM User ID: $($User.User.UserId)"
 
-        Write-Info "Currently attached policies:"
+    Write-Info `
+        "IAM User Created: $($User.User.CreateDate)"
+}
+else {
 
-        foreach ($PolicyName in $PolicyNames) {
+    Write-Fail `
+        "IAM user does not exist: $GitHubIamUserName"
+}
 
-            Write-Info "  - $PolicyName"
+# ==========================================================
+# TEST 6 - IAM USER ATTACHED POLICIES
+# ==========================================================
 
-        }
+Write-TestHeader "IAM User Policy Attachment"
 
+$UserAttached =
+    Get-AwsJson @(
+        "iam",
+        "list-attached-user-policies",
+        "--user-name",
+        $GitHubIamUserName
+    )
+
+$UserPolicyNames = @()
+
+if ($null -ne $UserAttached) {
+
+    $UserPolicyList =
+        @($UserAttached.AttachedPolicies)
+
+    foreach ($Policy in $UserPolicyList) {
+
+        $UserPolicyNames +=
+            [string]$Policy.PolicyName
+    }
+
+    if (
+        $UserPolicyNames -contains
+        $CombinedPolicyName
+    ) {
+
+        Write-Pass `
+            "Combined policy is attached to IAM user '$GitHubIamUserName'."
     }
     else {
 
         Write-Fail `
-            "Unable to retrieve attached IAM policies."
-
+            "Combined policy is NOT attached to IAM user '$GitHubIamUserName'."
     }
 
-}
-catch {
+    Write-Info `
+        "Attached customer-managed/AWS-managed policies for IAM user:"
 
-    Write-Fail `
-        "Attached policy check failed: $($_.Exception.Message)"
-}
-
-
-# ==========================================================
-# 14. CHECK GITHUB OIDC PROVIDER
-# ==========================================================
-
-Write-Test "GitHub OIDC Provider"
-
-try {
-
-    $OidcArn = `
-        "arn:aws:iam::$ExpectedAccountId`:oidc-provider/token.actions.githubusercontent.com"
-
-    $OidcJson = aws iam get-open-id-connect-provider `
-        --open-id-connect-provider-arn $OidcArn `
-        --output json 2>&1
-
-    if ($LASTEXITCODE -eq 0) {
-
-        $OidcProvider = $OidcJson | ConvertFrom-Json
-
-        Write-Pass `
-            "GitHub Actions OIDC provider exists."
+    foreach ($Policy in $UserPolicyList) {
 
         Write-Info `
-            "OIDC URL: https://token.actions.githubusercontent.com"
+            "  - $($Policy.PolicyName)"
 
-        if ($OidcProvider.ClientIDList) {
+        Write-Info `
+            "    $($Policy.PolicyArn)"
+    }
+}
+else {
+
+    Write-Fail `
+        "Unable to list IAM user policies."
+}
+
+# ==========================================================
+# TEST 7 - IAM USER INLINE POLICIES
+# ==========================================================
+
+Write-TestHeader "IAM User Inline Policies"
+
+$InlinePolicies =
+    Get-AwsJson @(
+        "iam",
+        "list-user-policies",
+        "--user-name",
+        $GitHubIamUserName
+    )
+
+if ($null -ne $InlinePolicies) {
+
+    $InlineNames =
+        @($InlinePolicies.PolicyNames)
+
+    if ($InlineNames.Count -eq 0) {
+
+        Write-Info `
+            "IAM user has no inline policies."
+    }
+    else {
+
+        Write-Info `
+            "IAM user inline policies:"
+
+        foreach ($Name in $InlineNames) {
+
+            Write-Info "  - $Name"
+        }
+
+        Write-Warn `
+            "Legacy inline policies remain attached to the IAM user. Do not remove them until CI/CD has been fully tested."
+    }
+}
+else {
+
+    Write-Warn `
+        "Unable to list IAM user inline policies."
+}
+
+# ==========================================================
+# TEST 8 - COMBINED POLICY EXISTS
+# ==========================================================
+
+Write-TestHeader "Combined IAM Policy Exists"
+
+$CombinedPolicy =
+    Get-AwsJson @(
+        "iam",
+        "get-policy",
+        "--policy-arn",
+        $CombinedPolicyArn
+    )
+
+if ($null -ne $CombinedPolicy) {
+
+    Write-Pass `
+        "Combined IAM policy exists: $CombinedPolicyName"
+
+    Write-Info `
+        "Policy ARN: $($CombinedPolicy.Policy.Arn)"
+
+    Write-Info `
+        "Policy ID: $($CombinedPolicy.Policy.PolicyId)"
+
+    Write-Info `
+        "Policy Type: $($CombinedPolicy.Policy.PolicyType)"
+
+    Write-Info `
+        "Default policy version: $($CombinedPolicy.Policy.DefaultVersionId)"
+
+    Write-Info `
+        "Attachment count: $($CombinedPolicy.Policy.AttachmentCount)"
+}
+else {
+
+    Write-Fail `
+        "Combined IAM policy does not exist."
+}
+
+# ==========================================================
+# TEST 9 - POLICY DOCUMENT
+# ==========================================================
+
+Write-TestHeader "Combined IAM Policy Document"
+
+$CombinedPolicyDocument = $null
+
+if ($null -ne $CombinedPolicy) {
+
+    $DefaultVersionId =
+        $CombinedPolicy.Policy.DefaultVersionId
+
+    $CombinedPolicyDocument =
+        Get-IamPolicyDocument `
+            -PolicyArn $CombinedPolicyArn `
+            -VersionId $DefaultVersionId
+
+    if ($null -ne $CombinedPolicyDocument) {
+
+        Write-Pass `
+            "Combined IAM policy document can be read."
+
+        $Statements =
+            @($CombinedPolicyDocument.Statement)
+
+        Write-Info `
+            "Policy statement count: $($Statements.Count)"
+
+        foreach ($Statement in $Statements) {
+
+            $Sid =
+                [string]$Statement.Sid
+
+            $Effect =
+                [string]$Statement.Effect
 
             Write-Info `
-                "OIDC client IDs: $($OidcProvider.ClientIDList -join ', ')"
+                "Statement: $Sid | Effect: $Effect"
         }
-
     }
     else {
 
         Write-Fail `
-            "GitHub Actions OIDC provider was not found."
+            "Unable to decode/read combined IAM policy document."
+    }
+}
 
+# ==========================================================
+# TEST 10 - REQUIRED IAM PERMISSIONS
+# ==========================================================
+
+Write-TestHeader "Required IAM Policy Permissions"
+
+$RequiredActions = @(
+
+    "lambda:UpdateFunctionCode"
+
+    "lambda:UpdateFunctionConfiguration"
+
+    "lambda:PublishLayerVersion"
+
+    "ssm:SendCommand"
+
+    "secretsmanager:GetSecretValue"
+
+    "ecr:PutImage"
+
+    "ecs:UpdateService"
+
+    "iam:PassRole"
+
+    "ec2:DescribeInstances"
+
+    "s3:ListAllMyBuckets"
+
+    "cloudformation:ListStacks"
+
+    "ssm:DescribeInstanceInformation"
+)
+
+if ($null -ne $CombinedPolicyDocument) {
+
+    $AllowActionCount = 0
+
+    foreach (
+        $Statement in
+        @($CombinedPolicyDocument.Statement)
+    ) {
+
+        if (
+            $Statement.Effect -eq
+            "Allow"
+        ) {
+
+            $AllowActionCount +=
+                @($Statement.Action).Count
+        }
     }
 
-}
-catch {
+    Write-Info `
+        "Total Allow action entries found: $AllowActionCount"
 
-    Write-Fail `
-        "OIDC provider check failed: $($_.Exception.Message)"
-}
+    foreach ($RequiredAction in $RequiredActions) {
 
+        $Result =
+            Test-IamActionAllowed `
+                -PolicyDocument $CombinedPolicyDocument `
+                -RequiredAction $RequiredAction
 
-# ==========================================================
-# 15. CHECK GITHUB ACTIONS TRUST POLICY
-# ==========================================================
-
-Write-Test "GitHub Actions Trust Policy"
-
-try {
-
-    $TrustJson = aws iam get-role `
-        --role-name $GitHubRoleName `
-        --query "Role.AssumeRolePolicyDocument" `
-        --output json 2>&1
-
-    if ($LASTEXITCODE -eq 0) {
-
-        $TrustText = $TrustJson.ToString()
-
-        if ($TrustText -match `
-            "token.actions.githubusercontent.com") {
+        if ($Result.Status -eq "Allowed") {
 
             Write-Pass `
-                "GitHub OIDC provider is referenced in role trust policy."
+                "Required permission '$RequiredAction' is satisfied by policy action '$($Result.Pattern)'."
+        }
+        elseif (
+            $Result.Status -eq
+            "ExplicitDeny"
+        ) {
 
+            Write-Fail `
+                "Required permission '$RequiredAction' has an explicit Deny."
         }
         else {
 
             Write-Fail `
-                "GitHub OIDC provider is not referenced in trust policy."
+                "Required permission '$RequiredAction' is missing from the combined policy."
+        }
+    }
+}
+else {
 
+    Write-Fail `
+        "Required permission check skipped because policy document is unavailable."
+}
+
+# ==========================================================
+# TEST 11 - GITHUB ACTIONS ROLE
+# ==========================================================
+
+Write-TestHeader "GitHub Actions IAM Role"
+
+$GitHubRole =
+    Get-AwsJson @(
+        "iam",
+        "get-role",
+        "--role-name",
+        $GitHubRoleName
+    )
+
+if ($null -ne $GitHubRole) {
+
+    Write-Pass `
+        "GitHub Actions role exists: $GitHubRoleName"
+
+    Write-Info `
+        "Role ARN: $($GitHubRole.Role.Arn)"
+
+    Write-Info `
+        "Role ID: $($GitHubRole.Role.RoleId)"
+
+    Write-Info `
+        "Role Description: $($GitHubRole.Role.Description)"
+
+    Write-Info `
+        "Maximum Session Duration: $($GitHubRole.Role.MaxSessionDuration)"
+
+    if ($null -ne $GitHubRole.Role.RoleLastUsed) {
+
+        Write-Info `
+            "Last Used: $($GitHubRole.Role.RoleLastUsed.LastUsedDate)"
+
+        Write-Info `
+            "Last Used Region: $($GitHubRole.Role.RoleLastUsed.Region)"
+    }
+}
+else {
+
+    Write-Fail `
+        "GitHub Actions IAM role does not exist."
+}
+
+# ==========================================================
+# TEST 12 - ROLE POLICIES
+# ==========================================================
+
+Write-TestHeader "IAM Policies Attached to GitHub Actions Role"
+
+$RoleAttached =
+    Get-AwsJson @(
+        "iam",
+        "list-attached-role-policies",
+        "--role-name",
+        $GitHubRoleName
+    )
+
+$RolePolicyNames = @()
+
+if ($null -ne $RoleAttached) {
+
+    $RolePolicyList =
+        @($RoleAttached.AttachedPolicies)
+
+    foreach ($Policy in $RolePolicyList) {
+
+        $RolePolicyNames +=
+            [string]$Policy.PolicyName
+    }
+
+    if (
+        $RolePolicyNames -contains
+        $CombinedPolicyName
+    ) {
+
+        Write-Pass `
+            "Combined policy is attached to GitHub Actions role."
+    }
+    else {
+
+        Write-Fail `
+            "Combined policy is NOT attached to GitHub Actions role."
+    }
+
+    Write-Info `
+        "Currently attached policies:"
+
+    foreach ($Policy in $RolePolicyList) {
+
+        Write-Info `
+            "  - $($Policy.PolicyName)"
+
+        Write-Info `
+            "    $($Policy.PolicyArn)"
+    }
+}
+else {
+
+    Write-Fail `
+        "Unable to list GitHub Actions role policies."
+}
+
+# ==========================================================
+# TEST 13 - GITHUB OIDC PROVIDER
+# ==========================================================
+
+Write-TestHeader "GitHub OIDC Provider"
+
+$OidcProviders =
+    Get-AwsJson @(
+        "iam",
+        "list-open-id-connect-providers"
+    )
+
+$OidcFound = $false
+
+if ($null -ne $OidcProviders) {
+
+    foreach ($Arn in @($OidcProviders.Providers)) {
+
+        if (
+            [string]$Arn -eq
+            $OidcProviderArn
+        ) {
+
+            $OidcFound = $true
+        }
+    }
+}
+
+if ($OidcFound) {
+
+    Write-Pass `
+        "GitHub Actions OIDC provider exists."
+
+    Write-Info `
+        "OIDC ARN: $OidcProviderArn"
+
+    $Oidc =
+        Get-AwsJson @(
+            "iam",
+            "get-open-id-connect-provider",
+            "--open-id-connect-provider-arn",
+            $OidcProviderArn
+        )
+
+    if ($null -ne $Oidc) {
+
+        Write-Info `
+            "OIDC URL: $($Oidc.Url)"
+
+        Write-Info `
+            "OIDC client IDs: $(
+                @($Oidc.ClientIDList) -join ", "
+            )"
+
+        Write-Info `
+            "OIDC thumbprints configured: $(
+                @($Oidc.ThumbprintList) -join ", "
+            )"
+    }
+}
+else {
+
+    Write-Fail `
+        "GitHub Actions OIDC provider does not exist."
+}
+
+# ==========================================================
+# TEST 14 - GITHUB TRUST POLICY
+# ==========================================================
+
+Write-TestHeader "GitHub Actions Trust Policy"
+
+if ($null -ne $GitHubRole) {
+
+    $TrustPolicyText =
+        [string]$GitHubRole.Role.AssumeRolePolicyDocument
+
+    if (
+        $TrustPolicyText -match
+        '%[0-9A-Fa-f]{2}'
+    ) {
+
+        $TrustPolicyText =
+            [System.Net.WebUtility]::UrlDecode(
+                $TrustPolicyText
+            )
+    }
+
+    try {
+
+        $TrustPolicy =
+            $TrustPolicyText |
+            ConvertFrom-Json
+
+        $TrustResult =
+            Test-TrustPolicy `
+                -TrustPolicy $TrustPolicy
+
+        if ($TrustResult.OidcProvider) {
+
+            Write-Pass `
+                "GitHub OIDC provider is correctly referenced in role trust policy."
+        }
+        else {
+
+            Write-Fail `
+                "GitHub OIDC provider is missing from role trust policy."
         }
 
-        if ($TrustText -match `
-            "sts:AssumeRoleWithWebIdentity") {
+        if ($TrustResult.Action) {
 
             Write-Pass `
                 "sts:AssumeRoleWithWebIdentity exists in trust policy."
-
         }
         else {
 
             Write-Fail `
                 "sts:AssumeRoleWithWebIdentity is missing."
-
         }
 
-        if ($TrustText -match `
-            "token.actions.githubusercontent.com:sub") {
+        if ($TrustResult.Audience) {
 
             Write-Pass `
-                "GitHub OIDC subject condition exists."
-
-        }
-        else {
-
-            Write-WarningResult `
-                "GitHub OIDC subject condition was not detected."
-
-        }
-
-        if ($TrustText -match `
-            "token.actions.githubusercontent.com:aud") {
-
-            Write-Pass `
-                "GitHub OIDC audience condition exists."
-
-        }
-        else {
-
-            Write-WarningResult `
-                "GitHub OIDC audience condition was not detected."
-
-        }
-
-    }
-    else {
-
-        Write-Fail `
-            "Unable to retrieve GitHub Actions trust policy."
-
-    }
-
-}
-catch {
-
-    Write-Fail `
-        "Trust policy check failed: $($_.Exception.Message)"
-}
-
-
-# ==========================================================
-# 16. CLOUDFORMATION SERVICE ROLE
-# ==========================================================
-
-Write-Test "CloudFormation Service Role"
-
-try {
-
-    $CFRoleJson = aws iam get-role `
-        --role-name $CloudFormationRoleName `
-        --output json 2>&1
-
-    if ($LASTEXITCODE -eq 0) {
-
-        $CFRole = $CFRoleJson | ConvertFrom-Json
-
-        Write-Pass `
-            "CloudFormation service role exists."
-
-        Write-Info `
-            "CloudFormation Role ARN: $($CFRole.Role.Arn)"
-
-    }
-    else {
-
-        Write-Fail `
-            "CloudFormation service role was not found."
-
-    }
-
-}
-catch {
-
-    Write-Fail `
-        "CloudFormation role check failed: $($_.Exception.Message)"
-}
-
-
-# ==========================================================
-# 17. TEST IAM PASSROLE SIMULATION
-# ==========================================================
-
-Write-Test "IAM PassRole Simulation"
-
-try {
-
-    $SimulationJson = aws iam simulate-principal-policy `
-        --policy-source-arn $GitHubRoleArn `
-        --action-names "iam:PassRole" `
-        --resource-arns $CloudFormationRoleArn `
-        --output json 2>&1
-
-    if ($LASTEXITCODE -eq 0) {
-
-        $Simulation = `
-            $SimulationJson | ConvertFrom-Json
-
-        $Decision = `
-            $Simulation.EvaluationResults[0].EvalDecision
-
-        Write-Info `
-            "PassRole simulation decision: $Decision"
-
-        if ($Decision -eq "allowed") {
-
-            Write-Pass `
-                "iam:PassRole is allowed for the CloudFormation service role."
-
+                "GitHub OIDC audience condition is correctly configured."
         }
         else {
 
             Write-Fail `
-                "iam:PassRole simulation result: $Decision"
-
+                "GitHub OIDC audience condition is missing or incorrect."
         }
 
-    }
-    else {
+        if ($TrustResult.Subject) {
 
-        Write-WarningResult `
-            "IAM PassRole simulation could not be completed."
+            Write-Pass `
+                "GitHub OIDC subject condition is correctly configured for repository '$ExpectedRepository'."
+        }
+        else {
 
-        Write-Info "$SimulationJson"
-    }
-
-}
-catch {
-
-    Write-WarningResult `
-        "PassRole simulation failed: $($_.Exception.Message)"
-}
-
-
-# ==========================================================
-# 18. TEST S3
-# ==========================================================
-
-Write-Test "S3 Access"
-
-try {
-
-    $S3Result = aws s3api list-buckets `
-        --query "Buckets[].Name" `
-        --output text 2>&1
-
-    if ($LASTEXITCODE -eq 0) {
-
-        Write-Pass `
-            "S3 access is working."
-
-        if ($S3Result) {
-
-            Write-Info "S3 buckets:"
-            Write-Info "$S3Result"
-
+            Write-Fail `
+                "GitHub OIDC subject condition is missing or does not match '$ExpectedRepository'."
         }
 
-    }
-    else {
+        Write-Info `
+            "Current GitHub Actions trust policy:"
 
-        Write-Fail `
-            "S3 access failed."
+        $TrustJson =
+            $TrustPolicy |
+            ConvertTo-Json -Depth 20
 
-        Write-Info "$S3Result"
-    }
+        foreach ($Line in ($TrustJson -split "`r?`n")) {
 
-}
-catch {
-
-    Write-Fail `
-        "S3 test failed: $($_.Exception.Message)"
-}
-
-
-# ==========================================================
-# 19. TEST EC2
-# ==========================================================
-
-Write-Test "EC2 Access"
-
-try {
-
-    $EC2Result = aws ec2 describe-instances `
-        --region $AwsRegion `
-        --query "Reservations[].Instances[].InstanceId" `
-        --output text 2>&1
-
-    if ($LASTEXITCODE -eq 0) {
-
-        Write-Pass `
-            "EC2 DescribeInstances access is working."
-
-        if ($EC2Result) {
-
-            Write-Info "EC2 Instance IDs:"
-            Write-Info "$EC2Result"
-
+            Write-Info $Line
         }
-
     }
-    else {
+    catch {
 
         Write-Fail `
-            "EC2 DescribeInstances failed."
-
-        Write-Info "$EC2Result"
-    }
-
-}
-catch {
-
-    Write-Fail `
-        "EC2 test failed: $($_.Exception.Message)"
-}
-
-
-# ==========================================================
-# 20. TEST SSM
-# ==========================================================
-
-Write-Test "SSM Access"
-
-try {
-
-    $SSMResult = aws ssm describe-instance-information `
-        --region $AwsRegion `
-        --output json 2>&1
-
-    if ($LASTEXITCODE -eq 0) {
-
-        Write-Pass `
-            "SSM access is working."
-
-        $SSMData = `
-            $SSMResult | ConvertFrom-Json
-
-        $SSMCount = `
-            @($SSMData.InstanceInformationList).Count
-
-        Write-Info `
-            "SSM managed instance count: $SSMCount"
-
-    }
-    else {
-
-        Write-Fail `
-            "SSM access failed."
-
-        Write-Info "$SSMResult"
-    }
-
-}
-catch {
-
-    Write-Fail `
-        "SSM test failed: $($_.Exception.Message)"
-}
-
-
-# ==========================================================
-# 21. TEST LAMBDA
-# ==========================================================
-
-Write-Test "Lambda Access"
-
-try {
-
-    $LambdaResult = aws lambda list-functions `
-        --region $AwsRegion `
-        --output json 2>&1
-
-    if ($LASTEXITCODE -eq 0) {
-
-        Write-Pass `
-            "Lambda list-functions access is working."
-
-        $LambdaData = `
-            $LambdaResult | ConvertFrom-Json
-
-        $LambdaCount = `
-            @($LambdaData.Functions).Count
-
-        Write-Info `
-            "Lambda function count: $LambdaCount"
-
-    }
-    else {
-
-        Write-Fail `
-            "Lambda access failed."
-
-        Write-Info "$LambdaResult"
-    }
-
-}
-catch {
-
-    Write-Fail `
-        "Lambda test failed: $($_.Exception.Message)"
-}
-
-
-# ==========================================================
-# 22. TEST ECR
-# ==========================================================
-
-Write-Test "ECR Access"
-
-try {
-
-    $ECRResult = aws ecr describe-repositories `
-        --region $AwsRegion `
-        --output json 2>&1
-
-    if ($LASTEXITCODE -eq 0) {
-
-        Write-Pass `
-            "ECR access is working."
-
-        $ECRData = `
-            $ECRResult | ConvertFrom-Json
-
-        $ECRCount = `
-            @($ECRData.repositories).Count
-
-        Write-Info `
-            "ECR repository count: $ECRCount"
-
-    }
-    else {
-
-        Write-Fail `
-            "ECR access failed."
-
-        Write-Info "$ECRResult"
-    }
-
-}
-catch {
-
-    Write-Fail `
-        "ECR test failed: $($_.Exception.Message)"
-}
-
-
-# ==========================================================
-# 23. TEST ECS
-# ==========================================================
-
-Write-Test "ECS Access"
-
-try {
-
-    $ECSResult = aws ecs list-clusters `
-        --region $AwsRegion `
-        --output json 2>&1
-
-    if ($LASTEXITCODE -eq 0) {
-
-        Write-Pass `
-            "ECS access is working."
-
-        $ECSData = `
-            $ECSResult | ConvertFrom-Json
-
-        $ECSCount = `
-            @($ECSData.clusterArns).Count
-
-        Write-Info `
-            "ECS cluster count: $ECSCount"
-
-    }
-    else {
-
-        Write-Fail `
-            "ECS access failed."
-
-        Write-Info "$ECSResult"
-    }
-
-}
-catch {
-
-    Write-Fail `
-        "ECS test failed: $($_.Exception.Message)"
-}
-
-
-# ==========================================================
-# 24. TEST CLOUDFORMATION
-# ==========================================================
-
-Write-Test "CloudFormation Access"
-
-try {
-
-    $CFResult = aws cloudformation list-stacks `
-        --region $AwsRegion `
-        --output json 2>&1
-
-    if ($LASTEXITCODE -eq 0) {
-
-        Write-Pass `
-            "CloudFormation access is working."
-
-        $CFData = `
-            $CFResult | ConvertFrom-Json
-
-        $CFCount = `
-            @($CFData.StackSummaries).Count
-
-        Write-Info `
-            "CloudFormation stack count: $CFCount"
-
-    }
-    else {
-
-        Write-Fail `
-            "CloudFormation access failed."
-
-        Write-Info "$CFResult"
-    }
-
-}
-catch {
-
-    Write-Fail `
-        "CloudFormation test failed: $($_.Exception.Message)"
-}
-
-
-# ==========================================================
-# 25. TEST SECRETS MANAGER
-# ==========================================================
-
-Write-Test "Secrets Manager Access"
-
-try {
-
-    $SecretResult = aws secretsmanager describe-secret `
-        --secret-id $SecretName `
-        --region $AwsRegion `
-        --output json 2>&1
-
-    if ($LASTEXITCODE -eq 0) {
-
-        $SecretData = `
-            $SecretResult | ConvertFrom-Json
-
-        Write-Pass `
-            "Secrets Manager access is working for $SecretName."
-
-        Write-Info `
-            "Secret ARN: $($SecretData.ARN)"
-
-        Write-Info `
-            "Secret name: $($SecretData.Name)"
-
-    }
-    else {
-
-        Write-WarningResult `
-            "Secret '$SecretName' could not be found/read. Verify the secret name."
-
-        Write-Info "$SecretResult"
-    }
-
-}
-catch {
-
-    Write-WarningResult `
-        "Secrets Manager test failed: $($_.Exception.Message)"
-}
-
-
-# ==========================================================
-# 26. TERRAFORM FORMAT
-# ==========================================================
-
-Write-Test "Terraform Format"
-
-try {
-
-    Push-Location $TerraformDirectory
-
-    terraform fmt -check -recursive
-
-    if ($LASTEXITCODE -eq 0) {
-
-        Write-Pass `
-            "Terraform formatting is correct."
-
-    }
-    else {
-
-        Write-WarningResult `
-            "Terraform files require formatting."
-
-        Write-Info `
-            "Run: terraform fmt -recursive"
-    }
-
-    Pop-Location
-
-}
-catch {
-
-    Pop-Location -ErrorAction SilentlyContinue
-
-    Write-Fail `
-        "Terraform format check failed: $($_.Exception.Message)"
-}
-
-
-# ==========================================================
-# 27. TERRAFORM INIT CHECK
-# ==========================================================
-
-Write-Test "Terraform Initialization"
-
-try {
-
-    Push-Location $TerraformDirectory
-
-    if (Test-Path ".terraform") {
-
-        Write-Pass `
-            "Terraform initialization directory exists."
-
-    }
-    else {
-
-        Write-WarningResult `
-            "Terraform does not appear to be initialized."
-
-        Write-Info `
-            "Run: terraform init"
-    }
-
-    Pop-Location
-
-}
-catch {
-
-    Pop-Location -ErrorAction SilentlyContinue
-
-    Write-WarningResult `
-        "Terraform initialization check failed."
-}
-
-
-# ==========================================================
-# 28. TERRAFORM VALIDATE
-# ==========================================================
-
-Write-Test "Terraform Validate"
-
-try {
-
-    Push-Location $TerraformDirectory
-
-    terraform validate
-
-    if ($LASTEXITCODE -eq 0) {
-
-        Write-Pass `
-            "Terraform configuration is valid."
-
-    }
-    else {
-
-        Write-Fail `
-            "Terraform validate failed."
-
-    }
-
-    Pop-Location
-
-}
-catch {
-
-    Pop-Location -ErrorAction SilentlyContinue
-
-    Write-Fail `
-        "Terraform validation failed: $($_.Exception.Message)"
-}
-
-
-# ==========================================================
-# 29. CHECK TERRAFORM FILES
-# ==========================================================
-
-Write-Test "Terraform Project Files"
-
-$TerraformFiles = @(
-    "main.tf",
-    "variables.tf",
-    "outputs.tf",
-    "provider.tf",
-    "iam.tf",
-    "terraform.tf"
-)
-
-foreach ($File in $TerraformFiles) {
-
-    $FilePath = Join-Path `
-        $TerraformDirectory `
-        $File
-
-    if (Test-Path $FilePath) {
-
-        Write-Pass `
-            "Terraform file exists: $File"
-
-    }
-    else {
-
-        Write-WarningResult `
-            "Terraform file not found: $File"
-
+            "Unable to parse GitHub Actions role trust policy: $($_.Exception.Message)"
     }
 }
 
-
 # ==========================================================
-# 30. CHECK TERRAFORM STATE
+# TEST 15 - CLOUDFORMATION SERVICE ROLE
 # ==========================================================
 
-Write-Test "Terraform State"
+Write-TestHeader "CloudFormation Service Role"
 
-$TerraformStateFile = `
-    Join-Path $TerraformDirectory "terraform.tfstate"
+$CloudFormationRole =
+    Get-AwsJson @(
+        "iam",
+        "get-role",
+        "--role-name",
+        $CloudFormationRoleName
+    )
 
-$TerraformStateBackup = `
-    Join-Path $TerraformDirectory "terraform.tfstate.backup"
+if ($null -ne $CloudFormationRole) {
 
-if (Test-Path $TerraformStateFile) {
+    Write-Pass `
+        "CloudFormation service role exists."
 
     Write-Info `
-        "Local terraform.tfstate file exists."
+        "CloudFormation Role ARN: $($CloudFormationRole.Role.Arn)"
 
-    Write-WarningResult `
-        "A local terraform.tfstate file exists. Verify whether your project intentionally uses local state."
-
+    Write-Info `
+        "CloudFormation Role ID: $($CloudFormationRole.Role.RoleId)"
 }
 else {
 
-    Write-Info `
-        "No local terraform.tfstate file found."
-
+    Write-Fail `
+        "CloudFormation service role does not exist."
 }
 
-if (Test-Path $TerraformStateBackup) {
+# ==========================================================
+# TEST 16 - PASSROLE SIMULATION - ROLE
+# ==========================================================
+
+Write-TestHeader "IAM PassRole Simulation - GitHub Actions Role"
+
+$RoleSimulation =
+    Get-AwsJson @(
+        "iam",
+        "simulate-principal-policy",
+        "--policy-source-arn",
+        $GitHubRoleArn,
+        "--action-names",
+        "iam:PassRole",
+        "--resource-arns",
+        $CloudFormationRoleArn
+    )
+
+if ($null -ne $RoleSimulation) {
+
+    $Decision =
+        [string]$RoleSimulation.EvaluationResults[0].EvalDecision
 
     Write-Info `
-        "terraform.tfstate.backup exists."
+        "GitHub Actions role PassRole simulation decision: $Decision"
 
+    if ($Decision -eq "allowed") {
+
+        Write-Pass `
+            "GitHub Actions role can iam:PassRole the CloudFormation service role."
+    }
+    else {
+
+        Write-Fail `
+            "GitHub Actions role cannot iam:PassRole the CloudFormation service role."
+    }
+}
+else {
+
+    Write-Fail `
+        "Unable to simulate GitHub Actions role PassRole permission."
 }
 
+# ==========================================================
+# TEST 17 - PASSROLE SIMULATION - USER
+# ==========================================================
+
+Write-TestHeader "IAM PassRole Simulation - IAM User"
+
+$UserSimulation =
+    Get-AwsJson @(
+        "iam",
+        "simulate-principal-policy",
+        "--policy-source-arn",
+        $GitHubIamUserArn,
+        "--action-names",
+        "iam:PassRole",
+        "--resource-arns",
+        $CloudFormationRoleArn
+    )
+
+if ($null -ne $UserSimulation) {
+
+    $Decision =
+        [string]$UserSimulation.EvaluationResults[0].EvalDecision
+
+    Write-Info `
+        "IAM user PassRole simulation decision: $Decision"
+
+    if ($Decision -eq "allowed") {
+
+        Write-Pass `
+            "IAM user '$GitHubIamUserName' can iam:PassRole the CloudFormation service role."
+    }
+    else {
+
+        Write-Fail `
+            "IAM user '$GitHubIamUserName' cannot iam:PassRole the CloudFormation service role."
+    }
+}
+else {
+
+    Write-Fail `
+        "Unable to simulate IAM user PassRole permission."
+}
 
 # ==========================================================
-# 31. CHECK GITHUB ACTIONS WORKFLOW DIRECTORY
+# TEST 18 - S3
 # ==========================================================
 
-Write-Test "GitHub Actions Workflow"
+Write-TestHeader "S3 Access"
 
-$WorkflowDirectory = `
-    Join-Path $TerraformDirectory ".github\workflows"
+$Buckets =
+    aws s3api list-buckets `
+        --query "Buckets[].Name" `
+        --output text `
+        --no-cli-pager 2>&1
+
+if ($LASTEXITCODE -eq 0) {
+
+    Write-Pass `
+        "S3 access is working."
+
+    if (
+        -not [string]::IsNullOrWhiteSpace(
+            [string]$Buckets
+        )
+    ) {
+
+        Write-Info `
+            "S3 buckets: $Buckets"
+    }
+}
+else {
+
+    Write-Fail `
+        "S3 access test failed."
+}
+
+# ==========================================================
+# TEST 19 - EC2
+# ==========================================================
+
+Write-TestHeader "EC2 Access"
+
+$Ec2Result =
+    aws ec2 describe-instances `
+        --query "Reservations[].Instances[].InstanceId" `
+        --output text `
+        --no-cli-pager 2>&1
+
+if ($LASTEXITCODE -eq 0) {
+
+    Write-Pass `
+        "EC2 DescribeInstances access is working."
+}
+else {
+
+    Write-Fail `
+        "EC2 DescribeInstances access failed."
+}
+
+# ==========================================================
+# TEST 20 - SSM
+# ==========================================================
+
+Write-TestHeader "SSM Access"
+
+$SsmResult =
+    aws ssm describe-instance-information `
+        --query "InstanceInformationList[].InstanceId" `
+        --output text `
+        --no-cli-pager 2>&1
+
+if ($LASTEXITCODE -eq 0) {
+
+    Write-Pass `
+        "SSM access is working."
+
+    if (
+        [string]::IsNullOrWhiteSpace(
+            [string]$SsmResult
+        )
+    ) {
+
+        Write-Info `
+            "SSM managed instance count: 0"
+    }
+    else {
+
+        $SsmCount =
+            @(
+                $SsmResult -split "`t|`r?`n" |
+                Where-Object {
+                    -not [string]::IsNullOrWhiteSpace($_)
+                }
+            ).Count
+
+        Write-Info `
+            "SSM managed instance count: $SsmCount"
+    }
+}
+else {
+
+    Write-Fail `
+        "SSM access failed."
+}
+
+# ==========================================================
+# TEST 21 - LAMBDA
+# ==========================================================
+
+Write-TestHeader "Lambda Access"
+
+$LambdaFunctions =
+    aws lambda list-functions `
+        --query "Functions[].FunctionName" `
+        --output text `
+        --no-cli-pager 2>&1
+
+if ($LASTEXITCODE -eq 0) {
+
+    Write-Pass `
+        "Lambda list-functions access is working."
+
+    if (
+        [string]::IsNullOrWhiteSpace(
+            [string]$LambdaFunctions
+        )
+    ) {
+
+        Write-Info `
+            "Lambda function count: 0"
+    }
+    else {
+
+        $LambdaCount =
+            @(
+                $LambdaFunctions -split "`t|`r?`n" |
+                Where-Object {
+                    -not [string]::IsNullOrWhiteSpace($_)
+                }
+            ).Count
+
+        Write-Info `
+            "Lambda function count: $LambdaCount"
+    }
+}
+else {
+
+    Write-Fail `
+        "Lambda list-functions access failed."
+}
+
+# ==========================================================
+# TEST 22 - ECR
+# ==========================================================
+
+Write-TestHeader "ECR Access"
+
+$EcrEndpoint =
+    aws ecr get-authorization-token `
+        --query "authorizationData[0].proxyEndpoint" `
+        --output text `
+        --no-cli-pager 2>&1
+
+if ($LASTEXITCODE -eq 0) {
+
+    Write-Pass `
+        "ECR access is working."
+
+    if (
+        -not [string]::IsNullOrWhiteSpace(
+            [string]$EcrEndpoint
+        )
+    ) {
+
+        Write-Info `
+            "ECR registry endpoint: $EcrEndpoint"
+    }
+}
+else {
+
+    Write-Fail `
+        "ECR access failed."
+}
+
+# ==========================================================
+# TEST 23 - ECS
+# ==========================================================
+
+Write-TestHeader "ECS Access"
+
+$EcsClusters =
+    aws ecs list-clusters `
+        --query "clusterArns[]" `
+        --output text `
+        --no-cli-pager 2>&1
+
+if ($LASTEXITCODE -eq 0) {
+
+    Write-Pass `
+        "ECS access is working."
+
+    if (
+        [string]::IsNullOrWhiteSpace(
+            [string]$EcsClusters
+        )
+    ) {
+
+        Write-Info `
+            "ECS cluster count: 0"
+    }
+    else {
+
+        $EcsCount =
+            @(
+                $EcsClusters -split "`t|`r?`n" |
+                Where-Object {
+                    -not [string]::IsNullOrWhiteSpace($_)
+                }
+            ).Count
+
+        Write-Info `
+            "ECS cluster count: $EcsCount"
+    }
+}
+else {
+
+    Write-Fail `
+        "ECS access failed."
+}
+
+# ==========================================================
+# TEST 24 - CLOUDFORMATION
+# ==========================================================
+
+Write-TestHeader "CloudFormation Access"
+
+$Stacks =
+    aws cloudformation list-stacks `
+        --query "StackSummaries[].StackName" `
+        --output text `
+        --no-cli-pager 2>&1
+
+if ($LASTEXITCODE -eq 0) {
+
+    Write-Pass `
+        "CloudFormation access is working."
+
+    if (
+        [string]::IsNullOrWhiteSpace(
+            [string]$Stacks
+        )
+    ) {
+
+        Write-Info `
+            "CloudFormation stack count: 0"
+    }
+    else {
+
+        $StackCount =
+            @(
+                $Stacks -split "`t|`r?`n" |
+                Where-Object {
+                    -not [string]::IsNullOrWhiteSpace($_)
+                }
+            ).Count
+
+        Write-Info `
+            "CloudFormation stack count: $StackCount"
+    }
+}
+else {
+
+    Write-Fail `
+        "CloudFormation access failed."
+}
+
+# ==========================================================
+# TEST 25 - SECRETS MANAGER
+# ==========================================================
+
+Write-TestHeader "Secrets Manager Access"
+
+$SecretArn =
+    aws secretsmanager get-secret-value `
+        --secret-id $SecretName `
+        --query "ARN" `
+        --output text `
+        --no-cli-pager 2>&1
+
+if ($LASTEXITCODE -eq 0) {
+
+    Write-Pass `
+        "Secrets Manager GetSecretValue access is working for $SecretName."
+
+    Write-Info `
+        "Secret ARN: $SecretArn"
+
+    Write-Info `
+        "Secret name: $SecretName"
+}
+else {
+
+    Write-Fail `
+        "Secrets Manager GetSecretValue access failed for $SecretName."
+}
+
+# ==========================================================
+# TEST 26 - TERRAFORM ROOT DISCOVERY
+# ==========================================================
+
+Write-TestHeader "Terraform Root Directory Discovery"
+
+$TerraformRoot =
+    Find-TerraformRoot `
+        -Root $ProjectRoot
+
+if ($null -ne $TerraformRoot) {
+
+    Write-Pass `
+        "Terraform configuration files were found."
+
+    Write-Info `
+        "Terraform root directory: $TerraformRoot"
+
+    $TerraformFiles =
+        Get-ChildItem `
+            -Path $TerraformRoot `
+            -Filter "*.tf" `
+            -File `
+            -ErrorAction SilentlyContinue
+
+    Write-Info `
+        "Terraform .tf file count: $($TerraformFiles.Count)"
+
+    $AllTerraformFiles =
+        Get-ChildItem `
+            -Path $ProjectRoot `
+            -Filter "*.tf" `
+            -File `
+            -Recurse `
+            -ErrorAction SilentlyContinue |
+        Where-Object {
+
+            $_.FullName -notmatch "\\.terraform\\" -and
+            $_.FullName -notmatch "\\.git\\"
+        }
+
+    $TerraformGroups =
+        $AllTerraformFiles |
+        Group-Object DirectoryName
+
+    foreach ($Group in $TerraformGroups) {
+
+        Write-Info `
+            "Directory: $($Group.Name) | Files: $($Group.Count)"
+    }
+}
+else {
+
+    Write-Fail `
+        "No Terraform configuration files were found."
+}
+
+# ==========================================================
+# TEST 27 - TERRAFORM FILES
+# ==========================================================
+
+Write-TestHeader "Terraform Project Files"
+
+if ($null -ne $TerraformRoot) {
+
+    $TerraformFiles =
+        Get-ChildItem `
+            -Path $TerraformRoot `
+            -Filter "*.tf" `
+            -File `
+            -ErrorAction SilentlyContinue
+
+    if ($TerraformFiles.Count -gt 0) {
+
+        Write-Pass `
+            "Terraform configuration files exist in the detected Terraform root."
+
+        foreach ($File in $TerraformFiles) {
+
+            Write-Info `
+                "Terraform file: $($File.Name)"
+        }
+    }
+
+    $RequiredTerraformFiles = @(
+        "main.tf",
+        "variables.tf",
+        "outputs.tf"
+    )
+
+    foreach ($RequiredFile in $RequiredTerraformFiles) {
+
+        $FilePath =
+            Join-Path `
+                $TerraformRoot `
+                $RequiredFile
+
+        if (Test-Path $FilePath) {
+
+            Write-Pass `
+                "Terraform file exists: $RequiredFile"
+        }
+        else {
+
+            Write-Warn `
+                "Terraform file not found: $RequiredFile"
+        }
+    }
+
+    $OptionalTerraformFiles = @(
+        "provider.tf",
+        "terraform.tf",
+        "iam.tf"
+    )
+
+    foreach ($OptionalFile in $OptionalTerraformFiles) {
+
+        $OptionalPath =
+            Join-Path `
+                $TerraformRoot `
+                $OptionalFile
+
+        if (Test-Path $OptionalPath) {
+
+            Write-Info `
+                "Optional/common Terraform file exists: $OptionalFile"
+        }
+        else {
+
+            Write-Info `
+                "Optional/common Terraform file not found: $OptionalFile"
+        }
+    }
+}
+
+# ==========================================================
+# TEST 28 - TERRAFORM FORMAT
+# ==========================================================
+
+Write-TestHeader "Terraform Format"
+
+if ($null -ne $TerraformRoot) {
+
+    Push-Location $TerraformRoot
+
+    try {
+
+        $FmtOutput =
+            terraform fmt `
+                -check `
+                -recursive `
+                -no-color 2>&1
+
+        $FmtExitCode =
+            $LASTEXITCODE
+
+        if ($FmtExitCode -eq 0) {
+
+            Write-Pass `
+                "Terraform formatting is correct."
+        }
+        else {
+
+            Write-Warn `
+                "Terraform formatting check reported files that may need formatting."
+
+            foreach ($Line in @($FmtOutput)) {
+
+                if (
+                    -not [string]::IsNullOrWhiteSpace(
+                        [string]$Line
+                    )
+                ) {
+
+                    Write-Info ([string]$Line)
+                }
+            }
+        }
+    }
+    finally {
+
+        Pop-Location
+    }
+}
+
+# ==========================================================
+# TEST 29 - TERRAFORM INIT
+# ==========================================================
+
+Write-TestHeader "Terraform Initialization"
+
+$TerraformInitSucceeded = $false
+
+if ($null -ne $TerraformRoot) {
+
+    Push-Location $TerraformRoot
+
+    try {
+
+        $InitOutput =
+            terraform init `
+                -input=false `
+                -no-color 2>&1
+
+        $InitExitCode =
+            $LASTEXITCODE
+
+        if ($InitExitCode -eq 0) {
+
+            $TerraformInitSucceeded = $true
+
+            Write-Pass `
+                "Terraform initialization completed successfully."
+
+            foreach ($Line in @($InitOutput)) {
+
+                if (
+                    -not [string]::IsNullOrWhiteSpace(
+                        [string]$Line
+                    )
+                ) {
+
+                    Write-Info ([string]$Line)
+                }
+            }
+        }
+        else {
+
+            Write-Fail `
+                "Terraform initialization failed."
+
+            foreach ($Line in @($InitOutput)) {
+
+                if (
+                    -not [string]::IsNullOrWhiteSpace(
+                        [string]$Line
+                    )
+                ) {
+
+                    Write-Info ([string]$Line)
+                }
+            }
+        }
+    }
+    finally {
+
+        Pop-Location
+    }
+}
+
+# ==========================================================
+# TEST 30 - TERRAFORM VALIDATE
+# ==========================================================
+
+Write-TestHeader "Terraform Validate"
+
+if (
+    $null -ne $TerraformRoot -and
+    $TerraformInitSucceeded
+) {
+
+    Push-Location $TerraformRoot
+
+    try {
+
+        $ValidateOutput =
+            terraform validate `
+                -no-color 2>&1
+
+        $ValidateExitCode =
+            $LASTEXITCODE
+
+        if ($ValidateExitCode -eq 0) {
+
+            Write-Pass `
+                "Terraform configuration is valid."
+
+            foreach ($Line in @($ValidateOutput)) {
+
+                if (
+                    -not [string]::IsNullOrWhiteSpace(
+                        [string]$Line
+                    )
+                ) {
+
+                    Write-Info ([string]$Line)
+                }
+            }
+        }
+        else {
+
+            Write-Fail `
+                "Terraform configuration validation failed."
+
+            foreach ($Line in @($ValidateOutput)) {
+
+                if (
+                    -not [string]::IsNullOrWhiteSpace(
+                        [string]$Line
+                    )
+                ) {
+
+                    Write-Info ([string]$Line)
+                }
+            }
+        }
+    }
+    finally {
+
+        Pop-Location
+    }
+}
+elseif ($null -ne $TerraformRoot) {
+
+    Write-Warn `
+        "Terraform validate skipped because terraform init failed."
+}
+
+# ==========================================================
+# TEST 31 - TERRAFORM PLAN
+# ==========================================================
+
+Write-TestHeader "Terraform Plan"
+
+if (
+    $null -ne $TerraformRoot -and
+    $TerraformInitSucceeded
+) {
+
+    Push-Location $TerraformRoot
+
+    try {
+
+        Write-Info `
+            "Running terraform plan -refresh=false for verification."
+
+        $PlanOutput =
+            terraform plan `
+                -input=false `
+                -refresh=false `
+                -no-color `
+                -detailed-exitcode 2>&1
+
+        $PlanExitCode =
+            $LASTEXITCODE
+
+        # Terraform detailed exit codes:
+        #
+        # 0 = successful and no changes
+        # 1 = error
+        # 2 = successful and changes exist
+        #
+
+        if ($PlanExitCode -eq 0) {
+
+            Write-Pass `
+                "Terraform plan completed successfully with no pending changes."
+        }
+        elseif ($PlanExitCode -eq 2) {
+
+            Write-Pass `
+                "Terraform plan completed successfully and reports pending changes."
+        }
+        else {
+
+            Write-Fail `
+                "Terraform plan failed with exit code $PlanExitCode."
+        }
+
+        # --------------------------------------------------
+        # FIX:
+        # Do not send empty strings to Write-Info.
+        # --------------------------------------------------
+
+        $NonEmptyPlanLines =
+            @(
+                $PlanOutput |
+                Where-Object {
+
+                    -not [string]::IsNullOrWhiteSpace(
+                        [string]$_
+                    )
+                }
+            )
+
+        if ($NonEmptyPlanLines.Count -gt 0) {
+
+            Write-Info `
+                "Terraform plan output follows:"
+
+            $LinesToShow =
+                $NonEmptyPlanLines |
+                Select-Object -Last 40
+
+            foreach ($Line in $LinesToShow) {
+
+                Write-Info ([string]$Line)
+            }
+        }
+        else {
+
+            Write-Info `
+                "Terraform plan produced no additional console output."
+        }
+    }
+    finally {
+
+        Pop-Location
+    }
+}
+elseif ($null -ne $TerraformRoot) {
+
+    Write-Warn `
+        "Terraform plan skipped because terraform init failed."
+}
+
+# ==========================================================
+# TEST 32 - TERRAFORM STATE
+# ==========================================================
+
+Write-TestHeader "Terraform State"
+
+if ($null -ne $TerraformRoot) {
+
+    $LocalStateFile =
+        Join-Path `
+            $TerraformRoot `
+            "terraform.tfstate"
+
+    if (Test-Path $LocalStateFile) {
+
+        Write-Warn `
+            "Local terraform.tfstate file exists in the Terraform root."
+
+        Write-Info `
+            "Verify whether local state is intentional."
+    }
+    else {
+
+        Write-Info `
+            "No local terraform.tfstate file exists in the Terraform root."
+    }
+
+    $BackendBlocks =
+        Get-ChildItem `
+            -Path $TerraformRoot `
+            -Filter "*.tf" `
+            -File `
+            -ErrorAction SilentlyContinue |
+        Select-String `
+            -Pattern 'backend\s+"[^"]+"' `
+            -ErrorAction SilentlyContinue
+
+    if ($null -ne $BackendBlocks) {
+
+        Write-Pass `
+            "Explicit Terraform backend configuration was detected."
+
+        foreach ($Match in $BackendBlocks) {
+
+            Write-Info `
+                "Backend reference: $($Match.Line.Trim())"
+        }
+    }
+    else {
+
+        Write-Info `
+            "No explicit Terraform backend block detected in the application Terraform root."
+    }
+
+    # ------------------------------------------------------
+    # State bootstrap directory is separate.
+    # ------------------------------------------------------
+
+    $BootstrapTerraformRoot =
+        Join-Path `
+            $ProjectRoot `
+            "infrastructure\bootstrap\terraform-state"
+
+    if (Test-Path $BootstrapTerraformRoot) {
+
+        $BootstrapTfFiles =
+            Get-ChildItem `
+                -Path $BootstrapTerraformRoot `
+                -Filter "*.tf" `
+                -File `
+                -ErrorAction SilentlyContinue
+
+        if ($BootstrapTfFiles.Count -gt 0) {
+
+            Write-Info `
+                "Separate Terraform state-bootstrap configuration detected at:"
+
+            Write-Info `
+                $BootstrapTerraformRoot
+        }
+    }
+}
+
+# ==========================================================
+# TEST 33 - GITHUB ACTIONS WORKFLOW DIRECTORY
+# ==========================================================
+
+Write-TestHeader "GitHub Actions Workflow"
 
 if (Test-Path $WorkflowDirectory) {
 
     Write-Pass `
         "GitHub Actions workflow directory exists."
 
-    $YamlFiles = @(
+    $WorkflowFiles =
         Get-ChildItem `
             -Path $WorkflowDirectory `
-            -Filter "*.yml" `
             -File `
+            -Include "*.yml", "*.yaml" `
             -ErrorAction SilentlyContinue
-    )
 
-    $YamlFiles += @(
-        Get-ChildItem `
-            -Path $WorkflowDirectory `
-            -Filter "*.yaml" `
-            -File `
-            -ErrorAction SilentlyContinue
-    )
+    if ($WorkflowFiles.Count -gt 0) {
 
-    if ($YamlFiles.Count -gt 0) {
-
-        foreach ($Workflow in $YamlFiles) {
+        foreach ($Workflow in $WorkflowFiles) {
 
             Write-Pass `
                 "GitHub Actions workflow found: $($Workflow.Name)"
 
+            Write-Info `
+                "Workflow path: $($Workflow.FullName)"
         }
-
     }
     else {
 
         Write-Fail `
             "No GitHub Actions workflow files were found."
-
     }
-
 }
 else {
 
     Write-Fail `
-        ".github\workflows directory does not exist."
-
+        "GitHub Actions workflow directory does not exist."
 }
 
-
 # ==========================================================
-# 32. CHECK GITHUB WORKFLOW AWS OIDC REFERENCES
+# TEST 34 - GITHUB OIDC WORKFLOW PERMISSION
 # ==========================================================
 
-Write-Test "GitHub Workflow AWS OIDC Configuration"
+Write-TestHeader "GitHub Workflow AWS OIDC Configuration"
 
-if ($YamlFiles.Count -gt 0) {
+if (Test-Path $WorkflowDirectory) {
 
-    $OidcWorkflowFound = $false
+    $WorkflowFiles =
+        Get-ChildItem `
+            -Path $WorkflowDirectory `
+            -File `
+            -Include "*.yml", "*.yaml" `
+            -ErrorAction SilentlyContinue
 
-    foreach ($Workflow in $YamlFiles) {
+    foreach ($Workflow in $WorkflowFiles) {
 
-        $WorkflowContent = `
+        $Content =
             Get-Content `
                 -Path $Workflow.FullName `
                 -Raw `
                 -ErrorAction SilentlyContinue
 
-        if ($WorkflowContent -match `
-            "id-token:\s*write") {
-
-            $OidcWorkflowFound = $true
+        if (
+            $Content -match
+            "id-token:\s*write"
+        ) {
 
             Write-Pass `
                 "$($Workflow.Name) contains id-token: write."
-
         }
+        else {
 
+            Write-Warn `
+                "$($Workflow.Name) does not contain id-token: write."
+        }
     }
-
-    if (-not $OidcWorkflowFound) {
-
-        Write-WarningResult `
-            "No workflow was detected with 'id-token: write'."
-
-        Write-Info `
-            "GitHub OIDC workflows normally require id-token: write."
-
-    }
-
-}
-else {
-
-    Write-WarningResult `
-        "Workflow OIDC check skipped because no workflow files were found."
 }
 
-
 # ==========================================================
-# 33. CHECK GIT REPOSITORY
-# ==========================================================
-
-Write-Test "Git Repository"
-
-try {
-
-    git status --short 2>&1 | Out-Null
-
-    if ($LASTEXITCODE -eq 0) {
-
-        Write-Pass `
-            "Current directory is a Git repository."
-
-        $GitBranch = `
-            git branch --show-current 2>&1
-
-        Write-Info `
-            "Current Git branch: $GitBranch"
-
-        $GitRemote = `
-            git remote -v 2>&1
-
-        Write-Info "Git remotes:"
-        Write-Info "$GitRemote"
-
-    }
-    else {
-
-        Write-WarningResult `
-            "Current directory does not appear to be a Git repository."
-
-    }
-
-}
-catch {
-
-    Write-WarningResult `
-        "Unable to check Git repository: $($_.Exception.Message)"
-}
-
-
-# ==========================================================
-# 34. CHECK GITHUB ACTIONS ROLE ARN IN WORKFLOW
+# TEST 35 - GITHUB ROLE REFERENCE
 # ==========================================================
 
-Write-Test "GitHub Workflow AWS Role Reference"
+Write-TestHeader "GitHub Workflow AWS Role Reference"
 
-if ($YamlFiles.Count -gt 0) {
+$RoleReferenceFound = $false
 
-    $RoleReferenceFound = $false
+if (Test-Path $WorkflowDirectory) {
 
-    foreach ($Workflow in $YamlFiles) {
+    $WorkflowFiles =
+        Get-ChildItem `
+            -Path $WorkflowDirectory `
+            -File `
+            -Include "*.yml", "*.yaml" `
+            -ErrorAction SilentlyContinue
 
-        $WorkflowContent = `
+    foreach ($Workflow in $WorkflowFiles) {
+
+        $Content =
             Get-Content `
                 -Path $Workflow.FullName `
                 -Raw `
                 -ErrorAction SilentlyContinue
 
-        if ($WorkflowContent -match `
-            [regex]::Escape($GitHubRoleName)) {
+        if (
+            $Content -match
+            "AWS_ROLE_ARN"
+        ) {
 
             $RoleReferenceFound = $true
 
             Write-Pass `
-                "$($Workflow.Name) references GitHub Actions role name."
-
+                "$($Workflow.Name) references AWS_ROLE_ARN."
         }
+        elseif (
+            $Content -match
+            [regex]::Escape($GitHubRoleName)
+        ) {
 
-        if ($WorkflowContent -match `
-            "AWS_ROLE_ARN") {
+            $RoleReferenceFound = $true
 
             Write-Pass `
-                "$($Workflow.Name) references AWS_ROLE_ARN."
-
+                "$($Workflow.Name) directly references role '$GitHubRoleName'."
         }
+        else {
 
+            Write-Info `
+                "$($Workflow.Name) does not directly reference AWS_ROLE_ARN."
+        }
     }
+}
 
-    if (-not $RoleReferenceFound) {
+if ($RoleReferenceFound) {
 
-        Write-WarningResult `
-            "No workflow file directly references role name '$GitHubRoleName'."
-
-    }
-
+    Write-Info `
+        "At least one GitHub workflow references the AWS role through AWS_ROLE_ARN or the literal role name."
 }
 else {
 
-    Write-WarningResult `
-        "Workflow role check skipped because no workflow files were found."
+    Write-Info `
+        "No workflow directly contains the literal role name '$GitHubRoleName'."
+
+    Write-Info `
+        "This is acceptable if AWS_ROLE_ARN is supplied through GitHub repository/environment variables or secrets."
 }
 
-
 # ==========================================================
-# 35. FINAL SUMMARY
-# ==========================================================
-
-$EndTime = Get-Date
-
-$Duration = $EndTime - $StartTime
-
-$TotalResults = `
-    $Passed.Count +
-    $Warnings.Count +
-    $Errors.Count
-
-
-# ==========================================================
-# BUILD FINAL REPORT
+# TEST 36 - GIT REPOSITORY
 # ==========================================================
 
-$FinalReport = @"
+Write-TestHeader "Git Repository"
 
-============================================================
- FINAL VERIFICATION REPORT
-============================================================
+$GitRoot =
+    git rev-parse --show-toplevel 2>$null
 
-Start Time:
-$StartTime
+if ($LASTEXITCODE -eq 0) {
 
-End Time:
-$EndTime
+    Write-Pass `
+        "Current directory is a Git repository."
 
-Duration:
-$($Duration.ToString())
+    $GitBranch =
+        git branch --show-current 2>&1
 
-============================================================
- SUMMARY
-============================================================
+    Write-Info `
+        "Current Git branch: $GitBranch"
 
-Total Results : $TotalResults
-PASSED        : $($Passed.Count)
-WARNINGS      : $($Warnings.Count)
-ERRORS        : $($Errors.Count)
+    $GitRemote =
+        git remote -v 2>&1
 
-============================================================
- PASSED TESTS
-============================================================
+    Write-Info `
+        "Git remotes:"
 
-"@
+    foreach ($Line in @($GitRemote)) {
 
-foreach ($Item in $Passed) {
+        if (
+            -not [string]::IsNullOrWhiteSpace(
+                [string]$Line
+            )
+        ) {
 
-    $FinalReport += "`r`n[PASS] $Item"
-
-}
-
-
-$FinalReport += @"
-
-============================================================
- WARNINGS
-============================================================
-
-"@
-
-if ($Warnings.Count -eq 0) {
-
-    $FinalReport += "`r`nNo warnings."
-
-}
-else {
-
-    foreach ($Item in $Warnings) {
-
-        $FinalReport += "`r`n[WARN] $Item"
-
+            Write-Info ([string]$Line)
+        }
     }
 
-}
+    $GitStatus =
+        git status --short 2>&1
 
+    if (
+        [string]::IsNullOrWhiteSpace(
+            ($GitStatus -join "`n")
+        )
+    ) {
 
-$FinalReport += @"
-
-============================================================
- ERRORS
-============================================================
-
-"@
-
-if ($Errors.Count -eq 0) {
-
-    $FinalReport += "`r`nNo errors."
-
-}
-else {
-
-    foreach ($Item in $Errors) {
-
-        $FinalReport += "`r`n[FAIL] $Item"
-
-    }
-
-}
-
-
-$FinalReport += @"
-
-============================================================
- OVERALL RESULT
-============================================================
-
-"@
-
-
-if ($Errors.Count -eq 0) {
-
-    if ($Warnings.Count -eq 0) {
-
-        $FinalReport += @"
-
-STATUS: PASS
-
-All automated verification checks passed.
-
-The AWS/IAM/Terraform configuration appears ready
-for the GitHub Actions end-to-end test.
-
-"@
-
+        Write-Pass `
+            "Git working tree is clean."
     }
     else {
 
-        $FinalReport += @"
+        Write-Warn `
+            "Git working tree contains uncommitted/untracked changes."
 
-STATUS: PASS WITH WARNINGS
+        Write-Info `
+            "Git status:"
 
-No critical verification errors were detected.
+        foreach ($Line in @($GitStatus)) {
 
-Review the warnings before performing the final
-GitHub Actions deployment test.
+            if (
+                -not [string]::IsNullOrWhiteSpace(
+                    [string]$Line
+                )
+            ) {
 
-"@
+                Write-Info ([string]$Line)
+            }
+        }
+    }
+}
+else {
 
+    Write-Fail `
+        "Current directory is not a Git repository."
+}
+
+# ==========================================================
+# TEST 37 - IMPORTANT PROJECT FILES
+# ==========================================================
+
+Write-TestHeader "Important Project Files"
+
+$ImportantPaths = @(
+    ".gitignore",
+    ".github\workflows"
+)
+
+foreach ($RelativePath in $ImportantPaths) {
+
+    $FullPath =
+        Join-Path `
+            $ProjectRoot `
+            $RelativePath
+
+    if (Test-Path $FullPath) {
+
+        Write-Pass `
+            "Project path exists: $RelativePath"
+    }
+    else {
+
+        Write-Warn `
+            "Project path does not exist: $RelativePath"
+    }
+}
+
+# ==========================================================
+# TEST 38 - EXISTING ROLE POLICIES
+# ==========================================================
+
+Write-TestHeader "Existing GitHub Actions Role Policies"
+
+if ($null -ne $RoleAttached) {
+
+    $LegacyRolePolicies = @(
+        "github-actions-terraform-backend-policy",
+        "aws-hybrid-iac-lab-GitHubActionsPolicy"
+    )
+
+    foreach ($LegacyPolicy in $LegacyRolePolicies) {
+
+        if (
+            $RolePolicyNames -contains
+            $LegacyPolicy
+        ) {
+
+            Write-Info `
+                "Additional policy remains attached: $LegacyPolicy"
+        }
     }
 
+    if (
+        $RolePolicyNames -contains
+        $CombinedPolicyName
+    ) {
+
+        Write-Pass `
+            "Combined policy is present on GitHub Actions role."
+    }
+
+    Write-Info `
+        "No policies were detached or modified by this script."
+}
+
+# ==========================================================
+# FINAL RESULT
+# ==========================================================
+
+Write-Host ""
+Write-Host "=========================================================="
+Write-Host "FINAL RESULT"
+Write-Host "=========================================================="
+
+Add-ReportLine ""
+Add-ReportLine "=========================================================="
+Add-ReportLine "FINAL RESULT"
+Add-ReportLine "=========================================================="
+
+if ($Errors -eq 0) {
+
+    $Status = "PASSED"
+
+    Write-Host "STATUS: PASSED"
+
+    Add-ReportLine "STATUS: PASSED"
 }
 else {
 
-    $FinalReport += @"
+    $Status = "FAILED"
 
-STATUS: FAILED
+    Write-Host "STATUS: FAILED"
 
-One or more verification checks failed.
-
-Review the ERROR section above before running the
-final GitHub Actions deployment.
-
-"@
-
+    Add-ReportLine "STATUS: FAILED"
 }
-
-
-$FinalReport += @"
-
-============================================================
- RECOMMENDED NEXT STEPS
-============================================================
-
-1. Review this verification report.
-
-2. Fix every FAIL item.
-
-3. Review every WARN item.
-
-4. Format Terraform:
-
-   terraform fmt -recursive
-
-5. Initialize Terraform:
-
-   terraform init
-
-6. Validate Terraform:
-
-   terraform validate
-
-7. Review Terraform plan:
-
-   terraform plan
-
-8. Check Git status:
-
-   git status
-
-9. Commit the verified configuration:
-
-   git add .
-   git commit -m "verify combined GitHub Actions IAM policy"
-
-10. Push to GitHub:
-
-   git push origin main
-
-11. Open the GitHub repository.
-
-12. Go to:
-
-   Actions
-
-13. Open the latest workflow run.
-
-14. Verify that GitHub Actions successfully performs:
-
-   - OIDC authentication
-   - AWS STS authentication
-   - aws sts get-caller-identity
-   - Terraform init
-   - Terraform validate
-   - Terraform plan
-   - Terraform apply
-
-15. IMPORTANT:
-
-   Do NOT detach the old IAM policies until the new
-   combined policy has been successfully tested through
-   the real GitHub Actions workflow.
-
-============================================================
- REPORT LOCATION
-============================================================
-
-$ReportFile
-
-============================================================
- END OF REPORT
-============================================================
-
-"@
-
-
-# ==========================================================
-# WRITE FINAL REPORT
-# ==========================================================
-
-$FinalReport | Out-File `
-    -FilePath $ReportFile `
-    -Encoding utf8 `
-    -Append
-
-
-# ==========================================================
-# DISPLAY FINAL RESULT
-# ==========================================================
 
 Write-Host ""
-Write-Host "==========================================================" `
-    -ForegroundColor Cyan
+Write-Host "Passed  : $Passed"
+Write-Host "Warnings: $Warnings"
+Write-Host "Errors  : $Errors"
 
-Write-Host "FINAL RESULT" `
-    -ForegroundColor Cyan
+Add-ReportLine ""
+Add-ReportLine "Passed  : $Passed"
+Add-ReportLine "Warnings: $Warnings"
+Add-ReportLine "Errors  : $Errors"
 
-Write-Host "==========================================================" `
-    -ForegroundColor Cyan
+Write-Host ""
+Write-Host "IAM User:"
+Write-Host $GitHubIamUserName
 
+Write-Host ""
+Write-Host "Combined Policy:"
+Write-Host $CombinedPolicyName
 
-if ($Errors.Count -eq 0 -and $Warnings.Count -eq 0) {
+Write-Host ""
+Write-Host "GitHub Actions Role:"
+Write-Host $GitHubRoleName
 
-    Write-Host "STATUS: PASS" `
-        -ForegroundColor Green
+Write-Host ""
+Write-Host "Terraform Directory:"
 
-}
-elseif ($Errors.Count -eq 0) {
+if ($null -ne $TerraformRoot) {
 
-    Write-Host "STATUS: PASS WITH WARNINGS" `
-        -ForegroundColor Yellow
-
+    Write-Host $TerraformRoot
 }
 else {
 
-    Write-Host "STATUS: FAILED" `
-        -ForegroundColor Red
-
+    Write-Host "Not detected"
 }
 
+Add-ReportLine ""
+Add-ReportLine "IAM User:"
+Add-ReportLine $GitHubIamUserName
 
-Write-Host ""
+Add-ReportLine ""
+Add-ReportLine "Combined Policy:"
+Add-ReportLine $CombinedPolicyName
 
-Write-Host "Passed  : $($Passed.Count)" `
-    -ForegroundColor Green
+Add-ReportLine ""
+Add-ReportLine "GitHub Actions Role:"
+Add-ReportLine $GitHubRoleName
 
-Write-Host "Warnings: $($Warnings.Count)" `
-    -ForegroundColor Yellow
+Add-ReportLine ""
+Add-ReportLine "Terraform Directory:"
 
-Write-Host "Errors  : $($Errors.Count)" `
-    -ForegroundColor Red
+if ($null -ne $TerraformRoot) {
 
-Write-Host ""
-
-Write-Host "Report saved to:" `
-    -ForegroundColor Cyan
-
-Write-Host $ReportFile `
-    -ForegroundColor White
-
-Write-Host ""
-
-Write-Host "Verification complete." `
-    -ForegroundColor Green
-
-
-# ==========================================================
-# EXIT CODE
-# ==========================================================
-
-if ($Errors.Count -gt 0) {
-
-    exit 1
-
+    Add-ReportLine $TerraformRoot
 }
 else {
 
-    exit 0
-
+    Add-ReportLine "Not detected"
 }
 
+# ==========================================================
+# SAVE REPORT
+# ==========================================================
+
+try {
+
+    $ReportLines |
+        Out-File `
+            -FilePath $ReportFile `
+            -Encoding UTF8
+
+    Write-Host ""
+    Write-Host "Report saved to:"
+    Write-Host $ReportFile
+
+    Add-ReportLine ""
+    Add-ReportLine "Report saved to:"
+    Add-ReportLine $ReportFile
+}
+catch {
+
+    Write-Warn `
+        "Unable to save verification report: $($_.Exception.Message)"
+}
+
+Write-Host ""
+Write-Host "Verification complete."

@@ -1,0 +1,672 @@
+﻿============================================================
+ GitHub Actions + IAM User + IAM Role + Terraform
+ Verification Report
+============================================================
+
+Started:
+09/06/2026 16:30:24
+
+Expected AWS Account:
+537236558357
+
+Expected AWS Region:
+us-east-1
+
+IAM User:
+github-ci-cd-user
+
+Combined IAM Policy:
+github-ci-cd-user-combined-access
+
+Combined IAM Policy ARN:
+arn:aws:iam::537236558357:policy/github-ci-cd-user-combined-access
+
+GitHub Actions Role:
+aws-hybrid-iac-lab-GitHubActions
+
+GitHub Actions Role ARN:
+arn:aws:iam::537236558357:role/aws-hybrid-iac-lab-GitHubActions
+
+CloudFormation Service Role:
+CharlieCafe-CloudFormation-ServiceRole
+
+GitHub Repository:
+awsrmmustansarjavaid/aws-hybrid-iac-lab
+
+Repository Directory:
+C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab
+
+============================================================
+
+
+==========================================================
+TEST: AWS CLI Availability
+==========================================================
+[PASS] AWS CLI is installed.
+[INFO] AWS CLI version: aws-cli/2.35.16 Python/3.14.5 Windows/10 exe/AMD64
+
+==========================================================
+TEST: Terraform Availability
+==========================================================
+[PASS] Terraform is installed.
+[INFO] Terraform version:
+[INFO] Terraform v1.15.7 on windows_amd64  Your version of Terraform is out of date! The latest version is 1.16.1. You can update by downloading from https://developer.hashicorp.com/terraform/install
+
+==========================================================
+TEST: AWS Account Identity
+==========================================================
+[INFO] AWS Account: 537236558357
+[INFO] AWS ARN: arn:aws:iam::537236558357:user/github-ci-cd-user
+[INFO] AWS User ID: AIDAX2FOLKIKURZFIZAVO
+[PASS] AWS account matches expected account 537236558357.
+
+==========================================================
+TEST: AWS Region
+==========================================================
+[PASS] AWS CLI region is us-east-1.
+
+==========================================================
+TEST: IAM User
+==========================================================
+[PASS] IAM user exists: github-ci-cd-user
+[INFO] IAM User ARN: arn:aws:iam::537236558357:user/github-ci-cd-user
+[INFO] IAM User ID: AIDAX2FOLKIKURZFIZAVO
+[INFO] IAM User Created: 2026-04-04T07:23:28+00:00
+
+==========================================================
+TEST: IAM User Policy Attachment
+==========================================================
+[PASS] Combined policy is attached to IAM user 'github-ci-cd-user'.
+[INFO] Attached customer-managed/AWS-managed policies for IAM user:
+[INFO]   - aws-rds-CreateDBSnapshot
+[INFO]     arn:aws:iam::537236558357:policy/aws-rds-CreateDBSnapshot
+[INFO]   - github-ci-cd-user-combined-access
+[INFO]     arn:aws:iam::537236558357:policy/github-ci-cd-user-combined-access
+
+==========================================================
+TEST: IAM User Inline Policies
+==========================================================
+[INFO] IAM user inline policies:
+[INFO]   - aws-rds-CreateDBSnapshot
+[INFO]   - CharlieCafe-ECS-ECR-CloudFormation-Policy
+[INFO]   - CloudFormation-Lab-S3-RDS-Policy
+[INFO]   - GitHubActions-ECR-ECS-Policy
+[INFO]   - GitHubCICD-RDS-KMS-SecretsManager-Access
+[INFO]   - Lab01-CloudFormation-ECS-ECR-IAM
+
+==========================================================
+TEST: Combined IAM Policy Exists
+==========================================================
+[PASS] Combined IAM policy exists: github-ci-cd-user-combined-access
+[INFO] Policy ARN: arn:aws:iam::537236558357:policy/github-ci-cd-user-combined-access
+[INFO] Policy ID: ANPAX2FOLKIKUHP2VFZ7I
+[INFO] Policy Type: 
+[INFO] Default policy version: v1
+[INFO] Attachment count: 2
+
+==========================================================
+TEST: Combined IAM Policy Document
+==========================================================
+[PASS] Combined IAM policy document can be read.
+[INFO] Policy statement count: 20
+[INFO] Statement: LambdaAccess | Effect: Allow
+[INFO] Statement: EC2SSMAccess | Effect: Allow
+[INFO] Statement: SecretsManagerAccess | Effect: Allow
+[INFO] Statement: ECRAccess | Effect: Allow
+[INFO] Statement: ECSAccess | Effect: Allow
+[INFO] Statement: PassCharlieCafeCloudFormationRole | Effect: Allow
+[INFO] Statement: ManageGitHubActionsRoleTrustPolicy | Effect: Allow
+[INFO] Statement: AmazonEC2FullAccess | Effect: Allow
+[INFO] Statement: ElasticLoadBalancingFullAccess | Effect: Allow
+[INFO] Statement: CloudWatchFullAccess | Effect: Allow
+[INFO] Statement: AutoScalingFullAccess | Effect: Allow
+[INFO] Statement: EC2ServiceLinkedRoles | Effect: Allow
+[INFO] Statement: SSMFullAccess | Effect: Allow
+[INFO] Statement: SSMServiceLinkedRoleCreate | Effect: Allow
+[INFO] Statement: SSMServiceLinkedRoleDelete | Effect: Allow
+[INFO] Statement: SSMMessagesAccess | Effect: Allow
+[INFO] Statement: S3FullAccess | Effect: Allow
+[INFO] Statement: CloudFormationFullAccess | Effect: Allow
+[INFO] Statement: IAMReadOnlyAccess | Effect: Allow
+[INFO] Statement: SSMReadOnlyAccess | Effect: Allow
+
+==========================================================
+TEST: Required IAM Policy Permissions
+==========================================================
+[INFO] Total Allow action entries found: 56
+[PASS] Required permission 'lambda:UpdateFunctionCode' is satisfied by policy action 'lambda:UpdateFunctionCode'.
+[PASS] Required permission 'lambda:UpdateFunctionConfiguration' is satisfied by policy action 'lambda:UpdateFunctionConfiguration'.
+[PASS] Required permission 'lambda:PublishLayerVersion' is satisfied by policy action 'lambda:PublishLayerVersion'.
+[PASS] Required permission 'ssm:SendCommand' is satisfied by policy action 'ssm:SendCommand'.
+[PASS] Required permission 'secretsmanager:GetSecretValue' is satisfied by policy action 'secretsmanager:GetSecretValue'.
+[PASS] Required permission 'ecr:PutImage' is satisfied by policy action 'ecr:PutImage'.
+[PASS] Required permission 'ecs:UpdateService' is satisfied by policy action 'ecs:UpdateService'.
+[PASS] Required permission 'iam:PassRole' is satisfied by policy action 'iam:PassRole'.
+[PASS] Required permission 'ec2:DescribeInstances' is satisfied by policy action 'ec2:DescribeInstances'.
+[PASS] Required permission 's3:ListAllMyBuckets' is satisfied by policy action 's3:*'.
+[PASS] Required permission 'cloudformation:ListStacks' is satisfied by policy action 'cloudformation:*'.
+[PASS] Required permission 'ssm:DescribeInstanceInformation' is satisfied by policy action 'ssm:*'.
+
+==========================================================
+TEST: GitHub Actions IAM Role
+==========================================================
+[PASS] GitHub Actions role exists: aws-hybrid-iac-lab-GitHubActions
+[INFO] Role ARN: arn:aws:iam::537236558357:role/aws-hybrid-iac-lab-GitHubActions
+[INFO] Role ID: AROAX2FOLKIKYURD2IQWP
+[INFO] Role Description: aws-hybrid-iac-lab-GitHubActions
+[INFO] Maximum Session Duration: 3600
+[INFO] Last Used: 2026-09-06T11:20:09+00:00
+[INFO] Last Used Region: us-east-1
+
+==========================================================
+TEST: IAM Policies Attached to GitHub Actions Role
+==========================================================
+[PASS] Combined policy is attached to GitHub Actions role.
+[INFO] Currently attached policies:
+[INFO]   - github-actions-terraform-backend-policy
+[INFO]     arn:aws:iam::537236558357:policy/github-actions-terraform-backend-policy
+[INFO]   - aws-hybrid-iac-lab-GitHubActionsPolicy
+[INFO]     arn:aws:iam::537236558357:policy/aws-hybrid-iac-lab-GitHubActionsPolicy
+[INFO]   - github-ci-cd-user-combined-access
+[INFO]     arn:aws:iam::537236558357:policy/github-ci-cd-user-combined-access
+
+==========================================================
+TEST: GitHub OIDC Provider
+==========================================================
+[PASS] GitHub Actions OIDC provider exists.
+[INFO] OIDC ARN: arn:aws:iam::537236558357:oidc-provider/token.actions.githubusercontent.com
+[INFO] OIDC URL: https://token.actions.githubusercontent.com
+[INFO] OIDC client IDs: sts.amazonaws.com
+[INFO] OIDC thumbprints configured: 1
+
+==========================================================
+TEST: GitHub Actions Trust Policy
+==========================================================
+[PASS] GitHub OIDC provider is correctly referenced in role trust policy.
+[PASS] sts:AssumeRoleWithWebIdentity exists in trust policy.
+[FAIL] GitHub OIDC audience condition is missing.
+[FAIL] GitHub OIDC subject condition is missing.
+[WARN] Trust policy does not directly contain expected repository 'awsrmmustansarjavaid/aws-hybrid-iac-lab'.
+[INFO] Current GitHub Actions trust policy:
+[INFO] {
+    "Version":  "2012-10-17",
+    "Statement":  [
+                      {
+                          "Sid":  "GitHubActionsOIDCTrust",
+                          "Effect":  "Allow",
+                          "Principal":  {
+                                            "Federated":  "arn:aws:iam::537236558357:oidc-provider/token.actions.githubusercontent.com"
+                                        },
+                          "Action":  "sts:AssumeRoleWithWebIdentity",
+                          "Condition":  {
+                                            "StringEquals":  {
+                                                                 "token.actions.githubusercontent.com:aud":  "sts.amazonaws.com"
+                                                             },
+                                            "StringLike":  {
+                                                               "token.actions.githubusercontent.com:sub":  "repo:awsrmmustansarjavaid/aws-hybrid-iac-lab:*"
+                                                           }
+                                        }
+                      }
+                  ]
+}
+
+==========================================================
+TEST: CloudFormation Service Role
+==========================================================
+[PASS] CloudFormation service role exists.
+[INFO] CloudFormation Role ARN: arn:aws:iam::537236558357:role/CharlieCafe-CloudFormation-ServiceRole
+[INFO] CloudFormation Role ID: AROAX2FOLKIKV3WJYWIJL
+
+==========================================================
+TEST: IAM PassRole Simulation - GitHub Actions Role
+==========================================================
+[INFO] GitHub Actions role PassRole simulation decision: allowed
+[PASS] GitHub Actions role can iam:PassRole the CloudFormation service role.
+
+==========================================================
+TEST: IAM PassRole Simulation - IAM User
+==========================================================
+[INFO] IAM user PassRole simulation decision: allowed
+[PASS] IAM user 'github-ci-cd-user' can iam:PassRole the CloudFormation service role.
+
+==========================================================
+TEST: S3 Access
+==========================================================
+[PASS] S3 access is working.
+[INFO] S3 buckets:
+[INFO] aws-hybrid-iac-lab-terraform-state-537236558357	hybridiaclab-dev-cfn-templates-a635abe09098d12756b031e2bb
+
+==========================================================
+TEST: EC2 Access
+==========================================================
+[PASS] EC2 DescribeInstances access is working.
+
+==========================================================
+TEST: SSM Access
+==========================================================
+[PASS] SSM access is working.
+[INFO] SSM managed instance count: 0
+
+==========================================================
+TEST: Lambda Access
+==========================================================
+[PASS] Lambda list-functions access is working.
+[INFO] Lambda function count: 0
+
+==========================================================
+TEST: ECR Access
+==========================================================
+[PASS] ECR access is working.
+[INFO] ECR repository count: 0
+
+==========================================================
+TEST: ECS Access
+==========================================================
+[PASS] ECS access is working.
+[INFO] ECS cluster count: 0
+
+==========================================================
+TEST: CloudFormation Access
+==========================================================
+[PASS] CloudFormation access is working.
+[INFO] CloudFormation stack count: 377
+
+==========================================================
+TEST: Secrets Manager Access
+==========================================================
+[PASS] Secrets Manager access is working for CafeDevDBSM.
+[INFO] Secret ARN: arn:aws:secretsmanager:us-east-1:537236558357:secret:CafeDevDBSM-XovYsA
+[INFO] Secret name: CafeDevDBSM
+
+==========================================================
+TEST: Terraform Root Directory Discovery
+==========================================================
+[PASS] Terraform configuration files were found.
+[INFO] Terraform root directory: C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\infrastructure\bootstrap\terraform-state
+[INFO] Terraform .tf file count: 13
+[INFO] Directory: C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\infrastructure\terraform | Files: 10
+[INFO] Directory: C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\infrastructure\bootstrap\terraform-state | Files: 3
+
+==========================================================
+TEST: Terraform Project Files
+==========================================================
+[PASS] Terraform configuration files exist in the detected Terraform root.
+[INFO] Terraform file: main.tf
+[INFO] Terraform file: outputs.tf
+[INFO] Terraform file: variables.tf
+[PASS] Terraform file exists: main.tf
+[PASS] Terraform file exists: variables.tf
+[PASS] Terraform file exists: outputs.tf
+[INFO] Optional/common Terraform file not found: provider.tf
+[INFO] Optional/common Terraform file not found: terraform.tf
+[INFO] Optional/common Terraform file not found: iam.tf
+
+==========================================================
+TEST: Terraform Format
+==========================================================
+[PASS] Terraform formatting is correct.
+
+==========================================================
+TEST: Terraform Initialization
+==========================================================
+[PASS] Terraform initialization directory exists.
+
+==========================================================
+TEST: Terraform Validate
+==========================================================
+[PASS] Terraform configuration is valid.
+[INFO] [32m[1mSuccess![0m The configuration is valid. [0m
+
+==========================================================
+TEST: Terraform Plan
+==========================================================
+[INFO] Running terraform plan -refresh=false for verification.
+[PASS] Terraform plan completed successfully.
+[INFO] Terraform plan output follows:
+[FAIL] Terraform plan check failed: Cannot bind argument to parameter 'Message' because it is an empty string.
+
+==========================================================
+TEST: Terraform State
+==========================================================
+[WARN] Local terraform.tfstate file exists.
+[INFO] Verify whether local state is intentional.
+[INFO] No explicit Terraform backend block detected.
+
+==========================================================
+TEST: GitHub Actions Workflow
+==========================================================
+[PASS] GitHub Actions workflow directory exists.
+[PASS] GitHub Actions workflow found: delete.yml
+[INFO] Workflow path: C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\.github\workflows\delete.yml
+[PASS] GitHub Actions workflow found: docker.yml
+[INFO] Workflow path: C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\.github\workflows\docker.yml
+[PASS] GitHub Actions workflow found: kubernetes.yml
+[INFO] Workflow path: C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\.github\workflows\kubernetes.yml
+[PASS] GitHub Actions workflow found: terraform.yml
+[INFO] Workflow path: C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\.github\workflows\terraform.yml
+[PASS] GitHub Actions workflow found: main-deploy.yaml
+[INFO] Workflow path: C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\.github\workflows\main-deploy.yaml
+
+==========================================================
+TEST: GitHub Workflow AWS OIDC Configuration
+==========================================================
+[PASS] delete.yml contains id-token: write.
+[PASS] docker.yml contains id-token: write.
+[PASS] kubernetes.yml contains id-token: write.
+[PASS] terraform.yml contains id-token: write.
+[PASS] main-deploy.yaml contains id-token: write.
+
+==========================================================
+TEST: GitHub Workflow AWS Role Reference
+==========================================================
+[PASS] delete.yml references AWS_ROLE_ARN.
+[PASS] docker.yml references AWS_ROLE_ARN.
+[PASS] kubernetes.yml references AWS_ROLE_ARN.
+[PASS] terraform.yml references AWS_ROLE_ARN.
+[INFO] main-deploy.yaml does not reference AWS_ROLE_ARN.
+[INFO] No workflow directly contains the literal role name 'aws-hybrid-iac-lab-GitHubActions'.
+[INFO] This is acceptable if AWS_ROLE_ARN is supplied through GitHub repository/environment variables or secrets.
+
+==========================================================
+TEST: Git Repository
+==========================================================
+[PASS] Current directory is a Git repository.
+[INFO] Current Git branch: main
+[INFO] Git remotes:
+[INFO] origin	https://github.com/awsrmmustansarjavaid/aws-hybrid-iac-lab.git (fetch) origin	https://github.com/awsrmmustansarjavaid/aws-hybrid-iac-lab.git (push)
+[WARN] Git working tree contains uncommitted/untracked changes.
+[INFO] Git status:
+[INFO]  M scripts/verify-github-ci-cd.ps1 ?? github-ci-cd-verification-report-20260906-163024.txt
+
+==========================================================
+TEST: Important Project Files
+==========================================================
+[PASS] Project path exists: .gitignore
+[PASS] Project path exists: .github\workflows
+
+==========================================================
+TEST: Existing GitHub Actions Role Policies
+==========================================================
+[INFO] Additional policy remains attached: github-actions-terraform-backend-policy
+[INFO] Additional policy remains attached: aws-hybrid-iac-lab-GitHubActionsPolicy
+[PASS] Combined policy is present on GitHub Actions role.
+[INFO] No policies were detached or modified by this script.
+
+============================================================
+ FINAL VERIFICATION REPORT
+============================================================
+
+Start Time:
+09/06/2026 16:30:24
+
+End Time:
+09/06/2026 16:31:47
+
+Duration:
+00:01:22.9294789
+
+============================================================
+ ENVIRONMENT
+============================================================
+
+AWS Account:
+537236558357
+
+AWS Region:
+us-east-1
+
+IAM User:
+github-ci-cd-user
+
+Combined Policy:
+github-ci-cd-user-combined-access
+
+GitHub Actions Role:
+aws-hybrid-iac-lab-GitHubActions
+
+CloudFormation Service Role:
+CharlieCafe-CloudFormation-ServiceRole
+
+GitHub Repository:
+awsrmmustansarjavaid/aws-hybrid-iac-lab
+
+Repository Directory:
+C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab
+
+Terraform Directory:
+C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\infrastructure\bootstrap\terraform-state
+
+============================================================
+ SUMMARY
+============================================================
+
+Total Results : 70
+PASSED        : 64
+WARNINGS      : 3
+ERRORS        : 3
+
+============================================================
+ PASSED TESTS
+============================================================
+
+[PASS] AWS CLI is installed.
+[PASS] Terraform is installed.
+[PASS] AWS account matches expected account 537236558357.
+[PASS] AWS CLI region is us-east-1.
+[PASS] IAM user exists: github-ci-cd-user
+[PASS] Combined policy is attached to IAM user 'github-ci-cd-user'.
+[PASS] Combined IAM policy exists: github-ci-cd-user-combined-access
+[PASS] Combined IAM policy document can be read.
+[PASS] Required permission 'lambda:UpdateFunctionCode' is satisfied by policy action 'lambda:UpdateFunctionCode'.
+[PASS] Required permission 'lambda:UpdateFunctionConfiguration' is satisfied by policy action 'lambda:UpdateFunctionConfiguration'.
+[PASS] Required permission 'lambda:PublishLayerVersion' is satisfied by policy action 'lambda:PublishLayerVersion'.
+[PASS] Required permission 'ssm:SendCommand' is satisfied by policy action 'ssm:SendCommand'.
+[PASS] Required permission 'secretsmanager:GetSecretValue' is satisfied by policy action 'secretsmanager:GetSecretValue'.
+[PASS] Required permission 'ecr:PutImage' is satisfied by policy action 'ecr:PutImage'.
+[PASS] Required permission 'ecs:UpdateService' is satisfied by policy action 'ecs:UpdateService'.
+[PASS] Required permission 'iam:PassRole' is satisfied by policy action 'iam:PassRole'.
+[PASS] Required permission 'ec2:DescribeInstances' is satisfied by policy action 'ec2:DescribeInstances'.
+[PASS] Required permission 's3:ListAllMyBuckets' is satisfied by policy action 's3:*'.
+[PASS] Required permission 'cloudformation:ListStacks' is satisfied by policy action 'cloudformation:*'.
+[PASS] Required permission 'ssm:DescribeInstanceInformation' is satisfied by policy action 'ssm:*'.
+[PASS] GitHub Actions role exists: aws-hybrid-iac-lab-GitHubActions
+[PASS] Combined policy is attached to GitHub Actions role.
+[PASS] GitHub Actions OIDC provider exists.
+[PASS] GitHub OIDC provider is correctly referenced in role trust policy.
+[PASS] sts:AssumeRoleWithWebIdentity exists in trust policy.
+[PASS] CloudFormation service role exists.
+[PASS] GitHub Actions role can iam:PassRole the CloudFormation service role.
+[PASS] IAM user 'github-ci-cd-user' can iam:PassRole the CloudFormation service role.
+[PASS] S3 access is working.
+[PASS] EC2 DescribeInstances access is working.
+[PASS] SSM access is working.
+[PASS] Lambda list-functions access is working.
+[PASS] ECR access is working.
+[PASS] ECS access is working.
+[PASS] CloudFormation access is working.
+[PASS] Secrets Manager access is working for CafeDevDBSM.
+[PASS] Terraform configuration files were found.
+[PASS] Terraform configuration files exist in the detected Terraform root.
+[PASS] Terraform file exists: main.tf
+[PASS] Terraform file exists: variables.tf
+[PASS] Terraform file exists: outputs.tf
+[PASS] Terraform formatting is correct.
+[PASS] Terraform initialization directory exists.
+[PASS] Terraform configuration is valid.
+[PASS] Terraform plan completed successfully.
+[PASS] GitHub Actions workflow directory exists.
+[PASS] GitHub Actions workflow found: delete.yml
+[PASS] GitHub Actions workflow found: docker.yml
+[PASS] GitHub Actions workflow found: kubernetes.yml
+[PASS] GitHub Actions workflow found: terraform.yml
+[PASS] GitHub Actions workflow found: main-deploy.yaml
+[PASS] delete.yml contains id-token: write.
+[PASS] docker.yml contains id-token: write.
+[PASS] kubernetes.yml contains id-token: write.
+[PASS] terraform.yml contains id-token: write.
+[PASS] main-deploy.yaml contains id-token: write.
+[PASS] delete.yml references AWS_ROLE_ARN.
+[PASS] docker.yml references AWS_ROLE_ARN.
+[PASS] kubernetes.yml references AWS_ROLE_ARN.
+[PASS] terraform.yml references AWS_ROLE_ARN.
+[PASS] Current directory is a Git repository.
+[PASS] Project path exists: .gitignore
+[PASS] Project path exists: .github\workflows
+[PASS] Combined policy is present on GitHub Actions role.
+============================================================
+ WARNINGS
+============================================================
+
+[WARN] Trust policy does not directly contain expected repository 'awsrmmustansarjavaid/aws-hybrid-iac-lab'.
+[WARN] Local terraform.tfstate file exists.
+[WARN] Git working tree contains uncommitted/untracked changes.
+============================================================
+ ERRORS
+============================================================
+
+[FAIL] GitHub OIDC audience condition is missing.
+[FAIL] GitHub OIDC subject condition is missing.
+[FAIL] Terraform plan check failed: Cannot bind argument to parameter 'Message' because it is an empty string.
+============================================================
+ OVERALL RESULT
+============================================================
+
+STATUS: FAILED
+
+============================================================
+ RECOMMENDED NEXT STEPS
+============================================================
+
+1. Review the verification report.
+
+2. If Terraform files were found in a subdirectory,
+   use that directory as the Terraform working directory.
+
+3. Fix every FAIL item.
+
+4. Review every WARN item.
+
+5. Format Terraform:
+
+   terraform fmt -recursive
+
+6. Initialize Terraform if required:
+
+   terraform init
+
+7. Validate Terraform:
+
+   terraform validate
+
+8. Review Terraform plan:
+
+   terraform plan
+
+9. Review Git status:
+
+   git status
+
+10. Commit the verified configuration:
+
+    git add .
+    git commit -m "verify combined GitHub Actions IAM policy"
+
+11. Push to GitHub:
+
+    git push origin main
+
+12. Open the GitHub repository.
+
+13. Open:
+
+    Actions
+
+14. Run the appropriate workflow.
+
+15. Verify GitHub Actions performs:
+
+    - GitHub OIDC authentication
+    - AWS STS authentication
+    - aws sts get-caller-identity
+    - Terraform init
+    - Terraform validate
+    - Terraform plan
+    - Terraform apply
+
+16. Verify the workflow can perform the AWS operations
+    required by the project.
+
+17. IMPORTANT:
+
+    Do NOT detach the old IAM policies yet.
+
+18. Only remove the old policies after the combined
+    policy has successfully passed the real GitHub
+    Actions end-to-end deployment test.
+
+19. After successful testing, re-run this verification
+    script.
+
+============================================================
+ IMPORTANT IAM DESIGN
+============================================================
+
+IAM USER:
+
+    github-ci-cd-user
+
+    |
+    +-- github-ci-cd-user-combined-access
+
+
+GITHUB ACTIONS:
+
+    GitHub
+       |
+       v
+    GitHub OIDC
+       |
+       v
+    aws-hybrid-iac-lab-GitHubActions
+       |
+       +-- github-ci-cd-user-combined-access
+       |
+       +-- Existing backend policy
+       |
+       +-- Existing GitHub Actions policy
+
+
+CLOUDFORMATION:
+
+    GitHub Actions Role
+       |
+       | iam:PassRole
+       v
+    CharlieCafe-CloudFormation-ServiceRole
+
+
+============================================================
+ SAFETY REMINDER
+============================================================
+
+This verification script does NOT:
+
+- Attach policies
+- Detach policies
+- Modify policies
+- Modify trust policies
+- Create infrastructure
+- Delete infrastructure
+- Run terraform apply
+- Push code to GitHub
+
+============================================================
+ REPORT LOCATION
+============================================================
+
+C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\github-ci-cd-verification-report-20260906-163024.txt
+
+============================================================
+ END OF REPORT
+============================================================
+
