@@ -2,6 +2,8 @@
 
 # IAM CONFIGURATION
 
+#
+
 # Project: aws-hybrid-iac-lab
 
 # File: iam.tf
@@ -186,7 +188,7 @@
 
 # v
 
-# Allows Terraform to manage AWS resources
+# Allows Terraform / CI/CD to manage AWS resources
 
 #
 
@@ -312,6 +314,8 @@
 
 #
 
+#
+
 # ==========================================================
 
 # ==========================================================
@@ -360,9 +364,102 @@
 
 #
 
+#
+
+# IMPORTANT: OIDC TAGGING
+
+# ----------------------------------------------------------
+
+#
+
+# The existing GitHub Actions OIDC provider already exists
+
+# in the AWS account.
+
+#
+
+# OIDC provider resource tags are intentionally NOT managed
+
+# by this Terraform resource.
+
+#
+
+# Why?
+
+#
+
+# Adding the "tags" block causes Terraform to call:
+
+#
+
+# iam:TagOpenIDConnectProvider
+
+#
+
+# The current github-ci-cd-user credentials do not have that
+
+# IAM permission.
+
+#
+
+# The missing permission caused Terraform apply to fail even
+
+# though the OIDC provider itself was already present and
+
+# usable.
+
+#
+
+# OIDC provider tags are NOT required for:
+
+#
+
+# - GitHub Actions OIDC authentication
+
+# - sts:AssumeRoleWithWebIdentity
+
+# - GitHub Actions IAM role assumption
+
+# - Terraform authentication through GitHub Actions
+
+#
+
+# Therefore, tags are intentionally omitted here.
+
+#
+
+# This avoids an unnecessary IAM tagging API operation while
+
+# preserving the actual OIDC authentication configuration.
+
+#
+
+# DO NOT add the "tags" block back unless the IAM identity
+
+# running Terraform has:
+
+#
+
+# iam:TagOpenIDConnectProvider
+
+#
+
 # ==========================================================
 
 resource "aws_iam_openid_connect_provider" "github_actions" {
+
+  # --------------------------------------------------------
+  # Use the AWS provider without default tags.
+  #
+  # This prevents Terraform from attempting to apply the
+  # provider-level default tags to the GitHub Actions OIDC
+  # provider.
+  #
+  # This is important because the current IAM user does not
+  # have iam:TagOpenIDConnectProvider permission.
+  # --------------------------------------------------------
+
+  provider = aws.no_default_tags
 
   # --------------------------------------------------------
 
@@ -390,17 +487,34 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
 
   # --------------------------------------------------------
 
-  # Resource tags.
+  # IMPORTANT
 
   # --------------------------------------------------------
 
-  tags = {
-    Name        = "${local.name_prefix}-GitHubActions-OIDC"
-    Project     = "aws-hybrid-iac-lab"
-    ManagedBy   = "Terraform"
-    Purpose     = "GitHub Actions OIDC Authentication"
-    Environment = var.environment
-  }
+  #
+
+  # No "tags" block is intentionally defined here.
+
+  #
+
+  # This prevents Terraform from calling:
+
+  #
+
+  # iam:TagOpenIDConnectProvider
+
+  #
+
+  # The OIDC provider does not require tags to function.
+
+  #
+
+  # The existing provider remains responsible for GitHub
+
+  # Actions OIDC authentication.
+
+  # --------------------------------------------------------
+
 }
 
 # ==========================================================
@@ -500,7 +614,6 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
 
     effect = "Allow"
 
-
     # ------------------------------------------------------
     # Identify GitHub as the trusted federated identity
     # provider.
@@ -516,7 +629,6 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
       ]
     }
 
-
     # ------------------------------------------------------
     # AWS STS action required for GitHub OIDC authentication.
     # ------------------------------------------------------
@@ -524,7 +636,6 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
     actions = [
       "sts:AssumeRoleWithWebIdentity"
     ]
-
 
     # ------------------------------------------------------
     # OIDC audience condition.
@@ -546,7 +657,6 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
         "sts.amazonaws.com"
       ]
     }
-
 
     # ------------------------------------------------------
     # OIDC subject condition.
@@ -715,6 +825,16 @@ resource "aws_iam_role" "github_actions" {
 
   # Resource tags.
 
+  #
+
+  # These are tags on the IAM ROLE, not the OIDC provider.
+
+  #
+
+  # The current IAM permissions allow the role configuration
+
+  # to be managed separately from OIDC provider tagging.
+
   # --------------------------------------------------------
 
   tags = {
@@ -848,6 +968,8 @@ resource "aws_iam_role" "github_actions" {
 
 # ==========================================================
 
+# ==========================================================
+
 # 5. CLOUDFORMATION TRUST POLICY
 
 # ==========================================================
@@ -901,7 +1023,6 @@ data "aws_iam_policy_document" "cloudformation_assume_role" {
 
     effect = "Allow"
 
-
     # ------------------------------------------------------
     # AWS service trusted to assume the role.
     # ------------------------------------------------------
@@ -913,7 +1034,6 @@ data "aws_iam_policy_document" "cloudformation_assume_role" {
         "cloudformation.amazonaws.com"
       ]
     }
-
 
     # ------------------------------------------------------
     # STS action used by CloudFormation.
