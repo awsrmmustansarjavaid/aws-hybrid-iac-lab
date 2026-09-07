@@ -307,65 +307,28 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
 # ==========================================================
 # 2. GITHUB ACTIONS OIDC TRUST POLICY
 # ==========================================================
-#
-# This policy answers:
-#
-#     "WHO is allowed to assume the GitHub Actions role?"
-#
-#
-# Trusted repository:
-#
-#     awsrmmustansarjavaid/aws-hybrid-iac-lab
-#
-#
-# Trusted branch:
-#
-#     main
-#
-# ==========================================================
 
 data "aws_iam_policy_document" "github_actions_assume_role" {
 
   statement {
 
-    # ------------------------------------------------------
-    # Allow GitHub OIDC identity to assume the role.
-    # ------------------------------------------------------
-
+    sid    = "GitHubActionsOIDCTrust"
     effect = "Allow"
-
-    # ------------------------------------------------------
-    # GitHub Actions OIDC provider.
-    # ------------------------------------------------------
 
     principals {
       type = "Federated"
 
       identifiers = [
-        aws_iam_openid_connect_provider.github_actions.arn
+        "arn:aws:iam::537236558357:oidc-provider/token.actions.githubusercontent.com"
       ]
     }
-
-    # ------------------------------------------------------
-    # STS action required for GitHub OIDC.
-    # ------------------------------------------------------
 
     actions = [
       "sts:AssumeRoleWithWebIdentity"
     ]
 
-    # ------------------------------------------------------
-    # OIDC audience.
-    #
-    # The GitHub token must contain:
-    #
-    #     aud = sts.amazonaws.com
-    #
-    # ------------------------------------------------------
-
     condition {
-      test = "StringEquals"
-
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:aud"
 
       values = [
@@ -373,20 +336,12 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
       ]
     }
 
-    # ------------------------------------------------------
-    # OIDC subject.
-    #
-    # Only the main branch of this specific repository is
-    # trusted.
-    # ------------------------------------------------------
-
     condition {
-      test = "StringEquals"
-
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
 
       values = [
-        "repo:awsrmmustansarjavaid/aws-hybrid-iac-lab:ref:refs/heads/main"
+        "repo:awsrmmustansarjavaid@242676971/aws-hybrid-iac-lab@1357303207:ref:refs/heads/main"
       ]
     }
   }
