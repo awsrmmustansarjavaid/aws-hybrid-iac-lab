@@ -270,8 +270,130 @@ jobs:
           echo "=============================================="
           echo "Configuration Display Completed"
           echo "=============================================="
+      
+      # ==========================================================
+      # TEMPORARY OIDC DIAGNOSTIC
+      # ==========================================================
+      #
+      # Purpose:
+      #   Show the GitHub Actions OIDC token claims that AWS IAM
+      #   must evaluate.
+      #
+      # IMPORTANT:
+      #   This diagnostic does NOT print the complete JWT token.
+      #   It only decodes the non-sensitive claims needed to
+      #   troubleshoot the IAM trust policy.
+      #
+      # Remove this step after OIDC authentication is fixed.
+      # ==========================================================
 
+      - name: Diagnose GitHub OIDC Claims
+        shell: bash
+        env:
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ secrets.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
+          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ secrets.ACTIONS_ID_TOKEN_REQUEST_URL }}
+        run: |
+          set -euo pipefail
 
+          echo "=============================================="
+          echo "GitHub OIDC Diagnostic"
+          echo "=============================================="
+
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "ERROR: OIDC request token is not available."
+            echo "Check workflow permissions:"
+            echo "  id-token: write"
+            exit 1
+          fi
+
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+            echo "ERROR: OIDC request URL is not available."
+            exit 1
+          fi
+
+          echo ""
+          echo "Repository:"
+          echo "${GITHUB_REPOSITORY}"
+
+          echo ""
+          echo "Ref:"
+          echo "${GITHUB_REF}"
+
+          echo ""
+          echo "Branch:"
+          echo "${GITHUB_REF_NAME}"
+
+          echo ""
+          echo "Workflow:"
+          echo "${GITHUB_WORKFLOW}"
+
+          echo ""
+          echo "Environment:"
+          echo "${GITHUB_ENVIRONMENT:-<none>}"
+
+          echo ""
+          echo "Requesting OIDC token..."
+
+          TOKEN_RESPONSE="$(
+            curl \
+              --fail \
+              --silent \
+              --show-error \
+              -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com"
+          )"
+
+          TOKEN="$(
+            echo "${TOKEN_RESPONSE}" |
+              python -c 'import sys,json; print(json.load(sys.stdin)["value"])'
+          )"
+
+          if [ -z "${TOKEN}" ]; then
+            echo "ERROR: GitHub returned an empty OIDC token."
+            exit 1
+          fi
+
+          PAYLOAD="$(
+            echo "${TOKEN}" |
+              cut -d '.' -f 2 |
+              tr '_-' '/+' |
+              awk '{l=length($0)%4; if(l==2) print $0"=="; else if(l==3) print $0"="; else print $0}' |
+              base64 -d 2>/dev/null
+          )"
+
+          echo ""
+          echo "=============================================="
+          echo "OIDC CLAIMS"
+          echo "=============================================="
+
+          echo "${PAYLOAD}" |
+            python -c '
+          import sys
+          import json
+
+          data = json.load(sys.stdin)
+
+          for key in [
+              "iss",
+              "aud",
+              "sub",
+              "repository",
+              "repository_id",
+              "repository_owner",
+              "repository_owner_id",
+              "ref",
+              "ref_type",
+              "job_workflow_ref",
+              "environment"
+          ]:
+              print(f"{key}: {data.get(key, "<not present>")}")
+          '
+
+          echo ""
+          echo "=============================================="
+          echo "END OIDC DIAGNOSTIC"
+          echo "=============================================="
+      
       # ======================================================
       # STEP 3 - CONFIGURE AWS CREDENTIALS USING OIDC
       # ======================================================
