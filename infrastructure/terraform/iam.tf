@@ -81,11 +81,11 @@
 #     github-ci-cd-user-combined-access
 #
 #
-# Terraform cannot automatically "adopt" an existing AWS
+# Terraform cannot automatically adopt an existing AWS
 # resource simply because a resource block has the same name.
 #
 #
-# Therefore the correct migration process is:
+# Correct migration process:
 #
 #
 # Existing AWS Resource
@@ -107,16 +107,16 @@
 # will recognize the resource as already managed.
 #
 #
-# Terraform will NOT attempt to create a duplicate resource.
+# Terraform will NOT attempt to create a duplicate resource
+# when the existing resource has been correctly imported.
 #
 #
 # ==========================================================
 # IMPORTANT: NEW IAM RESOURCES
 # ==========================================================
 #
-# If a new policy is added to the for_each map and that
-# policy does NOT already exist in AWS, Terraform will create
-# it.
+# If a new policy is added to the policy map and that policy
+# does NOT already exist in AWS, Terraform will create it.
 #
 #
 # Example:
@@ -133,28 +133,8 @@
 #
 #     2. Store it in Terraform state
 #
-#     3. Attach it to the GitHub Actions role
-#
-#
-# Therefore the behavior is:
-#
-#
-# EXISTING RESOURCE
-#       |
-#       v
-# Import once
-#       |
-#       v
-# Terraform manages it
-#
-#
-# NEW RESOURCE
-#       |
-#       v
-# Terraform creates it
-#       |
-#       v
-# Terraform manages it
+#     3. The attachment configuration can attach it to the
+#        GitHub Actions role.
 #
 #
 # ==========================================================
@@ -241,7 +221,7 @@
 #     infrastructure/terraform
 #
 #
-# To reach the IAM directory:
+# To reach the repository-level IAM directory:
 #
 #     ../../IAM/
 #
@@ -250,6 +230,8 @@
 #
 #     ${path.module}/../../IAM/policy.json
 #
+#
+# No iam_policy_directory variable is required.
 #
 # ==========================================================
 
@@ -277,7 +259,6 @@
 # The OIDC provider is account-level and can be reused by
 # multiple GitHub Actions IAM roles.
 #
-#
 # ==========================================================
 # IMPORTANT: OIDC TAGGING
 # ==========================================================
@@ -296,9 +277,9 @@
 resource "aws_iam_openid_connect_provider" "github_actions" {
 
   # --------------------------------------------------------
-  # Use provider without default tags.
+  # Use the provider without default tags.
   #
-  # This avoids IAM OIDC tagging permissions.
+  # This avoids requiring IAM OIDC tagging permissions.
   # --------------------------------------------------------
 
   provider = aws.no_default_tags
@@ -376,7 +357,7 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
     # ------------------------------------------------------
     # OIDC audience.
     #
-    # Token must contain:
+    # The GitHub token must contain:
     #
     #     aud = sts.amazonaws.com
     #
@@ -395,7 +376,7 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
     # ------------------------------------------------------
     # OIDC subject.
     #
-    # Only the main branch of the specified repository is
+    # Only the main branch of this specific repository is
     # trusted.
     # ------------------------------------------------------
 
@@ -434,10 +415,10 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
 #     aws-hybrid-iac-lab-GitHubActions
 #
 #
-# After import Terraform manages the existing role.
+# In the current project this role has already been imported
+# into Terraform state.
 #
-#
-# If the role does not exist, Terraform creates it.
+# Therefore do NOT import it again unless the state is removed.
 #
 # ==========================================================
 
@@ -495,9 +476,19 @@ resource "aws_iam_role" "github_actions" {
 # 3. github-ci-cd-user-combined-access
 #
 #
-# The policy documents are stored in:
+# Policy JSON documents are stored separately in:
 #
-#     ../../IAM/
+#     <repository-root>/IAM/
+#
+#
+# Terraform files are stored in:
+#
+#     <repository-root>/infrastructure/terraform/
+#
+#
+# Therefore the correct relative path is:
+#
+#     ${path.module}/../../IAM/<file>.json
 #
 #
 # ==========================================================
@@ -510,21 +501,19 @@ resource "aws_iam_role" "github_actions" {
 #
 # After import:
 #
-#     Terraform manages them.
+#     Terraform manages the policies.
 #
 #
-# If they do not exist:
+# If a policy does not exist:
 #
-#     Terraform creates them.
-#
+#     Terraform creates it.
 #
 # ==========================================================
 
 resource "aws_iam_policy" "github_actions" {
 
   # --------------------------------------------------------
-  # One Terraform resource instance is created for every
-  # entry in this map.
+  # Each map entry represents one customer-managed policy.
   #
   # Resource addresses:
   #
@@ -587,9 +576,9 @@ resource "aws_iam_policy" "github_actions" {
   name = each.value.name
 
   # --------------------------------------------------------
-  # Read policy JSON from Git repository.
+  # Read the JSON policy document from the repository.
   #
-  # This makes Git the source of truth for the policy
+  # Git therefore becomes the source of truth for the policy
   # document.
   # --------------------------------------------------------
 
@@ -610,11 +599,11 @@ resource "aws_iam_policy" "github_actions" {
 # 5. GITHUB ACTIONS IAM POLICY ATTACHMENTS
 # ==========================================================
 #
-# Automatically attach every policy defined above to the
+# The three Terraform-managed policies are attached to the
 # GitHub Actions IAM role.
 #
 #
-# Current result:
+# Desired result:
 #
 #
 # aws-hybrid-iac-lab-GitHubActions
@@ -627,50 +616,66 @@ resource "aws_iam_policy" "github_actions" {
 #
 #
 # ==========================================================
-# IMPORTANT
+# IMPORTANT: STATIC for_each KEYS
 # ==========================================================
 #
-# Existing attachments should also be imported ONCE.
+# DO NOT use:
 #
-# After import Terraform manages the attachment.
-#
-#
-# New policy:
-#
-#     Terraform creates policy
-#              |
-#              v
-#     Terraform creates attachment
+#     for_each = aws_iam_policy.github_actions
 #
 #
-# Existing policy:
+# Why?
 #
-#     terraform import
-#              |
-#              v
-#     Terraform manages policy + attachment
+# Terraform needs to know the complete set of resource
+# instance keys during the planning phase.
+#
+# The ARN values of aws_iam_policy.github_actions are not
+# necessarily known until the policies are created or
+# refreshed.
+#
+#
+# Therefore we explicitly define the keys:
+#
+#     github_actions
+#     terraform_backend
+#     combined_access
+#
+#
+# Terraform can determine the complete set of attachments
+# during planning while resolving the ARN values separately.
 #
 # ==========================================================
 
 resource "aws_iam_role_policy_attachment" "github_actions" {
 
   # --------------------------------------------------------
-  # Iterate through every Terraform-managed policy.
+  # IMPORTANT:
+  #
+  # Keep these keys static.
+  #
+  # Terraform must know exactly which attachment instances
+  # exist during the planning phase.
   # --------------------------------------------------------
 
-  for_each = aws_iam_policy.github_actions
+  for_each = {
+    github_actions = aws_iam_policy.github_actions["github_actions"].arn
+
+    terraform_backend = aws_iam_policy.github_actions["terraform_backend"].arn
+
+    combined_access = aws_iam_policy.github_actions["combined_access"].arn
+  }
 
   # --------------------------------------------------------
-  # Existing GitHub Actions role.
+  # Existing GitHub Actions IAM role.
   # --------------------------------------------------------
 
   role = aws_iam_role.github_actions.name
 
   # --------------------------------------------------------
-  # ARN of current policy.
+  # ARN of the current customer-managed policy.
   # --------------------------------------------------------
 
-  policy_arn = each.value.arn
+  policy_arn = each.value
 }
 
 
@@ -679,35 +684,36 @@ resource "aws_iam_role_policy_attachment" "github_actions" {
 #    COMBINED ACCESS POLICY ATTACHMENT
 # ==========================================================
 #
-# The IAM user:
+# Existing IAM user:
 #
 #     github-ci-cd-user
 #
-# already has:
+#
+# Existing customer-managed policy:
 #
 #     github-ci-cd-user-combined-access
 #
-# attached.
+#
+# The same customer-managed IAM policy can be attached to
+# multiple identities.
 #
 #
-# IMPORTANT:
-# ----------------------------------------------------------
-#
-# The same customer-managed IAM policy can safely be
-# attached to multiple identities.
+# Therefore this policy intentionally has two attachments:
 #
 #
-# Therefore:
+#     github-ci-cd-user-combined-access
+#              |
+#              +--> GitHub Actions IAM Role
+#              |
+#              +--> github-ci-cd-user
 #
 #
-# github-ci-cd-user-combined-access
-#          |
-#          +--> GitHub Actions Role
-#          |
-#          +--> github-ci-cd-user
+# AWS may therefore correctly show:
+#
+#     Attached entities = 2
 #
 #
-# We are NOT removing the user attachment.
+# We are NOT removing the existing IAM user attachment.
 #
 # Terraform will manage it as well.
 #
@@ -727,6 +733,12 @@ data "aws_iam_user" "github_ci_cd_user" {
 
 # ==========================================================
 # USER POLICY ATTACHMENT
+# ==========================================================
+#
+# Terraform manages the existing policy attachment.
+#
+# If the attachment already exists in AWS, import it ONCE.
+#
 # ==========================================================
 
 resource "aws_iam_user_policy_attachment" "combined_access" {
@@ -749,9 +761,9 @@ resource "aws_iam_user_policy_attachment" "combined_access" {
 # 7. CLOUDFORMATION TRUST POLICY
 # ==========================================================
 #
-# Separate from GitHub Actions.
+# This trust relationship is separate from GitHub Actions.
 #
-# This trust policy allows AWS CloudFormation to assume the
+# It allows the AWS CloudFormation service to assume the
 # CloudFormation execution role.
 #
 # ==========================================================
@@ -820,8 +832,13 @@ resource "aws_iam_role" "cloudformation_execution" {
 #
 # Broad laboratory permissions.
 #
-# Production environments should restrict these permissions
-# to only the actions and resources actually required.
+# IMPORTANT:
+#
+# This policy is intentionally broad for the laboratory.
+#
+# Production environments should use least-privilege
+# permissions restricted to only the actions and resources
+# actually required.
 #
 # ==========================================================
 
@@ -840,7 +857,7 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
   role = aws_iam_role.cloudformation_execution.id
 
   # --------------------------------------------------------
-  # Permissions.
+  # CloudFormation permissions.
   # --------------------------------------------------------
 
   policy = jsonencode({
@@ -954,12 +971,12 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
 # ADDING A NEW IAM POLICY
 # ==========================================================
 #
-# Suppose you add:
+# If you later add:
 #
 #     IAM/github-actions-cloudwatch-policy.json
 #
 #
-# Add:
+# Add a new entry to the aws_iam_policy.github_actions map:
 #
 #
 #     cloudwatch = {
@@ -968,16 +985,25 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
 #     }
 #
 #
-# Terraform automatically:
+# IMPORTANT:
 #
-#     1. Creates the policy
-#
-#     2. Stores it in Terraform state
-#
-#     3. Attaches it to the GitHub Actions role
+# Because the role attachment resource uses explicitly
+# defined static keys, a NEW policy also requires a matching
+# entry in the role attachment for_each map.
 #
 #
-# No new attachment block is required.
+# Example:
+#
+#     cloudwatch = aws_iam_policy.github_actions["cloudwatch"].arn
+#
+#
+# Terraform can then:
+#
+#     1. Create/manage the policy
+#
+#     2. Store it in Terraform state
+#
+#     3. Attach it to the GitHub Actions role
 #
 #
 # ==========================================================
@@ -987,31 +1013,68 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
 # For policies that already exist in AWS:
 #
 #
-# Step 1
+# Step 1:
 #
 #     terraform import ...
 #
 #
-# Step 2
+# Step 2:
 #
 #     terraform plan
 #
 #
-# Step 3
+# Step 3:
 #
-# Review any differences.
+# Review any differences between:
+#
+#     Git IAM JSON
+#
+# and:
+#
+#     AWS IAM policy
 #
 #
-# Step 4
+# Step 4:
 #
 #     terraform apply
 #
 #
-# After this migration Terraform becomes the source of
-# truth.
+# After successful migration Terraform becomes the source
+# of truth for those resources.
+#
+#
+# ==========================================================
+# IMPORTANT TERRAFORM STATE RULE
+# ==========================================================
+#
+# Terraform does not have a generic:
+#
+#     "create this only if it doesn't already exist"
+#
+# switch for these IAM resources.
+#
+#
+# The correct Terraform adoption model is:
+#
+#
+# Resource does not exist in AWS
+#          |
+#          v
+# Terraform creates it
+#
+#
+# Resource already exists in AWS
+#          |
+#          v
+# terraform import
+#          |
+#          v
+# Terraform manages it
+#
+#
+# State is therefore critical.
 #
 #
 # ==========================================================
 # END OF IAM CONFIGURATION
 # ==========================================================
-
