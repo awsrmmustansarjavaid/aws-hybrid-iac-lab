@@ -575,15 +575,14 @@ jobs:
       #
       # This step can be removed after the OIDC issue is fixed.
       #
-      # ======================================================
+      # ======================================================      
 
       - name: Diagnose GitHub OIDC Claims
-
         shell: bash
-
         run: |
           set -euo pipefail
 
+          echo ""
           echo "=================================================="
           echo "GITHUB OIDC CLAIM DIAGNOSTIC"
           echo "=================================================="
@@ -601,94 +600,319 @@ jobs:
           echo "${GITHUB_REF_NAME}"
 
           echo ""
+          echo "Event:"
+          echo "${GITHUB_EVENT_NAME}"
+
+          echo ""
+          echo "Workflow:"
+          echo "${GITHUB_WORKFLOW}"
+
+          echo ""
+          echo "Job:"
+          echo "${GITHUB_JOB}"
+
+          # ------------------------------------------------------
+          # Verify GitHub supplied the OIDC environment variables.
+          # ------------------------------------------------------
+
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo ""
+            echo "ERROR: ACTIONS_ID_TOKEN_REQUEST_TOKEN is not available."
+            echo "Check that workflow/job permissions contain:"
+            echo ""
+            echo "permissions:"
+            echo "  id-token: write"
+            echo "  contents: read"
+            exit 1
+          fi
+
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+            echo ""
+            echo "ERROR: ACTIONS_ID_TOKEN_REQUEST_URL is not available."
+            exit 1
+          fi
+
+          # ------------------------------------------------------
+          # Request a GitHub OIDC token.
+          #
+          # The audience must match the audience configured in
+          # the AWS IAM trust relationship.
+          # ------------------------------------------------------
+
+          echo ""
           echo "Requesting OIDC token..."
 
-          TOKEN_RESPONSE="$(
+          OIDC_RESPONSE="$(
             curl \
               --fail \
               --silent \
               --show-error \
-              -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com"
+              --location \
+              --header "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              --get \
+              --data-urlencode "audience=${AWS_OIDC_AUDIENCE}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}"
           )"
 
-          TOKEN="$(
-            printf '%s' "${TOKEN_RESPONSE}" |
-              jq -r '.value'
-          )"
+          # ------------------------------------------------------
+          # Validate that GitHub returned JSON.
+          # ------------------------------------------------------
 
-          if [[ -z "${TOKEN}" || "${TOKEN}" == "null" ]]; then
+          if ! echo "${OIDC_RESPONSE}" | jq empty >/dev/null 2>&1; then
             echo ""
-            echo "ERROR: GitHub returned an empty OIDC token."
+            echo "ERROR: GitHub returned an invalid JSON response."
             exit 1
           fi
 
-
-          # --------------------------------------------------
-          # Decode only the JWT payload.
+          # ------------------------------------------------------
+          # IMPORTANT:
           #
-          # The complete token is NEVER printed.
-          # --------------------------------------------------
+          # GitHub returns something similar to:
+          #
+          # {
+          #   "value": "eyJhbGciOiJSUzI1NiIs..."
+          # }
+          #
+          # We must extract .value first.
+          # ------------------------------------------------------
 
-          PAYLOAD="$(
-            printf '%s' "${TOKEN}" |
-              cut -d '.' -f 2 |
+          OIDC_TOKEN="$(
+            echo "${OIDC_RESPONSE}" |
+              jq -r '.value // empty'
+          )"
+
+          if [ -z "${OIDC_TOKEN}" ]; then
+            echo ""
+            echo "ERROR: OIDC token value was not found in GitHub response."
+            echo ""
+            echo "Returned JSON keys:"
+            echo "${OIDC_RESPONSE}" | jq -r 'keys[]'
+            exit 1
+          fi
+
+          # ------------------------------------------------------
+          # NEVER PRINT THE TOKEN.
+          #
+          # The JWT is a credential and must remain secret.
+          # ------------------------------------------------------
+
+          echo ""
+          echo "OIDC token received successfully."
+          echo "JWT token itself will NOT be printed."
+
+          # ------------------------------------------------------
+          # JWT format:
+          #
+          # HEADER.PAYLOAD.SIGNATURE
+          #
+          # We need only PAYLOAD.
+          # ------------------------------------------------------
+
+          JWT_PAYLOAD="$(
+            echo "${OIDC_TOKEN}" |
+              cut -d '.' -f 2
+          )"
+
+          if [ -z "${JWT_PAYLOAD}" ]; then
+            echo ""
+            echo "ERROR: Could not extract JWT payload."
+            exit 1
+          fi
+
+          # ------------------------------------------------------
+          # GitHub JWT uses Base64URL encoding.
+          #
+          # Convert Base64URL characters to standard Base64,
+          # restore missing padding, then decode.
+          # ------------------------------------------------------
+
+          JWT_PAYLOAD="$(
+            printf '%s' "${JWT_PAYLOAD}" |
               tr '_-' '/+' |
               awk '{
-                l=length($0)%4
-                if(l==2) print $0"=="
-                else if(l==3) print $0"="
-                else print $0
+                l = length($0) % 4;
+                if (l == 2) $0 = $0 "==";
+                else if (l == 3) $0 = $0 "=";
+                print $0;
               }' |
-              base64 -d 2>/dev/null
+              base64 --decode
           )"
 
+          # ------------------------------------------------------
+          # Verify decoded payload is valid JSON.
+          # ------------------------------------------------------
 
-          if [[ -z "${PAYLOAD}" ]]; then
+          if ! echo "${JWT_PAYLOAD}" | jq empty >/dev/null 2>&1; then
             echo ""
-            echo "ERROR: Unable to decode OIDC token payload."
+            echo "ERROR: Decoded OIDC payload is not valid JSON."
             exit 1
           fi
-
 
           echo ""
           echo "=================================================="
           echo "OIDC CLAIMS"
           echo "=================================================="
 
+          # ------------------------------------------------------
+          # Display only NON-SECRET claims.
+          #
+          # DO NOT print:
+          #   - OIDC_TOKEN
+          #   - JWT signature
+          #   - ACTIONS_ID_TOKEN_REQUEST_TOKEN
+          #
+          # ------------------------------------------------------
 
-          echo "${PAYLOAD}" |
-            jq -r '
-              [
-                "iss",
-                "aud",
-                "sub",
-                "repository",
-                "repository_id",
-                "repository_owner",
-                "repository_owner_id",
-                "ref",
-                "ref_type",
-                "workflow",
-                "workflow_ref",
-                "job_workflow_ref",
-                "environment"
-              ]
-              | .[]
-              as $key
-              | "\($key): \(.[$key] // "<not present>")"
-            '
+          echo "${JWT_PAYLOAD}" | jq -r '
+            "iss: \(.iss // "<not present>")",
+            "aud: \(.aud // "<not present>")",
+            "sub: \(.sub // "<not present>")",
+            "repository: \(.repository // "<not present>")",
+            "repository_id: \(.repository_id // "<not present>")",
+            "repository_owner: \(.repository_owner // "<not present>")",
+            "repository_owner_id: \(.repository_owner_id // "<not present>")",
+            "ref: \(.ref // "<not present>")",
+            "ref_type: \(.ref_type // "<not present>")",
+            "environment: \(.environment // "<not present>")",
+            "event_name: \(.event_name // "<not present>")",
+            "job_workflow_ref: \(.job_workflow_ref // "<not present>")"
+          '
 
+          # ------------------------------------------------------
+          # Extract important values for validation.
+          # ------------------------------------------------------
+
+          ISS="$(
+            echo "${JWT_PAYLOAD}" |
+              jq -r '.iss // empty'
+          )"
+
+          AUD="$(
+            echo "${JWT_PAYLOAD}" |
+              jq -r '.aud // empty'
+          )"
+
+          SUB="$(
+            echo "${JWT_PAYLOAD}" |
+              jq -r '.sub // empty'
+          )"
+
+          REPOSITORY="$(
+            echo "${JWT_PAYLOAD}" |
+              jq -r '.repository // empty'
+          )"
+
+          REF="$(
+            echo "${JWT_PAYLOAD}" |
+              jq -r '.ref // empty'
+          )"
+
+          # ------------------------------------------------------
+          # Expected issuer.
+          # ------------------------------------------------------
+
+          EXPECTED_ISSUER="https://token.actions.githubusercontent.com"
 
           echo ""
           echo "=================================================="
-          echo "OIDC CLAIM DIAGNOSTIC COMPLETED"
+          echo "OIDC VALIDATION"
+          echo "=================================================="
+
+          if [ "${ISS}" = "${EXPECTED_ISSUER}" ]; then
+            echo "PASS: OIDC issuer is correct."
+          else
+            echo "FAIL: OIDC issuer is incorrect."
+            echo "Expected: ${EXPECTED_ISSUER}"
+            echo "Actual:   ${ISS}"
+            exit 1
+          fi
+
+          # ------------------------------------------------------
+          # Expected audience.
+          # ------------------------------------------------------
+
+          if [ "${AUD}" = "${AWS_OIDC_AUDIENCE}" ]; then
+            echo "PASS: OIDC audience is correct."
+          else
+            echo "FAIL: OIDC audience is incorrect."
+            echo "Expected: ${AWS_OIDC_AUDIENCE}"
+            echo "Actual:   ${AUD}"
+            exit 1
+          fi
+
+          # ------------------------------------------------------
+          # Expected repository.
+          # ------------------------------------------------------
+
+          if [ "${REPOSITORY}" = "${GITHUB_REPOSITORY}" ]; then
+            echo "PASS: Repository claim is correct."
+          else
+            echo "FAIL: Repository claim does not match workflow repository."
+            echo "Expected: ${GITHUB_REPOSITORY}"
+            echo "Actual:   ${REPOSITORY}"
+            exit 1
+          fi
+
+          # ------------------------------------------------------
+          # Expected branch/ref.
+          # ------------------------------------------------------
+
+          if [ "${REF}" = "${GITHUB_REF}" ]; then
+            echo "PASS: Ref claim is correct."
+          else
+            echo "WARNING: Ref claim differs from GITHUB_REF."
+            echo "GITHUB_REF: ${GITHUB_REF}"
+            echo "OIDC ref:    ${REF}"
+          fi
+
+          # ------------------------------------------------------
+          # IMPORTANT SUBJECT CHECK
+          #
+          # Your current IAM trust policy expects:
+          #
+          # repo:awsrmmustansarjavaid/aws-hybrid-iac-lab:
+          # ref:refs/heads/main
+          #
+          # We calculate that value here.
+          #
+          # We DO NOT immediately fail if it differs because
+          # GitHub can use other valid subject formats.
+          # ------------------------------------------------------
+
+          EXPECTED_CLASSIC_SUB="repo:${GITHUB_REPOSITORY}:ref:${GITHUB_REF}"
+
+          echo ""
+          echo "=================================================="
+          echo "SUBJECT CLAIM ANALYSIS"
           echo "=================================================="
 
           echo ""
-          echo "IMPORTANT:"
-          echo "Compare the 'sub' claim above with the AWS IAM"
-          echo "trust policy for aws-hybrid-iac-lab-GitHubActions."
+          echo "Actual OIDC sub:"
+          echo "${SUB}"
+
+          echo ""
+          echo "Classic IAM expected sub:"
+          echo "${EXPECTED_CLASSIC_SUB}"
+
+          if [ "${SUB}" = "${EXPECTED_CLASSIC_SUB}" ]; then
+            echo ""
+            echo "PASS: OIDC sub matches the current IAM trust policy format."
+          else
+            echo ""
+            echo "WARNING: OIDC sub DOES NOT match the classic IAM trust policy."
+            echo ""
+            echo "This is important."
+            echo "Your IAM role may need its trust policy updated to match"
+            echo "the actual GitHub OIDC subject claim."
+            echo ""
+            echo "DO NOT change IAM automatically."
+            echo "Use the actual 'sub' value printed above."
+          fi
+
+          echo ""
+          echo "=================================================="
+          echo "OIDC DIAGNOSTIC COMPLETE"
+          echo "==================================================" 
 
 
 
