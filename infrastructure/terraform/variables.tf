@@ -6,12 +6,17 @@
 #
 #   infrastructure/terraform/variables.tf
 #
+# Project:
+#
+#   aws-hybrid-iac-lab
+#
 # Purpose:
 #
 #   Defines all input variables used throughout the Terraform
 #   project.
 #
 #
+# ==========================================================
 # WHY VARIABLES ARE USED
 # ==========================================================
 #
@@ -45,6 +50,22 @@
 #
 # Sensitive values such as database passwords must NOT be
 # hard-coded into this file or committed to GitHub.
+#
+#
+# ==========================================================
+# VARIABLE ORGANIZATION
+# ==========================================================
+#
+# This file contains variables for:
+#
+#   1. AWS configuration
+#   2. Project configuration
+#   3. Environment configuration
+#   4. GitHub Actions IAM policies
+#   5. Networking
+#   6. Compute
+#   7. Application infrastructure
+#   8. Database configuration
 #
 # ==========================================================
 
@@ -86,7 +107,10 @@ variable "aws_region" {
   # --------------------------------------------------------
 
   validation {
-    condition     = length(trimspace(var.aws_region)) > 0
+    condition = length(
+      trimspace(var.aws_region)
+    ) > 0
+
     error_message = "aws_region must not be empty."
   }
 }
@@ -131,7 +155,10 @@ variable "project_name" {
   # --------------------------------------------------------
 
   validation {
-    condition     = length(trimspace(var.project_name)) > 0
+    condition = length(
+      trimspace(var.project_name)
+    ) > 0
+
     error_message = "project_name must not be empty."
   }
 }
@@ -189,7 +216,161 @@ variable "environment" {
 
 
 # ==========================================================
-# 4. VPC ID
+# 4. GITHUB ACTIONS IAM ROLE POLICIES
+# ==========================================================
+#
+# Defines the IAM policies that Terraform automatically
+# attaches to the GitHub Actions IAM role.
+#
+#
+# IAM ROLE:
+#
+#   aws-hybrid-iac-lab-GitHubActions
+#
+#
+# Current policies:
+#
+#   1. aws-hybrid-iac-lab-GitHubActionsPolicy
+#
+#   2. github-actions-terraform-backend-policy
+#
+#   3. github-ci-cd-user-combined-access
+#
+#
+# ==========================================================
+# HOW THIS WORKS
+# ==========================================================
+#
+# The IAM role is defined in:
+#
+#   iam.tf
+#
+#
+# The role-policy attachment uses:
+#
+#   for_each = var.github_actions_role_policy_arns
+#
+#
+# Therefore every policy ARN listed here is automatically
+# attached to the GitHub Actions role.
+#
+#
+# ==========================================================
+# ADDING FUTURE POLICIES
+# ==========================================================
+#
+# If you create another IAM policy, for example:
+#
+#   github-actions-cloudwatch-policy
+#
+# simply add:
+#
+#   "arn:aws:iam::537236558357:policy/github-actions-cloudwatch-policy"
+#
+# to this variable.
+#
+#
+# You do NOT need to modify the IAM role resource.
+#
+# You do NOT need to manually attach the policy in the AWS
+# Console.
+#
+#
+# After adding the policy ARN:
+#
+#   terraform fmt
+#   terraform validate
+#   terraform plan
+#   terraform apply
+#
+#
+# Terraform will automatically create the new attachment.
+#
+#
+# ==========================================================
+# WHY set(string) IS USED
+# ==========================================================
+#
+# A set prevents duplicate policy ARNs.
+#
+# Example:
+#
+#   policy-a
+#   policy-a
+#
+# becomes one unique policy entry.
+#
+#
+# "for_each" can also track each policy independently.
+#
+# This is preferable to manually creating one
+# aws_iam_role_policy_attachment resource for every policy.
+#
+# ==========================================================
+
+variable "github_actions_role_policy_arns" {
+
+  description = "Set of IAM policy ARNs automatically attached to the GitHub Actions IAM role."
+
+  # --------------------------------------------------------
+  # A set of strings is used because every item is an IAM
+  # policy ARN.
+  #
+  # Using a set:
+  #
+  #   - Prevents duplicates
+  #   - Works naturally with for_each
+  #   - Makes adding/removing policies easy
+  #   - Allows Terraform to track each attachment
+  #     independently
+  # --------------------------------------------------------
+
+  type = set(string)
+
+  # --------------------------------------------------------
+  # Current customer-managed IAM policies.
+  #
+  # AWS Account:
+  #
+  #   537236558357
+  #
+  # These policies must already exist in AWS if iam.tf is
+  # only managing the attachments.
+  #
+  # --------------------------------------------------------
+
+  default = [
+
+    # ------------------------------------------------------
+    # Policy 1
+    #
+    # Main GitHub Actions project permissions.
+    # ------------------------------------------------------
+
+    "arn:aws:iam::537236558357:policy/aws-hybrid-iac-lab-GitHubActionsPolicy",
+
+    # ------------------------------------------------------
+    # Policy 2
+    #
+    # Terraform remote backend permissions.
+    # ------------------------------------------------------
+
+    "arn:aws:iam::537236558357:policy/github-actions-terraform-backend-policy",
+
+    # ------------------------------------------------------
+    # Policy 3
+    #
+    # Combined CI/CD AWS permissions.
+    # ------------------------------------------------------
+
+    "arn:aws:iam::537236558357:policy/github-ci-cd-user-combined-access"
+  ]
+}
+
+
+
+# ==========================================================
+# 5. VPC ID
 # ==========================================================
 #
 # ID of the VPC used by the CloudFormation root stack and
@@ -224,10 +405,12 @@ variable "vpc_id" {
   # --------------------------------------------------------
 
   validation {
-    condition = can(regex(
-      "^vpc-[0-9a-fA-F]{8,}$",
-      trimspace(var.vpc_id)
-    ))
+    condition = can(
+      regex(
+        "^vpc-[0-9a-fA-F]{8,}$",
+        trimspace(var.vpc_id)
+      )
+    )
 
     error_message = "vpc_id must be a valid AWS VPC ID such as vpc-0123456789abcdef0."
   }
@@ -236,7 +419,7 @@ variable "vpc_id" {
 
 
 # ==========================================================
-# 5. PUBLIC SUBNET ID
+# 6. PUBLIC SUBNET ID
 # ==========================================================
 #
 # Primary public subnet used by resources such as EC2.
@@ -258,10 +441,12 @@ variable "public_subnet_id" {
   # --------------------------------------------------------
 
   validation {
-    condition = can(regex(
-      "^subnet-[0-9a-fA-F]{8,}$",
-      trimspace(var.public_subnet_id)
-    ))
+    condition = can(
+      regex(
+        "^subnet-[0-9a-fA-F]{8,}$",
+        trimspace(var.public_subnet_id)
+      )
+    )
 
     error_message = "public_subnet_id must be a valid AWS subnet ID such as subnet-0123456789abcdef0."
   }
@@ -270,7 +455,7 @@ variable "public_subnet_id" {
 
 
 # ==========================================================
-# 6. PUBLIC SUBNET 1 ID
+# 7. PUBLIC SUBNET 1 ID
 # ==========================================================
 #
 # First public subnet used by resources such as ECS.
@@ -290,11 +475,17 @@ variable "public_subnet_1_id" {
 
   type = string
 
+  # --------------------------------------------------------
+  # Validation
+  # --------------------------------------------------------
+
   validation {
-    condition = can(regex(
-      "^subnet-[0-9a-fA-F]{8,}$",
-      trimspace(var.public_subnet_1_id)
-    ))
+    condition = can(
+      regex(
+        "^subnet-[0-9a-fA-F]{8,}$",
+        trimspace(var.public_subnet_1_id)
+      )
+    )
 
     error_message = "public_subnet_1_id must be a valid AWS subnet ID such as subnet-0123456789abcdef0."
   }
@@ -303,7 +494,7 @@ variable "public_subnet_1_id" {
 
 
 # ==========================================================
-# 7. PUBLIC SUBNET 2 ID
+# 8. PUBLIC SUBNET 2 ID
 # ==========================================================
 #
 # Second public subnet used by the CloudFormation
@@ -325,11 +516,17 @@ variable "public_subnet_2_id" {
 
   type = string
 
+  # --------------------------------------------------------
+  # Validation
+  # --------------------------------------------------------
+
   validation {
-    condition = can(regex(
-      "^subnet-[0-9a-fA-F]{8,}$",
-      trimspace(var.public_subnet_2_id)
-    ))
+    condition = can(
+      regex(
+        "^subnet-[0-9a-fA-F]{8,}$",
+        trimspace(var.public_subnet_2_id)
+      )
+    )
 
     error_message = "public_subnet_2_id must be a valid AWS subnet ID such as subnet-0123456789abcdef0."
   }
@@ -338,7 +535,7 @@ variable "public_subnet_2_id" {
 
 
 # ==========================================================
-# 8. PRIVATE SUBNET 1 ID
+# 9. PRIVATE SUBNET 1 ID
 # ==========================================================
 #
 # First private subnet used by resources such as RDS.
@@ -358,11 +555,17 @@ variable "private_subnet_1_id" {
 
   type = string
 
+  # --------------------------------------------------------
+  # Validation
+  # --------------------------------------------------------
+
   validation {
-    condition = can(regex(
-      "^subnet-[0-9a-fA-F]{8,}$",
-      trimspace(var.private_subnet_1_id)
-    ))
+    condition = can(
+      regex(
+        "^subnet-[0-9a-fA-F]{8,}$",
+        trimspace(var.private_subnet_1_id)
+      )
+    )
 
     error_message = "private_subnet_1_id must be a valid AWS subnet ID such as subnet-0123456789abcdef0."
   }
@@ -371,7 +574,7 @@ variable "private_subnet_1_id" {
 
 
 # ==========================================================
-# 9. PRIVATE SUBNET 2 ID
+# 10. PRIVATE SUBNET 2 ID
 # ==========================================================
 #
 # Second private subnet used by resources such as RDS.
@@ -392,11 +595,17 @@ variable "private_subnet_2_id" {
 
   type = string
 
+  # --------------------------------------------------------
+  # Validation
+  # --------------------------------------------------------
+
   validation {
-    condition = can(regex(
-      "^subnet-[0-9a-fA-F]{8,}$",
-      trimspace(var.private_subnet_2_id)
-    ))
+    condition = can(
+      regex(
+        "^subnet-[0-9a-fA-F]{8,}$",
+        trimspace(var.private_subnet_2_id)
+      )
+    )
 
     error_message = "private_subnet_2_id must be a valid AWS subnet ID such as subnet-0123456789abcdef0."
   }
@@ -405,7 +614,7 @@ variable "private_subnet_2_id" {
 
 
 # ==========================================================
-# 10. AMAZON LINUX 2023 AMI ID
+# 11. AMAZON LINUX 2023 AMI ID
 # ==========================================================
 #
 # AMI used by the EC2 nested CloudFormation stack.
@@ -452,11 +661,17 @@ variable "ami_id" {
 
   type = string
 
+  # --------------------------------------------------------
+  # Validation
+  # --------------------------------------------------------
+
   validation {
-    condition = can(regex(
-      "^ami-[0-9a-fA-F]{8,}$",
-      trimspace(var.ami_id)
-    ))
+    condition = can(
+      regex(
+        "^ami-[0-9a-fA-F]{8,}$",
+        trimspace(var.ami_id)
+      )
+    )
 
     error_message = "ami_id must be a valid AWS AMI ID such as ami-0123456789abcdef0."
   }
@@ -465,7 +680,7 @@ variable "ami_id" {
 
 
 # ==========================================================
-# 11. APPLICATION S3 BUCKET NAME
+# 12. APPLICATION S3 BUCKET NAME
 # ==========================================================
 #
 # Name of the S3 bucket used by the application.
@@ -506,10 +721,12 @@ variable "application_bucket_name" {
   # --------------------------------------------------------
 
   validation {
-    condition = can(regex(
-      "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$",
-      trimspace(var.application_bucket_name)
-    ))
+    condition = can(
+      regex(
+        "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$",
+        trimspace(var.application_bucket_name)
+      )
+    )
 
     error_message = "application_bucket_name must be a valid S3 bucket-style name."
   }
@@ -518,7 +735,7 @@ variable "application_bucket_name" {
 
 
 # ==========================================================
-# 12. LAMBDA FUNCTION ARN
+# 13. LAMBDA FUNCTION ARN
 # ==========================================================
 #
 # ARN of the Lambda function used by the application or
@@ -543,11 +760,17 @@ variable "lambda_function_arn" {
 
   type = string
 
+  # --------------------------------------------------------
+  # Validation
+  # --------------------------------------------------------
+
   validation {
-    condition = can(regex(
-      "^arn:aws:lambda:[a-z0-9-]+:[0-9]{12}:function:[A-Za-z0-9-_]+$",
-      trimspace(var.lambda_function_arn)
-    ))
+    condition = can(
+      regex(
+        "^arn:aws:lambda:[a-z0-9-]+:[0-9]{12}:function:[A-Za-z0-9-_]+$",
+        trimspace(var.lambda_function_arn)
+      )
+    )
 
     error_message = "lambda_function_arn must be a valid AWS Lambda function ARN."
   }
@@ -556,7 +779,7 @@ variable "lambda_function_arn" {
 
 
 # ==========================================================
-# 13. ECR IMAGE URI
+# 14. ECR IMAGE URI
 # ==========================================================
 #
 # Full URI of the container image stored in Amazon ECR.
@@ -593,11 +816,17 @@ variable "ecr_image_uri" {
 
   type = string
 
+  # --------------------------------------------------------
+  # Validation
+  # --------------------------------------------------------
+
   validation {
-    condition = can(regex(
-      "^[0-9]{12}\\.dkr\\.ecr\\.[a-z0-9-]+\\.amazonaws\\.com/[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+$",
-      trimspace(var.ecr_image_uri)
-    ))
+    condition = can(
+      regex(
+        "^[0-9]{12}\\.dkr\\.ecr\\.[a-z0-9-]+\\.amazonaws\\.com/[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+$",
+        trimspace(var.ecr_image_uri)
+      )
+    )
 
     error_message = "ecr_image_uri must be a valid ECR image URI including a repository and image tag."
   }
@@ -606,7 +835,7 @@ variable "ecr_image_uri" {
 
 
 # ==========================================================
-# 14. DATABASE PASSWORD
+# 15. DATABASE PASSWORD
 # ==========================================================
 #
 # Password used by the RDS database.
@@ -657,7 +886,10 @@ variable "database_password" {
 
   type = string
 
+  # --------------------------------------------------------
   # Hide this variable from normal Terraform CLI output.
+  # --------------------------------------------------------
+
   sensitive = true
 
   # --------------------------------------------------------
@@ -673,11 +905,14 @@ variable "database_password" {
   # --------------------------------------------------------
 
   validation {
-    condition = length(var.database_password) >= 8
+    condition = length(
+      var.database_password
+    ) >= 8
 
     error_message = "database_password must contain at least 8 characters."
   }
 }
+
 
 
 # ==========================================================
@@ -696,28 +931,72 @@ variable "database_password" {
 #       |
 #       | exposes var.*
 #       v
-# cloudformation.tf
+# Terraform resources
 #       |
-#       | passes parameters
-#       v
-# main.yaml
-#       |
-#       +-------------------------------+
-#       |                               |
-#       v                               v
-# CloudFormation                   Nested Stacks
-# Root Stack                       |
-#                                 +--> VPC
-#                                 +--> S3
-#                                 +--> DynamoDB
-#                                 +--> ECR
-#                                 +--> Lambda
-#                                 +--> API Gateway
-#                                 +--> CloudFront
-#                                 +--> EC2
-#                                 +--> ECS
-#                                 +--> EKS
-#                                 +--> RDS
+#       +--> IAM
+#       +--> CloudFormation
+#       +--> S3
+#       +--> Networking
+#       +--> Compute
+#       +--> Database
+#       +--> Application infrastructure
+#
+#
+# ==========================================================
+# GITHUB ACTIONS IAM DATA FLOW
+# ==========================================================
+#
+# github_actions_role_policy_arns
+#              |
+#              v
+#          iam.tf
+#              |
+#              v
+# aws_iam_role_policy_attachment
+#              |
+#              v
+# aws-hybrid-iac-lab-GitHubActions
+#              |
+#       ┌──────┼──────┬───────────┐
+#       |      |      |           |
+#       v      v      v           v
+#     IAM    IAM    IAM        Future
+#   Policy  Policy Policy      Policies
+#      1      2      3
+#
+#
+# ==========================================================
+# ADDING A NEW GITHUB ACTIONS POLICY
+# ==========================================================
+#
+# Example:
+#
+#   Create:
+#
+#       github-actions-cloudwatch-policy
+#
+#
+#   Then add its ARN to:
+#
+#       github_actions_role_policy_arns
+#
+#
+#   Example:
+#
+#       "arn:aws:iam::537236558357:policy/github-actions-cloudwatch-policy"
+#
+#
+#   Then run:
+#
+#       terraform fmt
+#       terraform validate
+#       terraform plan
+#       terraform apply
+#
+#
+# Terraform automatically attaches the new policy to:
+#
+#       aws-hybrid-iac-lab-GitHubActions
 #
 #
 # ==========================================================
@@ -738,6 +1017,7 @@ variable "database_password" {
 #   ecr_image_uri
 #   database_password
 #
+#
 # Their actual values must be supplied through:
 #
 #   terraform.tfvars
@@ -745,4 +1025,3 @@ variable "database_password" {
 # or another appropriate Terraform variable mechanism.
 #
 # ==========================================================
-
