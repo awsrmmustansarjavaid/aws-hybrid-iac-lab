@@ -1,1514 +1,978 @@
 AWSTemplateFormatVersion: "2010-09-09"
 
 # ============================================================
-
 # HYBRID TERRAFORM + CLOUDFORMATION AWS DEVOPS LAB
-
 # ============================================================
-
 #
-
 # File:
-
-# infrastructure/cloudformation/main.yaml
-
+#   infrastructure/cloudformation/main.yaml
 #
-
 # Purpose:
-
-# Root CloudFormation bootstrap stack for the Hybrid
-
-# Terraform + CloudFormation AWS DevOps Lab.
-
+#   Root CloudFormation bootstrap stack for the Hybrid
+#   Terraform + CloudFormation AWS DevOps Lab.
 #
-
 # Architecture:
-
 #
-
-# Terraform
-
-# |
-
-# +-- IAM
-
-# |
-
-# +-- CloudFormation Template S3 Bucket
-
-# |
-
-# +-- Root CloudFormation Stack
-
-# |
-
-# +-- VPC
-
-# +-- S3
-
-# +-- DynamoDB
-
-# +-- ECR
-
-# +-- Lambda
-
-# +-- API Gateway
-
-# +-- CloudFront
-
-# +-- EC2
-
-# +-- EKS
-
-# +-- RDS
-
+#   Terraform
+#       |
+#       +-- IAM
+#       |
+#       +-- CloudFormation Template S3 Bucket
+#       |
+#       +-- Root CloudFormation Stack
+#               |
+#               +-- VPC
+#               +-- S3
+#               +-- DynamoDB
+#               +-- ECR
+#               +-- Lambda
+#               +-- API Gateway
+#               +-- CloudFront
+#               +-- EC2
+#               +-- EKS
+#               +-- RDS
 #
-
-#
-
 # ============================================================
-
 # IMPORTANT DEPLOYMENT ARCHITECTURE
-
 # ============================================================
-
 #
-
 # This root stack is responsible for BOOTSTRAP / INFRASTRUCTURE.
-
 #
-
 # The ECR repository is created here.
-
 #
-
 # The Docker image is NOT created here.
-
 #
-
 # The Docker image lifecycle is handled by GitHub Actions:
-
 #
-
-# 1. Terraform creates the infrastructure.
-
-# 2. CloudFormation creates the ECR repository.
-
-# 3. GitHub Actions builds the Docker image.
-
-# 4. GitHub Actions pushes the image to ECR.
-
-# 5. GitHub Actions deploys/updates ECS using that image.
-
+#   1. Terraform creates the infrastructure.
+#   2. CloudFormation creates the ECR repository.
+#   3. GitHub Actions builds the Docker image.
+#   4. GitHub Actions pushes the image to ECR.
+#   5. GitHub Actions deploys/updates ECS using that image.
 #
-
-#
-
 # This separation is intentional.
-
 #
-
 # CloudFormation cannot build a Docker image simply because an
-
 # ECR repository exists.
-
 #
-
 # Therefore:
-
 #
-
-# ECR repository creation
-
-# |
-
-# +--> Bootstrap / Infrastructure phase
-
+#   ECR repository creation
+#       |
+#       +--> Bootstrap / Infrastructure phase
 #
-
-# Docker image build + push
-
-# |
-
-# +--> CI/CD application phase
-
+#   Docker image build + push
+#       |
+#       +--> CI/CD application phase
 #
-
-# ECS service deployment
-
-# |
-
-# +--> CI/CD application phase
-
+#   ECS service deployment
+#       |
+#       +--> CI/CD application phase
 #
-
-#
-
 # The ECS nested stack is intentionally NOT created by this
-
 # bootstrap stack.
-
 #
-
-# This prevents the following problem:
-
+# This prevents the following dependency problem:
 #
-
-# Terraform
-
-# |
-
-# +--> CloudFormation
-
-# |
-
-# +--> ECR repository
-
-# |
-
-# +--> ECS service
-
-# |
-
-# +--> requires Docker image
-
+#   Terraform
+#       |
+#       +--> CloudFormation
+#               |
+#               +--> ECR repository
+#               |
+#               +--> ECS service
+#                       |
+#                       +--> requires Docker image
 #
-
 # At this point the Docker image does not exist yet because the
-
 # Docker workflow runs AFTER the Terraform workflow.
-
 #
-
 # Therefore ECS deployment is performed later by CI/CD after
-
 # the Docker image has been successfully pushed to ECR.
-
 #
-
-#
-
 # ============================================================
-
 # IMPORTANT NESTED-STACK OUTPUT RULE
-
 # ============================================================
-
 #
-
 # Nested CloudFormation stacks create their own resources.
-
 #
-
 # Therefore the root stack should NOT require Terraform to
-
 # provide IDs/ARNs for resources that are created by these
-
 # nested stacks.
-
 #
-
 # Example:
-
 #
-
-# VPCStack creates VPC
-
-# |
-
-# +--> VpcId output
-
-# |
-
-# +--> EC2 / EKS / RDS
-
+#   VPCStack creates VPC
+#       |
+#       +--> VpcId output
+#       |
+#       +--> EC2 / EKS / RDS
 #
-
+#   S3Stack creates application bucket
+#       |
+#       +--> BucketName output
+#       |
+#       +--> CloudFront
 #
-
-# S3Stack creates application bucket
-
-# |
-
-# +--> BucketName output
-
-# |
-
-# +--> CloudFront
-
+#   LambdaStack creates Lambda
+#       |
+#       +--> LambdaFunctionArn output
+#       |
+#       +--> API Gateway
 #
-
+#   ECRStack creates ECR repository
+#       |
+#       +--> RepositoryUri output
+#       |
+#       +--> GitHub Actions Docker workflow
 #
-
-# LambdaStack creates Lambda
-
-# |
-
-# +--> LambdaFunctionArn output
-
-# |
-
-# +--> API Gateway
-
-#
-
-#
-
-# ECRStack creates ECR repository
-
-# |
-
-# +--> RepositoryUri output
-
-# |
-
-# +--> GitHub Actions Docker workflow
-
-#
-
-#
-
 # ============================================================
-
 # ECS DEPLOYMENT NOTE
-
 # ============================================================
-
 #
-
 # ECS is deliberately excluded from this root bootstrap stack.
-
 #
-
 # The Docker workflow will deploy ECS after the image has been
-
 # pushed successfully.
-
 #
-
 # The ECS workflow should use an immutable image tag such as:
-
 #
-
-# ${GITHUB_SHA}
-
+#   ${GITHUB_SHA}
 #
-
 # Example:
-
 #
-
-# 537236558357.dkr.ecr.us-east-1.amazonaws.com/
-
-# HybridIaCLab-dev-app:<commit-sha>
-
+#   537236558357.dkr.ecr.us-east-1.amazonaws.com/
+#   HybridIaCLab-dev-app:<commit-sha>
 #
-
 # This matches the ECR repository's IMMUTABLE tag configuration.
-
 #
-
 # We should NOT depend on the "latest" tag for deployment.
-
 #
-
 # ============================================================
-
-# ============================================================
-
 # PARAMETERS
-
 # ============================================================
 
 Parameters:
 
-# ----------------------------------------------------------
-
-# Project name
-
-# ----------------------------------------------------------
-
-#
-
-# Used by nested stacks to construct resource names.
-
-#
-
-# Example:
-
-#
-
-# HybridIaCLab-dev-app
-
-#
-
-# ----------------------------------------------------------
-
-ProjectName:
-Type: String
-Default: HybridIaCLab
-Description: Project/lab name used for resource naming and tags.
-
-# ----------------------------------------------------------
-
-# Environment
-
-# ----------------------------------------------------------
-
-#
-
-# Identifies the deployment environment.
-
-#
-
-# ----------------------------------------------------------
-
-Environment:
-Type: String
-Default: dev
-
-
-AllowedValues:
-  - dev
-  - test
-  - staging
-  - prod
-
-Description: Deployment environment.
-
-
-# ----------------------------------------------------------
-
-# Terraform-managed CloudFormation template bucket
-
-# ----------------------------------------------------------
-
-#
-
-# Terraform creates this S3 bucket.
-
-#
-
-# CloudFormation uses this bucket to download:
-
-#
-
-# main.yaml
-
-# nested/vpc.yaml
-
-# nested/s3.yaml
-
-# nested/dynamodb.yaml
-
-# nested/ecr.yaml
-
-# nested/lambda.yaml
-
-# nested/api-gateway.yaml
-
-# nested/cloudfront.yaml
-
-# nested/ec2.yaml
-
-# nested/eks.yaml
-
-# nested/rds.yaml
-
-#
-
-# ----------------------------------------------------------
-
-TemplateBucket:
-Type: String
-Description: S3 bucket containing CloudFormation templates.
-
-# ----------------------------------------------------------
-
-# Optional template prefix
-
-# ----------------------------------------------------------
-
-#
-
-# Allows templates to be stored under an optional directory
-
-# prefix inside the template bucket.
-
-#
-
-# Example:
-
-#
-
-# templates/
-
-#
-
-# ----------------------------------------------------------
-
-TemplatePrefix:
-Type: String
-Default: ""
-Description: Optional prefix/path inside the template bucket.
-
-# ----------------------------------------------------------
-
-# Amazon Linux 2023 AMI
-
-# ----------------------------------------------------------
-
-#
-
-# This AMI is not created by this CloudFormation stack.
-
-#
-
-# Therefore AmiId remains a legitimate external input.
-
-#
-
-# Terraform/GitHub Actions can provide the appropriate AMI ID
-
-# for the target AWS region.
-
-#
-
-# ----------------------------------------------------------
-
-AmiId:
-Type: AWS::EC2::Image::Id
-Description: Amazon Linux 2023 AMI ID for the EC2 instance.
-
-# ----------------------------------------------------------
-
-# EC2 instance type
-
-# ----------------------------------------------------------
-
-#
-
-# Controls the EC2 instance size used by the EC2 nested stack.
-
-#
-
-# ----------------------------------------------------------
-
-InstanceType:
-Type: String
-Default: t3.micro
-
-
-AllowedValues:
-  - t3.micro
-  - t3.small
-
-Description: EC2 instance type.
-
-
-# ----------------------------------------------------------
-
-# Database username
-
-# ----------------------------------------------------------
-
-#
-
-# Passed to the RDS nested stack.
-
-#
-
-# ----------------------------------------------------------
-
-DatabaseUsername:
-Type: String
-Default: admin
-Description: RDS database administrator username.
-
-# ----------------------------------------------------------
-
-# Database password
-
-# ----------------------------------------------------------
-
-#
-
-# NoEcho prevents CloudFormation from displaying the value
-
-# in normal CloudFormation console output.
-
-#
-
-# For CI/CD, this value should come from a secure GitHub
-
-# secret or preferably a dedicated secret-management system.
-
-#
-
-# ----------------------------------------------------------
-
-DatabasePassword:
-Type: String
-NoEcho: true
-MinLength: 8
-Description: RDS database administrator password.
+  # ----------------------------------------------------------
+  # Project name
+  # ----------------------------------------------------------
+  #
+  # Used by nested stacks to construct resource names.
+  #
+  # Example:
+  #
+  #   HybridIaCLab
+  #
+  # ----------------------------------------------------------
+
+  ProjectName:
+    Type: String
+    Default: HybridIaCLab
+    Description: Project/lab name used for resource naming and tags.
+
+  # ----------------------------------------------------------
+  # Environment
+  # ----------------------------------------------------------
+  #
+  # Identifies the deployment environment.
+  #
+  # ----------------------------------------------------------
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - staging
+      - prod
+    Description: Deployment environment.
+
+  # ----------------------------------------------------------
+  # Terraform-managed CloudFormation template bucket
+  # ----------------------------------------------------------
+  #
+  # Terraform creates this S3 bucket.
+  #
+  # CloudFormation uses this bucket to download:
+  #
+  #   main.yaml
+  #   nested/vpc.yaml
+  #   nested/s3.yaml
+  #   nested/dynamodb.yaml
+  #   nested/ecr.yaml
+  #   nested/lambda.yaml
+  #   nested/api-gateway.yaml
+  #   nested/cloudfront.yaml
+  #   nested/ec2.yaml
+  #   nested/eks.yaml
+  #   nested/rds.yaml
+  #
+  # ----------------------------------------------------------
+
+  TemplateBucket:
+    Type: String
+    Description: S3 bucket containing CloudFormation templates.
+
+  # ----------------------------------------------------------
+  # Optional template prefix
+  # ----------------------------------------------------------
+  #
+  # Allows templates to be stored under an optional directory
+  # prefix inside the template bucket.
+  #
+  # Example:
+  #
+  #   templates/
+  #
+  # ----------------------------------------------------------
+
+  TemplatePrefix:
+    Type: String
+    Default: ""
+    Description: Optional prefix/path inside the template bucket.
+
+  # ----------------------------------------------------------
+  # Amazon Linux 2023 AMI
+  # ----------------------------------------------------------
+  #
+  # This AMI is not created by this CloudFormation stack.
+  #
+  # Therefore AmiId remains a legitimate external input.
+  #
+  # Terraform/GitHub Actions can provide the appropriate AMI ID
+  # for the target AWS region.
+  #
+  # ----------------------------------------------------------
+
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: Amazon Linux 2023 AMI ID for the EC2 instance.
+
+  # ----------------------------------------------------------
+  # EC2 instance type
+  # ----------------------------------------------------------
+  #
+  # Controls the EC2 instance size used by the EC2 nested stack.
+  #
+  # ----------------------------------------------------------
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t3.micro
+      - t3.small
+    Description: EC2 instance type.
+
+  # ----------------------------------------------------------
+  # Database username 
+  # ----------------------------------------------------------
+  # RDS generates and manages the master password
+  # through AWS Secrets Manager.
+  #
+  # The administrator username for the RDS database.
+  #
+  # Passed to the RDS nested stack and used to create
+  # the database administrator account.
+  #
+  # NoEcho prevents the value from being displayed in
+  # CloudFormation console/API outputs.
+  # 
+  # ----------------------------------------------------------
+
+  DatabaseUsername:
+    Type: String
+    Default: admin
+    NoEcho: true    
+    Description: RDS database administrator username.  
 
 # ============================================================
-
 # RESOURCES
-
 # ============================================================
 
 Resources:
 
-# ==========================================================
-
-# 1. VPC NESTED STACK
-
-# ==========================================================
-
-#
-
-# Creates:
-
-#
-
-# - VPC
-
-# - Internet Gateway
-
-# - Public Subnet 1
-
-# - Public Subnet 2
-
-# - Private Subnet 1
-
-# - Private Subnet 2
-
-# - Public Route Table
-
-#
-
-# The VPC is created here.
-
-#
-
-# Other nested stacks consume the VPC outputs directly.
-
-#
-
-# We do NOT pass VpcId from Terraform.
-
-#
-
-# ----------------------------------------------------------
-
-VPCStack:
-Type: AWS::CloudFormation::Stack
-
-
-Properties:
-
-  TemplateURL: !Sub
-    https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/vpc.yaml
-
-  Parameters:
-
-    ProjectName: !Ref ProjectName
-
-    Environment: !Ref Environment
-
-
-# ==========================================================
-
-# 2. S3 NESTED STACK
-
-# ==========================================================
-
-#
-
-# Creates the application/static-content S3 bucket.
-
-#
-
-# The bucket name is generated by the S3 nested stack.
-
-#
-
-# CloudFront consumes the bucket name through the nested
-
-# stack output.
-
-#
-
-# Terraform does NOT need to provide ApplicationBucketName.
-
-#
-
-# ----------------------------------------------------------
-
-S3Stack:
-Type: AWS::CloudFormation::Stack
-
-
-Properties:
-
-  TemplateURL: !Sub
-    https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/s3.yaml
-
-  Parameters:
-
-    ProjectName: !Ref ProjectName
-
-    Environment: !Ref Environment
-
-
-# ==========================================================
-
-# 3. DYNAMODB NESTED STACK
-
-# ==========================================================
-
-#
-
-# Creates the DynamoDB table used by the application.
-
-#
-
-# ----------------------------------------------------------
-
-DynamoDBStack:
-Type: AWS::CloudFormation::Stack
-
-
-Properties:
-
-  TemplateURL: !Sub
-    https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/dynamodb.yaml
-
-  Parameters:
-
-    ProjectName: !Ref ProjectName
-
-    Environment: !Ref Environment
-
-
-# ==========================================================
-
-# 4. ECR NESTED STACK
-
-# ==========================================================
-
-#
-
-# Creates the Amazon ECR repository.
-
-#
-
-# IMPORTANT:
-
-#
-
-# This stack creates ONLY the ECR repository.
-
-#
-
-# It does NOT build a Docker image.
-
-#
-
-# It does NOT push a Docker image.
-
-#
-
-# GitHub Actions is responsible for:
-
-#
-
-# - Building the Docker image
-
-# - Tagging the image
-
-# - Pushing the image to ECR
-
-#
-
-# The repository URI is exported by this root stack so that
-
-# CI/CD can discover the repository created by infrastructure.
-
-#
-
-# ----------------------------------------------------------
-
-ECRStack:
-Type: AWS::CloudFormation::Stack
-
-
-Properties:
-
-  TemplateURL: !Sub
-    https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/ecr.yaml
-
-  Parameters:
-
-    ProjectName: !Ref ProjectName
-
-    Environment: !Ref Environment
-
-
-# ==========================================================
-
-# 5. LAMBDA NESTED STACK
-
-# ==========================================================
-
-#
-
-# Creates the Lambda function.
-
-#
-
-# API Gateway consumes the Lambda ARN produced by this
-
-# nested stack.
-
-#
-
-# ----------------------------------------------------------
-
-LambdaStack:
-Type: AWS::CloudFormation::Stack
-
-
-Properties:
-
-  TemplateURL: !Sub
-    https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/lambda.yaml
-
-  Parameters:
-
-    ProjectName: !Ref ProjectName
-
-    Environment: !Ref Environment
-
-
-# ==========================================================
-
-# 6. API GATEWAY NESTED STACK
-
-# ==========================================================
-
-#
-
-# LambdaFunctionArn comes directly from LambdaStack.
-
-#
-
-# We do NOT require Terraform to provide the Lambda ARN.
-
-#
-
-# Dependency:
-
-#
-
-# LambdaStack
-
-# |
-
-# +--> LambdaFunctionArn
-
-# |
-
-# +--> APIGatewayStack
-
-#
-
-# ----------------------------------------------------------
-
-APIGatewayStack:
-Type: AWS::CloudFormation::Stack
-
-
-DependsOn:
-
-  - LambdaStack
-
-Properties:
-
-  TemplateURL: !Sub
-    https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/api-gateway.yaml
-
-  Parameters:
-
-    ProjectName: !Ref ProjectName
-
-    Environment: !Ref Environment
-
-    # ----------------------------------------------------
-    # Consume Lambda nested-stack output.
-    # ----------------------------------------------------
-
-    LambdaFunctionArn: !GetAtt LambdaStack.Outputs.LambdaFunctionArn
-
-
-# ==========================================================
-
-# 7. CLOUDFRONT NESTED STACK
-
-# ==========================================================
-
-#
-
-# ApplicationBucketName comes directly from S3Stack.
-
-#
-
-# We do NOT require Terraform to provide the application
-
-# bucket name.
-
-#
-
-# Dependency:
-
-#
-
-# S3Stack
-
-# |
-
-# +--> BucketName
-
-# |
-
-# +--> CloudFrontStack
-
-#
-
-# ----------------------------------------------------------
-
-CloudFrontStack:
-Type: AWS::CloudFormation::Stack
-
-
-DependsOn:
-
-  - S3Stack
-
-Properties:
-
-  TemplateURL: !Sub
-    https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/cloudfront.yaml
-
-  Parameters:
-
-    ProjectName: !Ref ProjectName
-
-    Environment: !Ref Environment
-
-    # ----------------------------------------------------
-    # Consume S3 nested-stack output.
-    # ----------------------------------------------------
-
-    ApplicationBucketName: !GetAtt S3Stack.Outputs.BucketName
-
-
-# ==========================================================
-
-# 8. EC2 NESTED STACK
-
-# ==========================================================
-
-#
-
-# VPC and subnet IDs come directly from VPCStack.
-
-#
-
-# Terraform does NOT provide:
-
-#
-
-# VpcId
-
-# PublicSubnetId
-
-#
-
-# AmiId remains an external input because the AMI is not
-
-# created by this CloudFormation architecture.
-
-#
-
-# ----------------------------------------------------------
-
-EC2Stack:
-Type: AWS::CloudFormation::Stack
-
-
-DependsOn:
-
-  - VPCStack
-
-Properties:
-
-  TemplateURL: !Sub
-    https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/ec2.yaml
-
-  Parameters:
-
-    ProjectName: !Ref ProjectName
-
-    Environment: !Ref Environment
-
-    # ----------------------------------------------------
-    # VPC created by VPCStack.
-    # ----------------------------------------------------
-
-    VpcId: !GetAtt VPCStack.Outputs.VpcId
-
-    # ----------------------------------------------------
-    # First public subnet created by VPCStack.
-    # ----------------------------------------------------
-
-    PublicSubnetId: !GetAtt VPCStack.Outputs.PublicSubnet1Id
-
-    # ----------------------------------------------------
-    # AMI remains an external input.
-    # ----------------------------------------------------
-
-    AmiId: !Ref AmiId
-
-    # ----------------------------------------------------
-    # EC2 instance size.
-    # ----------------------------------------------------
-
-    InstanceType: !Ref InstanceType
-
-
-# ==========================================================
-
-# 9. EKS NESTED STACK
-
-# ==========================================================
-
-#
-
-# EKS receives its networking configuration directly from
-
-# VPCStack.
-
-#
-
-# eks.yaml requires:
-
-#
-
-# VpcId
-
-# PrivateSubnet1Id
-
-# PrivateSubnet2Id
-
-#
-
-# These values are consumed directly from VPCStack outputs.
-
-#
-
-# ----------------------------------------------------------
-
-EKSStack:
-Type: AWS::CloudFormation::Stack
-
-
-DependsOn:
-
-  - VPCStack
-
-Properties:
-
-  TemplateURL: !Sub
-    https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/eks.yaml
-
-  Parameters:
-
-    ProjectName: !Ref ProjectName
-
-    Environment: !Ref Environment
-
-    # ----------------------------------------------------
-    # VPC created by VPCStack.
-    # ----------------------------------------------------
-
-    VpcId: !GetAtt VPCStack.Outputs.VpcId
-
-    # ----------------------------------------------------
-    # First private subnet created by VPCStack.
-    # ----------------------------------------------------
-
-    PrivateSubnet1Id: !GetAtt VPCStack.Outputs.PrivateSubnet1Id
-
-    # ----------------------------------------------------
-    # Second private subnet created by VPCStack.
-    # ----------------------------------------------------
-
-    PrivateSubnet2Id: !GetAtt VPCStack.Outputs.PrivateSubnet2Id
-
-
-# ==========================================================
-
-# 10. RDS NESTED STACK
-
-# ==========================================================
-
-#
-
-# VPC and private subnet IDs come directly from VPCStack.
-
-#
-
-# Database credentials remain external inputs.
-
-#
-
-# ----------------------------------------------------------
-
-RDSStack:
-Type: AWS::CloudFormation::Stack
-
-
-DependsOn:
-
-  - VPCStack
-
-Properties:
-
-  TemplateURL: !Sub
-    https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}nested/rds.yaml
-
-  Parameters:
-
-    ProjectName: !Ref ProjectName
-
-    Environment: !Ref Environment
-
-    # ----------------------------------------------------
-    # VPC created by VPCStack.
-    # ----------------------------------------------------
-
-    VpcId: !GetAtt VPCStack.Outputs.VpcId
-
-    # ----------------------------------------------------
-    # First private subnet.
-    # ----------------------------------------------------
-
-    PrivateSubnet1Id: !GetAtt VPCStack.Outputs.PrivateSubnet1Id
-
-    # ----------------------------------------------------
-    # Second private subnet.
-    # ----------------------------------------------------
-
-    PrivateSubnet2Id: !GetAtt VPCStack.Outputs.PrivateSubnet2Id
-
-    # ----------------------------------------------------
-    # Database administrator username.
-    # ----------------------------------------------------
-
-    DatabaseUsername: !Ref DatabaseUsername
-
-    # ----------------------------------------------------
-    # Database administrator password.
-    # ----------------------------------------------------
-
-    DatabasePassword: !Ref DatabasePassword
-
+  # ==========================================================
+  # 1. VPC NESTED STACK
+  # ==========================================================
+  #
+  # Creates:
+  #
+  #   - VPC
+  #   - Internet Gateway
+  #   - Public Subnet 1
+  #   - Public Subnet 2
+  #   - Private Subnet 1
+  #   - Private Subnet 2
+  #   - Public Route Table
+  #
+  # The VPC is created by this nested stack.
+  #
+  # Other nested stacks consume the VPC outputs directly.
+  #
+  # We do NOT pass VpcId from Terraform.
+  #
+  # ----------------------------------------------------------
+
+  VPCStack:
+    Type: AWS::CloudFormation::Stack
+
+    Properties:
+      TemplateURL: !Sub
+        - "https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${Prefix}nested/vpc.yaml"
+        - Prefix: !If
+            - HasTemplatePrefix
+            - !Sub "${TemplatePrefix}/"
+            - ""
+
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+
+  # ==========================================================
+  # 2. S3 NESTED STACK
+  # ==========================================================
+  #
+  # Creates the application/static-content S3 bucket.
+  #
+  # The bucket name is generated by the S3 nested stack.
+  #
+  # CloudFront consumes the bucket name through the nested
+  # stack output.
+  #
+  # Terraform does NOT need to provide ApplicationBucketName.
+  #
+  # ----------------------------------------------------------
+
+  S3Stack:
+    Type: AWS::CloudFormation::Stack
+
+    Properties:
+      TemplateURL: !Sub
+        - "https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${Prefix}nested/s3.yaml"
+        - Prefix: !If
+            - HasTemplatePrefix
+            - !Sub "${TemplatePrefix}/"
+            - ""
+
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+
+  # ==========================================================
+  # 3. DYNAMODB NESTED STACK
+  # ==========================================================
+  #
+  # Creates the DynamoDB table used by the application.
+  #
+  # ----------------------------------------------------------
+
+  DynamoDBStack:
+    Type: AWS::CloudFormation::Stack
+
+    Properties:
+      TemplateURL: !Sub
+        - "https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${Prefix}nested/dynamodb.yaml"
+        - Prefix: !If
+            - HasTemplatePrefix
+            - !Sub "${TemplatePrefix}/"
+            - ""
+
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+
+  # ==========================================================
+  # 4. ECR NESTED STACK
+  # ==========================================================
+  #
+  # Creates the Amazon ECR repository.
+  #
+  # IMPORTANT:
+  #
+  # This stack creates ONLY the ECR repository.
+  #
+  # It does NOT build a Docker image.
+  #
+  # It does NOT push a Docker image.
+  #
+  # GitHub Actions is responsible for:
+  #
+  #   - Building the Docker image
+  #   - Tagging the image
+  #   - Pushing the image to ECR
+  #
+  # The repository URI is exported by this root stack so that
+  # CI/CD can discover the repository created by infrastructure.
+  #
+  # ----------------------------------------------------------
+
+  ECRStack:
+    Type: AWS::CloudFormation::Stack
+
+    Properties:
+      TemplateURL: !Sub
+        - "https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${Prefix}nested/ecr.yaml"
+        - Prefix: !If
+            - HasTemplatePrefix
+            - !Sub "${TemplatePrefix}/"
+            - ""
+
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+
+  # ==========================================================
+  # 5. LAMBDA NESTED STACK
+  # ==========================================================
+  #
+  # Creates the Lambda function.
+  #
+  # API Gateway consumes the Lambda ARN produced by this
+  # nested stack.
+  #
+  # ----------------------------------------------------------
+
+  LambdaStack:
+    Type: AWS::CloudFormation::Stack
+
+    Properties:
+      TemplateURL: !Sub
+        - "https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${Prefix}nested/lambda.yaml"
+        - Prefix: !If
+            - HasTemplatePrefix
+            - !Sub "${TemplatePrefix}/"
+            - ""
+
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+
+  # ==========================================================
+  # 6. API GATEWAY NESTED STACK
+  # ==========================================================
+  #
+  # LambdaFunctionArn comes directly from LambdaStack.
+  #
+  # We do NOT require Terraform to provide the Lambda ARN.
+  #
+  # Dependency:
+  #
+  #   LambdaStack
+  #       |
+  #       +--> LambdaFunctionArn
+  #               |
+  #               +--> APIGatewayStack
+  #
+  # ----------------------------------------------------------
+
+  APIGatewayStack:
+    Type: AWS::CloudFormation::Stack
+
+    DependsOn:
+      - LambdaStack
+
+    Properties:
+      TemplateURL: !Sub
+        - "https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${Prefix}nested/api-gateway.yaml"
+        - Prefix: !If
+            - HasTemplatePrefix
+            - !Sub "${TemplatePrefix}/"
+            - ""
+
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+
+        # ----------------------------------------------------
+        # Consume Lambda nested-stack output.
+        # ----------------------------------------------------
+
+        LambdaFunctionArn: !GetAtt LambdaStack.Outputs.LambdaFunctionArn
+
+  # ==========================================================
+  # 7. CLOUDFRONT NESTED STACK
+  # ==========================================================
+  #
+  # ApplicationBucketName comes directly from S3Stack.
+  #
+  # We do NOT require Terraform to provide the application
+  # bucket name.
+  #
+  # Dependency:
+  #
+  #   S3Stack
+  #       |
+  #       +--> BucketName
+  #               |
+  #               +--> CloudFrontStack
+  #
+  # ----------------------------------------------------------
+
+  CloudFrontStack:
+    Type: AWS::CloudFormation::Stack
+
+    DependsOn:
+      - S3Stack
+
+    Properties:
+      TemplateURL: !Sub
+        - "https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${Prefix}nested/cloudfront.yaml"
+        - Prefix: !If
+            - HasTemplatePrefix
+            - !Sub "${TemplatePrefix}/"
+            - ""
+
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+
+        # ----------------------------------------------------
+        # Consume S3 nested-stack output.
+        # ----------------------------------------------------
+
+        ApplicationBucketName: !GetAtt S3Stack.Outputs.BucketName
+
+  # ==========================================================
+  # 8. EC2 NESTED STACK
+  # ==========================================================
+  #
+  # VPC and subnet IDs come directly from VPCStack.
+  #
+  # Terraform does NOT provide:
+  #
+  #   VpcId
+  #   PublicSubnetId
+  #
+  # AmiId remains an external input because the AMI is not
+  # created by this CloudFormation architecture.
+  #
+  # ----------------------------------------------------------
+
+  EC2Stack:
+    Type: AWS::CloudFormation::Stack
+
+    DependsOn:
+      - VPCStack
+
+    Properties:
+      TemplateURL: !Sub
+        - "https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${Prefix}nested/ec2.yaml"
+        - Prefix: !If
+            - HasTemplatePrefix
+            - !Sub "${TemplatePrefix}/"
+            - ""
+
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+
+        # ----------------------------------------------------
+        # VPC created by VPCStack.
+        # ----------------------------------------------------
+
+        VpcId: !GetAtt VPCStack.Outputs.VpcId
+
+        # ----------------------------------------------------
+        # First public subnet created by VPCStack.
+        # ----------------------------------------------------
+
+        PublicSubnetId: !GetAtt VPCStack.Outputs.PublicSubnet1Id
+
+        # ----------------------------------------------------
+        # AMI remains an external input.
+        # ----------------------------------------------------
+
+        AmiId: !Ref AmiId
+
+        # ----------------------------------------------------
+        # EC2 instance size.
+        # ----------------------------------------------------
+
+        InstanceType: !Ref InstanceType
+
+  # ==========================================================
+  # 9. EKS NESTED STACK
+  # ==========================================================
+  #
+  # EKS receives its networking configuration directly from
+  # VPCStack.
+  #
+  # eks.yaml requires:
+  #
+  #   VpcId
+  #   PrivateSubnet1Id
+  #   PrivateSubnet2Id
+  #
+  # These values are consumed directly from VPCStack outputs.
+  #
+  # ----------------------------------------------------------
+
+  EKSStack:
+    Type: AWS::CloudFormation::Stack
+
+    DependsOn:
+      - VPCStack
+
+    Properties:
+      TemplateURL: !Sub
+        - "https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${Prefix}nested/eks.yaml"
+        - Prefix: !If
+            - HasTemplatePrefix
+            - !Sub "${TemplatePrefix}/"
+            - ""
+
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+
+        # ----------------------------------------------------
+        # VPC created by VPCStack.
+        # ----------------------------------------------------
+
+        VpcId: !GetAtt VPCStack.Outputs.VpcId
+
+        # ----------------------------------------------------
+        # First private subnet created by VPCStack.
+        # ----------------------------------------------------
+
+        PrivateSubnet1Id: !GetAtt VPCStack.Outputs.PrivateSubnet1Id
+
+        # ----------------------------------------------------
+        # Second private subnet created by VPCStack.
+        # ----------------------------------------------------
+
+        PrivateSubnet2Id: !GetAtt VPCStack.Outputs.PrivateSubnet2Id
+
+  # ==========================================================
+  # 10. RDS NESTED STACK
+  # ==========================================================
+  #
+  #
+  # Database username is passed into the RDS nested stack.
+  #
+  # IMPORTANT:
+  #
+  # The database password is NOT passed from Terraform.
+  #
+  # rds.yaml uses:
+  #
+  #   ManageMasterUserPassword: true
+  #
+  # RDS generates and manages the master password through
+  # AWS Secrets Manager.
+  #
+  # ----------------------------------------------------------
+
+  RDSStack:
+    Type: AWS::CloudFormation::Stack
+
+    DependsOn:
+      - VPCStack
+
+    Properties:
+      TemplateURL: !Sub
+        - "https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${Prefix}nested/rds.yaml"
+        - Prefix: !If
+            - HasTemplatePrefix
+            - !Sub "${TemplatePrefix}/"
+            - ""
+
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+
+        # ----------------------------------------------------
+        # VPC created by VPCStack.
+        # ----------------------------------------------------
+
+        VpcId: !GetAtt VPCStack.Outputs.VpcId
+
+        # ----------------------------------------------------
+        # First private subnet.
+        # ----------------------------------------------------
+
+        PrivateSubnet1Id: !GetAtt VPCStack.Outputs.PrivateSubnet1Id
+
+        # ----------------------------------------------------
+        # Second private subnet.
+        # ----------------------------------------------------
+
+        PrivateSubnet2Id: !GetAtt VPCStack.Outputs.PrivateSubnet2Id
+
+        # ----------------------------------------------------
+        # EC2 SECURITY GROUP
+        # ----------------------------------------------------
+        #
+        # Get the security group ID from EC2Stack.
+        #
+        # RDS will use this security group as the source
+        # for MySQL TCP 3306.
+        #
+        # ----------------------------------------------------
+
+        Ec2SecurityGroupId: !GetAtt EC2Stack.Outputs.SecurityGroupId
+
+        # ----------------------------------------------------
+        # Database administrator username.
+        #
+        # The password is NOT supplied here.
+        #
+        # RDS generates and manages the master password
+        # through AWS Secrets Manager.
+        # ----------------------------------------------------
+
+        DatabaseUsername: !Ref DatabaseUsername
 
 # ============================================================
-
 # OUTPUTS
-
-# ============================================================
-
-#
-
-# These outputs expose useful information from the bootstrap
-
-# infrastructure.
-
-#
-
-# IMPORTANT:
-
-#
-
-# ECRRepositoryUri is intentionally retained.
-
-#
-
-# GitHub Actions can use this output to determine where the
-
-# Docker image must be pushed.
-
-#
-
-# ECS outputs are intentionally NOT present because ECS is no
-
-# longer created by this bootstrap stack.
-
-#
-
 # ============================================================
 
 Outputs:
 
-# ----------------------------------------------------------
-
-# Project
-
-# ----------------------------------------------------------
-
-ProjectName:
-Description: Project name.
-Value: !Ref ProjectName
-
-# ----------------------------------------------------------
-
-# Environment
-
-# ----------------------------------------------------------
-
-Environment:
-Description: Deployment environment.
-Value: !Ref Environment
-
-# ----------------------------------------------------------
-
-# Nested stack IDs
-
-# ----------------------------------------------------------
-
-#
-
-# These outputs expose the CloudFormation nested-stack
-
-# resources created by this bootstrap stack.
-
-#
-
-# ECSStackId is intentionally NOT included because ECS is
-
-# deployed separately after the Docker image exists.
-
-#
-
-# ----------------------------------------------------------
-
-VPCStackId:
-Description: VPC nested stack ID.
-Value: !Ref VPCStack
-
-S3StackId:
-Description: S3 nested stack ID.
-Value: !Ref S3Stack
-
-DynamoDBStackId:
-Description: DynamoDB nested stack ID.
-Value: !Ref DynamoDBStack
-
-ECRStackId:
-Description: ECR nested stack ID.
-Value: !Ref ECRStack
-
-LambdaStackId:
-Description: Lambda nested stack ID.
-Value: !Ref LambdaStack
-
-APIGatewayStackId:
-Description: API Gateway nested stack ID.
-Value: !Ref APIGatewayStack
-
-CloudFrontStackId:
-Description: CloudFront nested stack ID.
-Value: !Ref CloudFrontStack
-
-EC2StackId:
-Description: EC2 nested stack ID.
-Value: !Ref EC2Stack
-
-EKSStackId:
-Description: EKS nested stack ID.
-Value: !Ref EKSStack
-
-RDSStackId:
-Description: RDS nested stack ID.
-Value: !Ref RDSStack
-
-# ----------------------------------------------------------
-
-# VPC
-
-# ----------------------------------------------------------
-
-VpcId:
-Description: VPC created by the VPC nested stack.
-Value: !GetAtt VPCStack.Outputs.VpcId
-
-# ----------------------------------------------------------
-
-# Application S3 bucket
-
-# ----------------------------------------------------------
-
-ApplicationBucketName:
-Description: Application S3 bucket created by the S3 nested stack.
-Value: !GetAtt S3Stack.Outputs.BucketName
-
-# ----------------------------------------------------------
-
-# Lambda function ARN
-
-# ----------------------------------------------------------
-
-LambdaFunctionArn:
-Description: Lambda ARN created by the Lambda nested stack.
-Value: !GetAtt LambdaStack.Outputs.LambdaFunctionArn
-
-# ----------------------------------------------------------
-
-# ECR repository URI
-
-# ----------------------------------------------------------
-
-#
-
-# This output is important for the CI/CD pipeline.
-
-#
-
-# The Docker workflow can use this repository URI to:
-
-#
-
-# 1. Tag the Docker image.
-
-# 2. Push the image to ECR.
-
-# 3. Deploy the image to ECS.
-
-#
-
-# Example:
-
-#
-
-# 537236558357.dkr.ecr.us-east-1.amazonaws.com/
-
-# HybridIaCLab-dev-app
-
-#
-
-# The image tag should preferably be the Git commit SHA:
-
-#
-
-# HybridIaCLab-dev-app:${GITHUB_SHA}
-
-#
-
-# because the ECR repository uses immutable tags.
-
-#
-
-# ----------------------------------------------------------
-
-ECRRepositoryUri:
-Description: ECR repository URI created by the ECR nested stack.
-Value: !GetAtt ECRStack.Outputs.RepositoryUri
-
-# ----------------------------------------------------------
-
-# API Gateway endpoint
-
-# ----------------------------------------------------------
-
-ApiEndpoint:
-Description: API Gateway orders endpoint.
-Value: !GetAtt APIGatewayStack.Outputs.OrdersEndpoint
-
-# ----------------------------------------------------------
-
-# CloudFront domain name
-
-# ----------------------------------------------------------
-
-CloudFrontDomainName:
-Description: CloudFront distribution domain name.
-Value: !GetAtt CloudFrontStack.Outputs.CloudFrontDomainName
-
-# ----------------------------------------------------------
-
-# RDS database endpoint
-
-# ----------------------------------------------------------
-
-RDSDatabaseEndpoint:
-Description: RDS database endpoint.
-Value: !GetAtt RDSStack.Outputs.DatabaseEndpoint
-
-# ----------------------------------------------------------
-
-# RDS database port
-
-# ----------------------------------------------------------
-
-RDSDatabasePort:
-Description: RDS database port.
-Value: !GetAtt RDSStack.Outputs.DatabasePort
-
-# ----------------------------------------------------------
-
-# EKS cluster name
-
-# ----------------------------------------------------------
-
-EKSClusterName:
-Description: EKS cluster name.
-Value: !GetAtt EKSStack.Outputs.ClusterName
+  # ----------------------------------------------------------
+  # Project
+  # ----------------------------------------------------------
+
+  ProjectName:
+    Description: Project name.
+    Value: !Ref ProjectName
+
+  # ----------------------------------------------------------
+  # Environment
+  # ----------------------------------------------------------
+
+  Environment:
+    Description: Deployment environment.
+    Value: !Ref Environment
+
+  # ----------------------------------------------------------
+  # Nested stack IDs
+  # ----------------------------------------------------------
+  #
+  # These outputs expose the CloudFormation nested-stack
+  # resources created by this bootstrap stack.
+  #
+  # ECSStackId is intentionally NOT included because ECS is
+  # deployed separately after the Docker image exists.
+  #
+  # ----------------------------------------------------------
+
+  VPCStackId:
+    Description: VPC nested stack ID.
+    Value: !Ref VPCStack
+
+  S3StackId:
+    Description: S3 nested stack ID.
+    Value: !Ref S3Stack
+
+  DynamoDBStackId:
+    Description: DynamoDB nested stack ID.
+    Value: !Ref DynamoDBStack
+
+  ECRStackId:
+    Description: ECR nested stack ID.
+    Value: !Ref ECRStack
+
+  LambdaStackId:
+    Description: Lambda nested stack ID.
+    Value: !Ref LambdaStack
+
+  APIGatewayStackId:
+    Description: API Gateway nested stack ID.
+    Value: !Ref APIGatewayStack
+
+  CloudFrontStackId:
+    Description: CloudFront nested stack ID.
+    Value: !Ref CloudFrontStack
+
+  EC2StackId:
+    Description: EC2 nested stack ID.
+    Value: !Ref EC2Stack
+
+  EKSStackId:
+    Description: EKS nested stack ID.
+    Value: !Ref EKSStack
+
+  RDSStackId:
+    Description: RDS nested stack ID.
+    Value: !Ref RDSStack
+
+  # ----------------------------------------------------------
+  # VPC
+  # ----------------------------------------------------------
+
+  VpcId:
+    Description: VPC created by the VPC nested stack.
+    Value: !GetAtt VPCStack.Outputs.VpcId
+
+  # ----------------------------------------------------------
+  # Application S3 bucket
+  # ----------------------------------------------------------
+
+  ApplicationBucketName:
+    Description: Application S3 bucket created by the S3 nested stack.
+    Value: !GetAtt S3Stack.Outputs.BucketName
+
+  # ----------------------------------------------------------
+  # Lambda function ARN
+  # ----------------------------------------------------------
+
+  LambdaFunctionArn:
+    Description: Lambda ARN created by the Lambda nested stack.
+    Value: !GetAtt LambdaStack.Outputs.LambdaFunctionArn
+
+  # ----------------------------------------------------------
+  # ECR repository URI
+  # ----------------------------------------------------------
+  #
+  # This output is important for the CI/CD pipeline.
+  #
+  # The Docker workflow can use this repository URI to:
+  #
+  #   1. Tag the Docker image.
+  #   2. Push the image to ECR.
+  #   3. Deploy the image to ECS.
+  #
+  # Example:
+  #
+  #   537236558357.dkr.ecr.us-east-1.amazonaws.com/
+  #   HybridIaCLab-dev-app
+  #
+  # The image tag should preferably be the Git commit SHA:
+  #
+  #   HybridIaCLab-dev-app:${GITHUB_SHA}
+  #
+  # because the ECR repository uses immutable tags.
+  #
+  # ----------------------------------------------------------
+
+  ECRRepositoryUri:
+    Description: ECR repository URI created by the ECR nested stack.
+    Value: !GetAtt ECRStack.Outputs.RepositoryUri
+
+  # ----------------------------------------------------------
+  # API Gateway endpoint
+  # ----------------------------------------------------------
+
+  ApiEndpoint:
+    Description: API Gateway orders endpoint.
+    Value: !GetAtt APIGatewayStack.Outputs.OrdersEndpoint
+
+  # ----------------------------------------------------------
+  # CloudFront domain name
+  # ----------------------------------------------------------
+
+  CloudFrontDomainName:
+    Description: CloudFront distribution domain name.
+    Value: !GetAtt CloudFrontStack.Outputs.CloudFrontDomainName
+
+  # ----------------------------------------------------------
+  # RDS database endpoint
+  # ----------------------------------------------------------
+
+  RDSDatabaseEndpoint:
+    Description: RDS database endpoint.
+    Value: !GetAtt RDSStack.Outputs.DatabaseEndpoint
+
+  # ----------------------------------------------------------
+  # RDS database port
+  # ----------------------------------------------------------
+
+  RDSDatabasePort:
+    Description: RDS database port.
+    Value: !GetAtt RDSStack.Outputs.DatabasePort
+
+  # ----------------------------------------------------------
+  # RDS Secrets Manager secret ARN
+  # ----------------------------------------------------------
+  #
+  # RDS creates and manages the master database secret.
+  #
+  # Only the ARN is exposed.
+  #
+  # The actual password is never exposed as a CloudFormation
+  # output.
+  #
+  # ----------------------------------------------------------
+
+  RDSDatabaseSecretArn:
+    Description: ARN of the RDS-managed Secrets Manager secret.
+    Value: !GetAtt RDSStack.Outputs.DatabaseSecretArn  
+
+  # ----------------------------------------------------------
+  # EKS cluster name
+  # ----------------------------------------------------------
+
+  EKSClusterName:
+    Description: EKS cluster name.
+    Value: !GetAtt EKSStack.Outputs.ClusterName
 
 # ============================================================
-
 # DEPLOYMENT FLOW SUMMARY
-
 # ============================================================
-
 #
-
 # Phase 1 - Infrastructure
-
 # -------------------------
-
 #
-
-# Terraform
-
-# |
-
-# +--> CloudFormation Template S3 Bucket
-
-# |
-
-# +--> Root CloudFormation Stack
-
-# |
-
-# +--> VPC
-
-# +--> S3
-
-# +--> DynamoDB
-
-# +--> ECR Repository
-
-# +--> Lambda
-
-# +--> API Gateway
-
-# +--> CloudFront
-
-# +--> EC2
-
-# +--> EKS
-
-# +--> RDS
-
+#   Terraform
+#       |
+#       +--> CloudFormation Template S3 Bucket
+#       |
+#       +--> Root CloudFormation Stack
+#               |
+#               +--> VPC
+#               +--> S3
+#               +--> DynamoDB
+#               +--> ECR Repository
+#               +--> Lambda
+#               +--> API Gateway
+#               +--> CloudFront
+#               +--> EC2
+#               +--> EKS
+#               +--> RDS
 #
-
 #
-
 # Phase 2 - Application
-
 # ---------------------
-
 #
-
-# GitHub Actions Docker workflow
-
-# |
-
-# +--> Docker Build
-
-# |
-
-# +--> ECR Login
-
-# |
-
-# +--> Docker Tag
-
-# |
-
-# +--> Push ${GITHUB_SHA}
-
-# |
-
-# +--> ECS Deployment
-
+#   GitHub Actions Docker workflow
+#       |
+#       +--> Docker Build
+#       |
+#       +--> ECR Login
+#       |
+#       +--> Docker Tag
+#       |
+#       +--> Push ${GITHUB_SHA}
+#       |
+#       +--> ECS Deployment
 #
-
 #
-
 # This creates the correct dependency:
-
 #
-
-# Infrastructure
-
-# |
-
-# v
-
-# ECR Repository
-
-# |
-
-# v
-
-# Docker Image
-
-# |
-
-# v
-
-# ECS Service
-
+#   Infrastructure
+#       |
+#       v
+#   ECR Repository
+#       |
+#       v
+#   Docker Image
+#       |
+#       v
+#   ECS Service
 #
-
 #
-
 # NOT:
-
 #
-
-# ECR Repository
-
-# |
-
-# +--> ECS
-
-# |
-
-# +--> image does not exist yet
-
+#   ECR Repository
+#       |
+#       +--> ECS
+#               |
+#               +--> image does not exist yet
 #
-
-#
-
 # ============================================================
-
 # END OF main.yaml
-
 # ============================================================

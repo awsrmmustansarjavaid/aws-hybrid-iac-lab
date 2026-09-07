@@ -1,880 +1,759 @@
 # ============================================================
-
 # AWS HYBRID IaC LAB
-
 # API GATEWAY REST API
-
 # ============================================================
-
 #
-
 # File:
-
-# infrastructure/cloudformation/api-gateway.yaml
-
 #
-
+#   infrastructure/cloudformation/api-gateway.yaml
+#
 # Purpose:
-
-# Creates an Amazon API Gateway REST API that exposes:
-
 #
-
-# POST /orders
-
+#   Creates an Amazon API Gateway REST API that exposes:
 #
-
-# API Gateway invokes an AWS Lambda function using
-
-# Lambda proxy integration.
-
+#       POST /orders
 #
-
+#   API Gateway invokes an AWS Lambda function using
+#   Lambda Proxy Integration.
+#
+#
 # Architecture:
-
 #
-
-# Client
-
-# |
-
-# | HTTPS POST /orders
-
-# v
-
-# API Gateway
-
-# |
-
-# | Lambda Proxy Integration
-
-# v
-
-# AWS Lambda
-
-# |
-
-# v
-
-# Application / Database
-
+#   Client
+#      |
+#      | HTTPS POST /orders
+#      v
+#   API Gateway REST API
+#      |
+#      | Lambda Proxy Integration
+#      v
+#   AWS Lambda
+#      |
+#      v
+#   Application / Database
 #
-
+#
 # This template is designed for the Hybrid IaC Lab where
-
 # Terraform and CloudFormation are both used.
-
 #
-
+#
 # ============================================================
-
 # IMPORTANT AWS CLI COMMANDS
-
 # ============================================================
-
 #
-
 # Before deploying, make sure AWS CLI is configured:
-
 #
-
-# aws configure
-
+#   aws configure
 #
-
+#
 # Verify AWS identity:
-
 #
-
-# aws sts get-caller-identity
-
+#   aws sts get-caller-identity
 #
-
+#
 # Check AWS region:
-
 #
-
-# aws configure get region
-
+#   aws configure get region
 #
-
 #
-
 # ============================================================
-
 # DEPLOYMENT COMMAND
-
 # ============================================================
-
 #
-
 # Example:
-
 #
-
 # aws cloudformation deploy \
-
-# --template-file api-gateway.yaml \
-
-# --stack-name HybridIaCLab-API \
-
-# --parameter-overrides \
-
-# ProjectName=HybridIaCLab \
-
-# Environment=dev \
-
-# LambdaFunctionArn=arn:aws:lambda:us-east-1:123456789012:function:HybridIaCLab-dev-Lambda \
-
-# --capabilities CAPABILITY_NAMED_IAM \
-
-# --region us-east-1
-
+#   --template-file api-gateway.yaml \
+#   --stack-name HybridIaCLab-API \
+#   --parameter-overrides \
+#   ProjectName=HybridIaCLab \
+#   Environment=dev \
+#   LambdaFunctionArn=arn:aws:lambda:us-east-1:123456789012:function:HybridIaCLab-dev-Lambda \
+#   --capabilities CAPABILITY_NAMED_IAM \
+#   --region us-east-1
 #
-
+#
 # IMPORTANT:
-
+#
 # Replace the LambdaFunctionArn value with your real Lambda ARN.
-
 #
-
 #
-
-# ============================================================
-
-# VALIDATE TEMPLATE
-
-# ============================================================
-
-#
-
-# Before deployment, validate the CloudFormation template:
-
-#
-
-# aws cloudformation validate-template \
-
-# --template-body file://api-gateway.yaml \
-
-# --region us-east-1
-
-#
-
-#
-
-# ============================================================
-
-# CHECK STACK
-
-# ============================================================
-
-#
-
-# aws cloudformation describe-stacks \
-
-# --stack-name HybridIaCLab-API \
-
-# --region us-east-1
-
-#
-
-#
-
-# ============================================================
-
-# WATCH STACK EVENTS
-
-# ============================================================
-
-#
-
-# aws cloudformation describe-stack-events \
-
-# --stack-name HybridIaCLab-API \
-
-# --region us-east-1
-
-#
-
-#
-
-# ============================================================
-
-# GET STACK OUTPUTS
-
-# ============================================================
-
-#
-
-# aws cloudformation describe-stacks \
-
-# --stack-name HybridIaCLab-API \
-
-# --query "Stacks[0].Outputs" \
-
-# --output table \
-
-# --region us-east-1
-
-#
-
-#
-
-# ============================================================
-
-# FIND API GATEWAY
-
-# ============================================================
-
-#
-
-# aws apigateway get-rest-apis \
-
-# --region us-east-1
-
-#
-
-#
-
-# ============================================================
-
-# FIND /orders RESOURCE
-
-# ============================================================
-
-#
-
-# First get the API ID from CloudFormation output.
-
-#
-
-# Then:
-
-#
-
-# aws apigateway get-resources \
-
-# --rest-api-id YOUR_API_ID \
-
-# --region us-east-1
-
-#
-
-#
-
-# ============================================================
-
-# TEST API
-
-# ============================================================
-
-#
-
-# After deployment, CloudFormation will output:
-
-#
-
-# OrdersEndpoint
-
-#
-
-# Example:
-
-#
-
-# https://abc123.execute-api.us-east-1.amazonaws.com/dev/orders
-
-#
-
-# Test with curl:
-
-#
-
-# curl -X POST \
-
-# https://abc123.execute-api.us-east-1.amazonaws.com/dev/orders \
-
-# -H "Content-Type: application/json" \
-
-# -d '{"item":"Coffee","quantity":2}'
-
-#
-
 # NOTE:
-
+#
+# This template itself does NOT create an IAM Role or IAM User.
+#
+# Therefore CAPABILITY_NAMED_IAM is not technically required
+# for this template alone.
+#
+# It is safe to omit it from the deployment command unless
+# another resource added later requires named IAM resources.
+#
+#
+# ============================================================
+# VALIDATE TEMPLATE
+# ============================================================
+#
+# Before deployment, validate the CloudFormation template:
+#
+# aws cloudformation validate-template \
+#   --template-body file://api-gateway.yaml \
+#   --region us-east-1
+#
+#
+# ============================================================
+# CHECK STACK
+# ============================================================
+#
+# aws cloudformation describe-stacks \
+#   --stack-name HybridIaCLab-API \
+#   --region us-east-1
+#
+#
+# ============================================================
+# WATCH STACK EVENTS
+# ============================================================
+#
+# aws cloudformation describe-stack-events \
+#   --stack-name HybridIaCLab-API \
+#   --region us-east-1
+#
+#
+# ============================================================
+# GET STACK OUTPUTS
+# ============================================================
+#
+# aws cloudformation describe-stacks \
+#   --stack-name HybridIaCLab-API \
+#   --query "Stacks[0].Outputs" \
+#   --output table \
+#   --region us-east-1
+#
+#
+# ============================================================
+# FIND API GATEWAY
+# ============================================================
+#
+# aws apigateway get-rest-apis \
+#   --region us-east-1
+#
+#
+# ============================================================
+# FIND /orders RESOURCE
+# ============================================================
+#
+# First get the API ID from the CloudFormation output.
+#
+# Then:
+#
+# aws apigateway get-resources \
+#   --rest-api-id YOUR_API_ID \
+#   --region us-east-1
+#
+#
+# ============================================================
+# TEST API
+# ============================================================
+#
+# After deployment, CloudFormation will output:
+#
+#   OrdersEndpoint
+#
+# Example:
+#
+#   https://abc123.execute-api.us-east-1.amazonaws.com/dev/orders
+#
+#
+# Test with curl:
+#
+# curl -X POST \
+#   https://abc123.execute-api.us-east-1.amazonaws.com/dev/orders \
+#   -H "Content-Type: application/json" \
+#   -d '{"item":"Coffee","quantity":2}'
+#
+#
+# NOTE:
+#
 # The exact JSON body must match what your Lambda function expects.
-
 #
-
 #
-
 # ============================================================
-
+# TEST FROM POWERSHELL
+# ============================================================
+#
+# Example:
+#
+# $body = @{
+#     item     = "Coffee"
+#     quantity = 2
+# } | ConvertTo-Json
+#
+# Invoke-RestMethod `
+#   -Method POST `
+#   -Uri "https://abc123.execute-api.us-east-1.amazonaws.com/dev/orders" `
+#   -ContentType "application/json" `
+#   -Body $body
+#
+#
+# ============================================================
 # DELETE STACK
-
 # ============================================================
-
 #
-
 # aws cloudformation delete-stack \
-
-# --stack-name HybridIaCLab-API \
-
-# --region us-east-1
-
+#   --stack-name HybridIaCLab-API \
+#   --region us-east-1
 #
-
 #
-
 # ============================================================
-
 # CLOUDFORMATION TEMPLATE
-
 # ============================================================
 
 AWSTemplateFormatVersion: "2010-09-09"
 
 Description: >
-API Gateway REST API for the Hybrid Terraform +
-CloudFormation AWS DevOps Lab.
+  API Gateway REST API for the Hybrid Terraform and
+  CloudFormation AWS DevOps Lab.
+
 
 # ============================================================
-
 # PARAMETERS
-
 # ============================================================
 
 Parameters:
 
-# ----------------------------------------------------------
+  # ----------------------------------------------------------
+  # Project Name
+  # ----------------------------------------------------------
+  #
+  # Example:
+  #
+  #   HybridIaCLab
+  #
+  # Used for API Gateway naming and resource identification.
+  #
+  # ----------------------------------------------------------
 
-# Project name
+  ProjectName:
+    Type: String
+    Description: Project name used for API Gateway naming.
 
-# ----------------------------------------------------------
 
-#
+  # ----------------------------------------------------------
+  # Deployment Environment
+  # ----------------------------------------------------------
+  #
+  # Example:
+  #
+  #   dev
+  #
+  # Other possible values:
+  #
+  #   test
+  #   staging
+  #   prod
+  #
+  # The environment is also used as the API Gateway stage name.
+  #
+  # ----------------------------------------------------------
 
-# Example:
+  Environment:
+    Type: String
+    Description: Deployment environment such as dev, test, staging, or prod.
 
-#
 
-# HybridIaCLab
+  # ----------------------------------------------------------
+  # Lambda Function ARN
+  # ----------------------------------------------------------
+  #
+  # API Gateway needs the Lambda function ARN so it knows
+  # which Lambda function should receive API requests.
+  #
+  # Example:
+  #
+  #   arn:aws:lambda:us-east-1:123456789012:function:my-function
+  #
+  # ----------------------------------------------------------
 
-#
+  LambdaFunctionArn:
+    Type: String
+    Description: ARN of the Lambda function to invoke.
 
-ProjectName:
-Type: String
-Description: Project name
-
-# ----------------------------------------------------------
-
-# Deployment environment
-
-# ----------------------------------------------------------
-
-#
-
-# Example:
-
-#
-
-# dev
-
-#
-
-# Other possible values:
-
-#
-
-# test
-
-# staging
-
-# prod
-
-#
-
-Environment:
-Type: String
-Description: Deployment environment
-
-# ----------------------------------------------------------
-
-# Lambda function ARN
-
-# ----------------------------------------------------------
-
-#
-
-# API Gateway needs the Lambda function ARN so it knows
-
-# which Lambda function should receive API requests.
-
-#
-
-# Example:
-
-#
-
-# arn:aws:lambda:us-east-1:123456789012:function:my-function
-
-#
-
-LambdaFunctionArn:
-Type: String
-Description: ARN of the Lambda function to invoke
 
 # ============================================================
-
 # RESOURCES
-
 # ============================================================
 
 Resources:
 
-# ==========================================================
 
-# REST API
-
-# ==========================================================
-
-#
-
-# Creates the main API Gateway REST API.
-
-#
-
-# Example API:
-
-#
-
-# HybridIaCLab-dev-API
-
-#
-
-# ==========================================================
-
-RestApi:
-Type: AWS::ApiGateway::RestApi
-
-
-Properties:
-
-  # API Gateway API name
-  Name: !Sub "${ProjectName}-${Environment}-API"
-
-  # Description shown in API Gateway
-  Description: !Sub >
-    API Gateway for ${ProjectName} ${Environment}
-
-  # ------------------------------------------------------
-  # Regional API endpoint
-  # ------------------------------------------------------
+  # ==========================================================
+  # REST API
+  # ==========================================================
   #
-  # REGIONAL means API Gateway is deployed in the
-  # selected AWS region.
+  # Creates the main API Gateway REST API.
+  #
+  # Example API name:
+  #
+  #   HybridIaCLab-dev-API
+  #
+  # ==========================================================
+
+  RestApi:
+    Type: AWS::ApiGateway::RestApi
+
+    Properties:
+
+      # ------------------------------------------------------
+      # API Gateway API Name
+      # ------------------------------------------------------
+
+      Name:
+        !Sub "${ProjectName}-${Environment}-API"
+
+
+      # ------------------------------------------------------
+      # API Description
+      # ------------------------------------------------------
+
+      Description:
+        !Sub "API Gateway REST API for ${ProjectName} ${Environment}"
+
+
+      # ------------------------------------------------------
+      # Regional API Endpoint
+      # ------------------------------------------------------
+      #
+      # REGIONAL means the API is deployed in the selected
+      # AWS region.
+      #
+      # Example:
+      #
+      #   us-east-1
+      #
+      # ------------------------------------------------------
+
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+
+  # ==========================================================
+  # /orders RESOURCE
+  # ==========================================================
+  #
+  # Creates:
+  #
+  #   /orders
+  #
+  # The full API operation becomes:
+  #
+  #   POST /orders
+  #
+  # ==========================================================
+
+  OrdersResource:
+    Type: AWS::ApiGateway::Resource
+
+    Properties:
+
+      # ------------------------------------------------------
+      # Connect Resource to REST API
+      # ------------------------------------------------------
+
+      RestApiId:
+        !Ref RestApi
+
+
+      # ------------------------------------------------------
+      # Parent Resource
+      # ------------------------------------------------------
+      #
+      # RootResourceId represents:
+      #
+      #   /
+      #
+      # Therefore PathPart "orders" creates:
+      #
+      #   /orders
+      #
+      # ------------------------------------------------------
+
+      ParentId:
+        !GetAtt RestApi.RootResourceId
+
+
+      # ------------------------------------------------------
+      # URL Path Component
+      # ------------------------------------------------------
+
+      PathPart: orders
+
+
+  # ==========================================================
+  # POST /orders METHOD
+  # ==========================================================
+  #
+  # Creates:
+  #
+  #   POST /orders
+  #
+  # API Gateway receives the request and invokes Lambda.
+  #
+  # ==========================================================
+
+  CreateOrderMethod:
+    Type: AWS::ApiGateway::Method
+
+    Properties:
+
+      # ------------------------------------------------------
+      # API Gateway REST API
+      # ------------------------------------------------------
+
+      RestApiId:
+        !Ref RestApi
+
+
+      # ------------------------------------------------------
+      # Resource
+      # ------------------------------------------------------
+      #
+      # This connects the method to:
+      #
+      #   /orders
+      #
+      # ------------------------------------------------------
+
+      ResourceId:
+        !Ref OrdersResource
+
+
+      # ------------------------------------------------------
+      # HTTP Method
+      # ------------------------------------------------------
+
+      HttpMethod: POST
+
+
+      # ------------------------------------------------------
+      # Authorization
+      # ------------------------------------------------------
+      #
+      # NONE means API Gateway does not require an API Gateway
+      # authorizer.
+      #
+      # Authentication/authorization can be added later using:
+      #
+      #   - Amazon Cognito
+      #   - IAM authorization
+      #   - Lambda Authorizer
+      #
+      # ------------------------------------------------------
+
+      AuthorizationType: NONE
+
+
+      # ======================================================
+      # LAMBDA PROXY INTEGRATION
+      # ======================================================
+      #
+      # AWS_PROXY passes the incoming API Gateway request
+      # directly to Lambda.
+      #
+      # Lambda receives information such as:
+      #
+      #   - HTTP method
+      #   - path
+      #   - headers
+      #   - query parameters
+      #   - request body
+      #
+      # Lambda must return an API Gateway compatible response.
+      #
+      # ======================================================
+
+      Integration:
+
+        # ----------------------------------------------------
+        # Integration Type
+        # ----------------------------------------------------
+
+        Type: AWS_PROXY
+
+
+        # ----------------------------------------------------
+        # Integration HTTP Method
+        # ----------------------------------------------------
+        #
+        # API Gateway invokes Lambda using POST internally,
+        # regardless of the client HTTP method.
+        #
+        # ----------------------------------------------------
+
+        IntegrationHttpMethod: POST
+
+
+        # ----------------------------------------------------
+        # Lambda Invocation URI
+        # ----------------------------------------------------
+        #
+        # IMPORTANT:
+        #
+        # Keep this as a single-line !Sub expression.
+        #
+        # This avoids YAML folded-line whitespace being inserted
+        # into the ARN.
+        #
+        # ----------------------------------------------------
+
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunctionArn}/invocations"
+
+
+  # ==========================================================
+  # LAMBDA INVOKE PERMISSION
+  # ==========================================================
+  #
+  # API Gateway itself needs permission to invoke Lambda.
+  #
+  # Without this permission:
+  #
+  #   API Gateway
+  #       |
+  #       X
+  #       |
+  #     Lambda
+  #
+  # The request will fail.
+  #
+  # This resource creates the required:
+  #
+  #   AWS::Lambda::Permission
+  #
+  # ==========================================================
+
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+
+    Properties:
+
+      # ------------------------------------------------------
+      # Lambda Action
+      # ------------------------------------------------------
+      #
+      # Allows invocation of the Lambda function.
+      #
+      # ------------------------------------------------------
+
+      Action: lambda:InvokeFunction
+
+
+      # ------------------------------------------------------
+      # Lambda Function
+      # ------------------------------------------------------
+      #
+      # The LambdaFunctionArn parameter contains the Lambda ARN.
+      #
+      # ------------------------------------------------------
+
+      FunctionName:
+        !Ref LambdaFunctionArn
+
+
+      # ------------------------------------------------------
+      # AWS Service Principal
+      # ------------------------------------------------------
+      #
+      # API Gateway uses this service principal when invoking
+      # Lambda.
+      #
+      # ------------------------------------------------------
+
+      Principal:
+        apigateway.amazonaws.com
+
+
+      # ------------------------------------------------------
+      # Restrict Permission to This API Endpoint
+      # ------------------------------------------------------
+      #
+      # Format:
+      #
+      #   arn:aws:execute-api:
+      #       REGION:
+      #       ACCOUNT_ID:
+      #       API_ID/
+      #       *
+      #       /POST/orders
+      #
+      # The wildcard "*" represents the API Gateway stage.
+      #
+      # ------------------------------------------------------
+
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/POST/orders"
+
+
+  # ==========================================================
+  # API DEPLOYMENT
+  # ==========================================================
+  #
+  # API Gateway requires a deployment before an API stage
+  # can serve requests.
+  #
+  # CloudFormation creates a deployment after the API method
+  # and Lambda permission exist.
+  #
+  # ==========================================================
+
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+
+    # --------------------------------------------------------
+    # DEPENDENCIES
+    # --------------------------------------------------------
+    #
+    # The deployment must happen after:
+    #
+    #   1. POST /orders method
+    #   2. Lambda invoke permission
+    #
+    # This prevents CloudFormation from attempting to create
+    # the deployment too early.
+    #
+    # --------------------------------------------------------
+
+    DependsOn:
+
+      - CreateOrderMethod
+      - LambdaInvokePermission
+
+    Properties:
+
+      # ------------------------------------------------------
+      # REST API to Deploy
+      # ------------------------------------------------------
+
+      RestApiId:
+        !Ref RestApi
+
+
+  # ==========================================================
+  # API STAGE
+  # ==========================================================
+  #
+  # Creates an API Gateway stage.
   #
   # Example:
   #
-  #   us-east-1
+  #   Environment = dev
   #
-  # ------------------------------------------------------
-
-  EndpointConfiguration:
-    Types:
-      - REGIONAL
-
-
-# ==========================================================
-
-# /orders RESOURCE
-
-# ==========================================================
-
-#
-
-# Creates:
-
-#
-
-# /orders
-
-#
-
-# Full API path will become:
-
-#
-
-# POST /orders
-
-#
-
-# ==========================================================
-
-OrdersResource:
-Type: AWS::ApiGateway::Resource
-
-
-Properties:
-
-  # Connect resource to our REST API
-  RestApiId: !Ref RestApi
-
-  # Root resource becomes the parent:
+  # URL:
   #
-  #   /
+  #   https://API_ID.execute-api.REGION.amazonaws.com/dev
   #
-  # Therefore this creates:
-  #
-  #   /orders
-  #
-  ParentId: !GetAtt RestApi.RootResourceId
+  # ==========================================================
 
-  # URL path component
-  PathPart: orders
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
 
+    Properties:
 
-# ==========================================================
+      # ------------------------------------------------------
+      # REST API
+      # ------------------------------------------------------
 
-# POST /orders METHOD
+      RestApiId:
+        !Ref RestApi
 
-# ==========================================================
 
-#
+      # ------------------------------------------------------
+      # Deployment
+      # ------------------------------------------------------
 
-# Creates:
+      DeploymentId:
+        !Ref ApiDeployment
 
-#
 
-# POST /orders
+      # ------------------------------------------------------
+      # Stage Name
+      # ------------------------------------------------------
+      #
+      # The stage name comes from the Environment parameter.
+      #
+      # Example:
+      #
+      #   dev
+      #
+      # ------------------------------------------------------
 
-#
-
-# API Gateway receives the request and invokes Lambda.
-
-#
-
-# ==========================================================
-
-CreateOrderMethod:
-Type: AWS::ApiGateway::Method
-
-
-Properties:
-
-  # API Gateway REST API
-  RestApiId: !Ref RestApi
-
-  # Resource:
-  #
-  #   /orders
-  #
-  ResourceId: !Ref OrdersResource
-
-  # HTTP method
-  HttpMethod: POST
-
-  # ------------------------------------------------------
-  # Authorization
-  # ------------------------------------------------------
-  #
-  # NONE means the API does not require an API Gateway
-  # authorizer.
-  #
-  # Authentication/authorization can be added later
-  # using Cognito, IAM, Lambda Authorizer, etc.
-  #
-  AuthorizationType: NONE
-
-
-  # ------------------------------------------------------
-  # Lambda Proxy Integration
-  # ------------------------------------------------------
-  #
-  # AWS_PROXY passes the API Gateway request to Lambda.
-  #
-  # Lambda receives the HTTP request information and
-  # returns an API Gateway compatible response.
-  #
-  # ------------------------------------------------------
-
-  Integration:
-
-    # Lambda proxy integration
-    Type: AWS_PROXY
-
-    # API Gateway invokes Lambda using POST internally
-    IntegrationHttpMethod: POST
-
-    # ----------------------------------------------------
-    # Lambda invocation URI
-    # ----------------------------------------------------
-    #
-    # API Gateway uses the Lambda service endpoint:
-    #
-    #   arn:aws:apigateway:${AWS::Region}:lambda:path/...
-    #
-    # and then specifies the Lambda function ARN.
-    #
-    # ----------------------------------------------------
-
-    Uri:
-      !Sub >
-        arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/
-        functions/${LambdaFunctionArn}/invocations
-
-
-# ==========================================================
-
-# LAMBDA INVOKE PERMISSION
-
-# ==========================================================
-
-#
-
-# API Gateway itself needs permission to invoke Lambda.
-
-#
-
-# Without this permission:
-
-#
-
-# API Gateway
-
-# |
-
-# X
-
-# |
-
-# Lambda
-
-#
-
-# The request will fail.
-
-#
-
-# This resource creates the required AWS::Lambda::Permission.
-
-#
-
-# ==========================================================
-
-LambdaInvokePermission:
-Type: AWS::Lambda::Permission
-
-
-Properties:
-
-  # Permission allows Lambda invocation
-  Action: lambda:InvokeFunction
-
-  # Lambda function that API Gateway can invoke
-  FunctionName: !Ref LambdaFunctionArn
-
-  # AWS API Gateway service principal
-  Principal: apigateway.amazonaws.com
-
-  # ------------------------------------------------------
-  # Restrict permission to this specific API endpoint.
-  #
-  # Format:
-  #
-  # arn:aws:execute-api:REGION:ACCOUNT:API_ID/*/POST/orders
-  #
-  # ------------------------------------------------------
-
-  SourceArn:
-    !Sub >
-      arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:
-      ${RestApi}/*/POST/orders
-
-
-# ==========================================================
-
-# API DEPLOYMENT
-
-# ==========================================================
-
-#
-
-# API Gateway requires a deployment before the API can
-
-# be accessed through a stage.
-
-#
-
-# ==========================================================
-
-ApiDeployment:
-Type: AWS::ApiGateway::Deployment
-
-
-# --------------------------------------------------------
-# Deployment must happen AFTER the POST /orders method
-# exists.
-#
-# DependsOn prevents CloudFormation from attempting to
-# deploy the API before the method has been created.
-# --------------------------------------------------------
-
-DependsOn:
-  - CreateOrderMethod
-
-Properties:
-
-  # REST API to deploy
-  RestApiId: !Ref RestApi
-
-
-# ==========================================================
-
-# API STAGE
-
-# ==========================================================
-
-#
-
-# Creates an API Gateway stage.
-
-#
-
-# Example:
-
-#
-
-# Environment = dev
-
-#
-
-# URL:
-
-#
-
-# https://API_ID.execute-api.REGION.amazonaws.com/dev
-
-#
-
-# ==========================================================
-
-ApiStage:
-Type: AWS::ApiGateway::Stage
-
-
-Properties:
-
-  # REST API
-  RestApiId: !Ref RestApi
-
-  # Deployment associated with the stage
-  DeploymentId: !Ref ApiDeployment
-
-  # Stage name comes from Environment parameter
-  StageName: !Ref Environment
+      StageName:
+        !Ref Environment
 
 
 # ============================================================
-
 # OUTPUTS
-
 # ============================================================
-
 #
-
 # Outputs are returned by CloudFormation after deployment.
-
 #
-
 # They are useful for:
-
 #
-
-# - AWS CLI
-
-# - GitHub Actions
-
-# - Terraform integration
-
-# - Testing
-
-# - Documentation
-
-# - Other CloudFormation stacks
-
+#   - AWS CLI
+#   - GitHub Actions
+#   - Terraform integration
+#   - Testing
+#   - Documentation
+#   - Other CloudFormation stacks
 #
-
 # ============================================================
 
 Outputs:
 
-# ==========================================================
 
-# API ID
+  # ==========================================================
+  # API ID
+  # ==========================================================
 
-# ==========================================================
+  ApiId:
 
-ApiId:
-Description: API Gateway REST API ID
-Value: !Ref RestApi
+    Description: API Gateway REST API ID
 
-# ==========================================================
-
-# API BASE ENDPOINT
-
-# ==========================================================
-
-#
-
-# Example:
-
-#
-
-# https://abc123.execute-api.us-east-1.amazonaws.com/dev
-
-#
-
-# ==========================================================
-
-ApiEndpoint:
-Description: API Gateway endpoint
+    Value:
+      !Ref RestApi
 
 
-Value:
-  !Sub >
-    https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/
-    ${Environment}
+  # ==========================================================
+  # API BASE ENDPOINT
+  # ==========================================================
+  #
+  # Example:
+  #
+  #   https://abc123.execute-api.us-east-1.amazonaws.com/dev
+  #
+  # ==========================================================
+
+  ApiEndpoint:
+
+    Description: API Gateway base endpoint
+
+    Value:
+      !Sub "https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
 
 
-# ==========================================================
+  # ==========================================================
+  # ORDERS ENDPOINT
+  # ==========================================================
+  #
+  # Complete endpoint:
+  #
+  #   POST
+  #
+  #   https://API_ID.execute-api.REGION.amazonaws.com/
+  #   ENVIRONMENT/orders
+  #
+  # ==========================================================
 
-# ORDERS ENDPOINT
+  OrdersEndpoint:
 
-# ==========================================================
+    Description: POST orders endpoint
 
-#
-
-# Complete endpoint:
-
-#
-
-# POST
-
-# https://API_ID.execute-api.REGION.amazonaws.com/
-
-# ENVIRONMENT/orders
-
-#
-
-# ==========================================================
-
-OrdersEndpoint:
-Description: POST orders endpoint
-
-
-Value:
-  !Sub >
-    https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/
-    ${Environment}/orders
-
+    Value:
+      !Sub "https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/orders"

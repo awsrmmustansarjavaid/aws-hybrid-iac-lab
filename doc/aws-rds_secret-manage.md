@@ -2414,3 +2414,934 @@ So your next order should be:
 
 That is the cleanest path for your current Hybrid Terraform + CloudFormation lab.
 ---
+Yes. I reviewed your **`rds.yaml` + `main.yaml` + `ec2.yaml`** together, and the good news is:
+
+**Your EC2 security group already exists and is already attached to the EC2 instance.** Your `ec2.yaml` creates `WebSecurityGroup`, and the EC2 instance uses it through `SecurityGroupIds`. 
+
+Your RDS security group also exists, but it currently has **no inbound MySQL rule**. 
+
+So we only need to connect these two security groups.
+
+# The simple solution
+
+You want this:
+
+```text
+                    VPC
+                     |
+          +----------+----------+
+          |                     |
+        EC2                    RDS
+          |                     |
+    WebSecurityGroup      DatabaseSecurityGroup
+        EC2-SG                  RDS-SG
+          |                     |
+          | ---- TCP 3306 ----> |
+          |                     |
+          +---------------------+
+```
+
+**Do NOT use:**
+
+```text
+0.0.0.0/0
+     |
+   TCP 3306
+     |
+    RDS
+```
+
+Your own architecture already correctly identifies that the RDS port should be reachable from the EC2/application security group rather than the public Internet. 
+
+---
+
+# Step 1 — Do NOT add the rule to `ec2.yaml`
+
+This is important.
+
+Your `ec2.yaml` already creates:
+
+```yaml
+WebSecurityGroup:
+  Type: AWS::EC2::SecurityGroup
+```
+
+and your EC2 instance already attaches it:
+
+```yaml
+SecurityGroupIds:
+  - !Ref WebSecurityGroup
+```
+
+Your template also already outputs its ID:
+
+```yaml
+SecurityGroupId:
+  Description: EC2 security group
+  Value:
+    !Ref WebSecurityGroup
+```
+
+So **you do not need to modify that part of `ec2.yaml`**. 
+
+That's actually perfect because the EC2 nested stack can expose its security-group ID to the root stack.
+
+---
+
+# Step 2 — Modify `rds.yaml`
+
+This is the main change.
+
+Currently you have:
+
+```yaml
+DatabaseSecurityGroup:
+  Type: AWS::EC2::SecurityGroup
+
+  Properties:
+
+    GroupDescription:
+      !Sub "${ProjectName}-${Environment} RDS security group"
+
+    VpcId:
+      !Ref VpcId
+
+    Tags:
+      - Key: Name
+        Value:
+          !Sub "${ProjectName}-${Environment}-RDS-SG"
+```
+
+There is no `SecurityGroupIngress`.
+
+We need to add an **EC2 security group ID parameter** to `rds.yaml`.
+
+## Add this parameter
+
+Put this after `VpcId`:
+
+```yaml
+  # ----------------------------------------------------------
+  # EC2 APPLICATION SECURITY GROUP
+  # ----------------------------------------------------------
+  #
+  # This is the security group attached to the EC2 instance.
+  #
+  # RDS will allow MySQL traffic only from this security
+  # group.
+  #
+  # Traffic:
+  #
+  #   EC2-SG
+  #      |
+  #      | TCP 3306
+  #      v
+  #   RDS-SG
+  #
+  # ----------------------------------------------------------
+
+  Ec2SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: EC2 security group allowed to access RDS MySQL
+```
+
+So your parameter area becomes:
+
+```yaml
+Parameters:
+
+  # ----------------------------------------------------------
+  # Project name
+  # ----------------------------------------------------------
+
+  ProjectName:
+    Type: String
+    Description: Project name used for resource naming and tags.
+
+
+  # ----------------------------------------------------------
+  # Environment
+  # ----------------------------------------------------------
+
+  Environment:
+    Type: String
+    Description: Deployment environment.
+
+
+  # ----------------------------------------------------------
+  # VPC ID
+  # ----------------------------------------------------------
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC where the RDS database will be deployed.
+
+
+  # ----------------------------------------------------------
+  # EC2 APPLICATION SECURITY GROUP
+  # ----------------------------------------------------------
+  #
+  # Security group attached to the EC2 application server.
+  #
+  # RDS will allow MySQL TCP 3306 only from this
+  # security group.
+  #
+  # ----------------------------------------------------------
+
+  Ec2SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: EC2 security group allowed to access RDS MySQL
+```
+
+---
+
+# Step 3 — Add the RDS inbound rule
+
+Now modify `DatabaseSecurityGroup`.
+
+Change it to:
+
+```yaml
+  # ==========================================================
+  # DATABASE SECURITY GROUP
+  # ==========================================================
+  #
+  # Controls network access to the RDS MySQL database.
+  #
+  # MySQL:
+  #
+  #   TCP 3306
+  #
+  # IMPORTANT:
+  #
+  # Only the EC2 application security group is allowed.
+  #
+  # We do NOT use:
+  #
+  #   0.0.0.0/0
+  #
+  # ==========================================================
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+
+    Properties:
+
+      # ------------------------------------------------------
+      # Security group description
+      # ------------------------------------------------------
+
+      GroupDescription:
+        !Sub "${ProjectName}-${Environment} RDS security group"
+
+
+      # ------------------------------------------------------
+      # VPC
+      # ------------------------------------------------------
+
+      VpcId:
+        !Ref VpcId
+
+
+      # ======================================================
+      # INBOUND RULES
+      # ======================================================
+
+      SecurityGroupIngress:
+
+        # ----------------------------------------------------
+        # MySQL - TCP 3306
+        # ----------------------------------------------------
+        #
+        # Allow MySQL traffic ONLY from the EC2 security group.
+        #
+        # This is a security-group-to-security-group rule.
+        #
+        # ----------------------------------------------------
+
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref Ec2SecurityGroupId
+          Description: Allow MySQL access from EC2 application security group
+
+
+      # ------------------------------------------------------
+      # TAGS
+      # ------------------------------------------------------
+
+      Tags:
+
+        - Key: Name
+          Value:
+            !Sub "${ProjectName}-${Environment}-RDS-SG"
+```
+
+### The important line is:
+
+```yaml
+SourceSecurityGroupId: !Ref Ec2SecurityGroupId
+```
+
+That means:
+
+> "Allow TCP 3306 only when the traffic comes from an EC2 instance that has this security group."
+
+This is much better than using an IP address or `0.0.0.0/0`.
+
+---
+
+# Step 4 — Now modify `main.yaml`
+
+This is the part that connects the two nested stacks.
+
+Your current `EC2Stack` already receives:
+
+```yaml
+VpcId: !GetAtt VPCStack.Outputs.VpcId
+PublicSubnetId: !GetAtt VPCStack.Outputs.PublicSubnet1Id
+AmiId: !Ref AmiId
+InstanceType: !Ref InstanceType
+```
+
+as shown in your uploaded configuration. 
+
+Your `ec2.yaml` already outputs:
+
+```yaml
+SecurityGroupId:
+  Description: EC2 security group
+  Value:
+    !Ref WebSecurityGroup
+```
+
+So now `main.yaml` can consume that output.
+
+Add this to the `RDSStack` parameters.
+
+You currently have:
+
+```yaml
+RDSStack:
+  Type: AWS::CloudFormation::Stack
+
+  DependsOn:
+    - VPCStack
+
+  Properties:
+    TemplateURL: ...
+
+    Parameters:
+      ProjectName: !Ref ProjectName
+      Environment: !Ref Environment
+
+      VpcId: !GetAtt VPCStack.Outputs.VpcId
+
+      PrivateSubnet1Id: !GetAtt VPCStack.Outputs.PrivateSubnet1Id
+
+      PrivateSubnet2Id: !GetAtt VPCStack.Outputs.PrivateSubnet2Id
+
+      DatabaseUsername: !Ref DatabaseUsername
+```
+
+Change it to:
+
+```yaml
+  # ==========================================================
+  # 10. RDS NESTED STACK
+  # ==========================================================
+
+  RDSStack:
+    Type: AWS::CloudFormation::Stack
+
+    # RDS needs the VPC and EC2 security group to exist first.
+    DependsOn:
+      - VPCStack
+      - EC2Stack
+
+    Properties:
+
+      TemplateURL: !Sub
+        - "https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${Prefix}nested/rds.yaml"
+        - Prefix: !If
+            - HasTemplatePrefix
+            - !Sub "${TemplatePrefix}/"
+            - ""
+
+      Parameters:
+
+        # ----------------------------------------------------
+        # Project
+        # ----------------------------------------------------
+
+        ProjectName: !Ref ProjectName
+
+        # ----------------------------------------------------
+        # Environment
+        # ----------------------------------------------------
+
+        Environment: !Ref Environment
+
+        # ----------------------------------------------------
+        # VPC created by VPCStack
+        # ----------------------------------------------------
+
+        VpcId: !GetAtt VPCStack.Outputs.VpcId
+
+        # ----------------------------------------------------
+        # First private subnet
+        # ----------------------------------------------------
+
+        PrivateSubnet1Id: !GetAtt VPCStack.Outputs.PrivateSubnet1Id
+
+        # ----------------------------------------------------
+        # Second private subnet
+        # ----------------------------------------------------
+
+        PrivateSubnet2Id: !GetAtt VPCStack.Outputs.PrivateSubnet2Id
+
+        # ----------------------------------------------------
+        # EC2 SECURITY GROUP
+        # ----------------------------------------------------
+        #
+        # Get the security group ID from EC2Stack.
+        #
+        # RDS will use this security group as the source
+        # for MySQL TCP 3306.
+        #
+        # ----------------------------------------------------
+
+        Ec2SecurityGroupId: !GetAtt EC2Stack.Outputs.SecurityGroupId
+
+        # ----------------------------------------------------
+        # Database administrator username
+        # ----------------------------------------------------
+
+        DatabaseUsername: !Ref DatabaseUsername
+```
+
+## Why `DependsOn: EC2Stack`?
+
+Because RDS needs this:
+
+```text
+EC2Stack
+   |
+   +--> SecurityGroupId
+             |
+             v
+          RDSStack
+             |
+             v
+       RDS Security Group
+             |
+          TCP 3306
+```
+
+Your current `RDSStack` only depends on `VPCStack`. 
+
+Adding:
+
+```yaml
+DependsOn:
+  - VPCStack
+  - EC2Stack
+```
+
+makes the deployment order explicit.
+
+---
+
+# Step 5 — Your final architecture
+
+After these changes, your architecture becomes:
+
+```text
+                         VPCStack
+                            |
+             +--------------+--------------+
+             |                             |
+             v                             v
+         EC2Stack                        RDSStack
+             |                             |
+             |                             |
+      WebSecurityGroup              DatabaseSecurityGroup
+             |                             |
+             |                             |
+             |       TCP 3306              |
+             +---------------------------->|
+                                           |
+                                           v
+                                      RDS MySQL
+```
+
+And the CloudFormation dependency is:
+
+```text
+VPCStack
+   |
+   +----------------+
+   |                |
+   v                v
+EC2Stack         RDSStack
+   |                |
+   |                |
+   | SG ID          |
+   +--------------->|
+                    |
+                    v
+             RDS Security Group
+                    |
+                 TCP 3306
+                    |
+                    v
+                RDS MySQL
+```
+
+---
+
+# Step 6 — Do you need to modify Terraform?
+
+**No, not for this security-group connection.**
+
+Your architecture already has the right separation:
+
+```text
+Terraform
+   |
+   v
+main.yaml
+   |
+   +--> VPCStack
+   |
+   +--> EC2Stack
+   |
+   +--> RDSStack
+```
+
+The VPC, EC2 security group, and RDS security group are being created by CloudFormation nested stacks.
+
+The important thing is that `main.yaml` passes the **EC2 nested-stack output** into the **RDS nested stack**.
+
+That follows the nested-stack output design already used elsewhere in your `main.yaml`, for example Lambda → API Gateway and S3 → CloudFront. 
+
+---
+
+# Step 7 — Very important: there is one issue with your database username
+
+I noticed one unrelated issue in your uploaded `main.yaml`.
+
+Your `rds.yaml` has:
+
+```yaml
+DatabaseUsername:
+  Type: String
+  Default: admin
+  NoEcho: true
+```
+
+but your `main.yaml` has:
+
+```yaml
+DatabaseUsername:
+  Type: String
+  NoEcho: true
+  MinLength: 8
+```
+
+So your root stack requires a username of **at least 8 characters**, while your RDS nested template defaults to:
+
+```text
+admin
+```
+
+which is only 5 characters.
+
+You should make these consistent.
+
+For example:
+
+```yaml
+DatabaseUsername:
+  Type: String
+  Default: admin
+  NoEcho: true
+  Description: RDS database administrator username.
+```
+
+I would recommend this for your lab.
+
+---
+
+# Step 8 — Validate the templates
+
+Before deploying, validate `rds.yaml`:
+
+```powershell
+aws cloudformation validate-template `
+  --template-body file://nested/rds.yaml `
+  --region us-east-1
+```
+
+Then validate `main.yaml`:
+
+```powershell
+aws cloudformation validate-template `
+  --template-body file://main.yaml `
+  --region us-east-1
+```
+
+And if you are validating `ec2.yaml` separately:
+
+```powershell
+aws cloudformation validate-template `
+  --template-body file://nested/ec2.yaml `
+  --region us-east-1
+```
+
+Your uploaded file already contains a validation workflow for the EC2 template. 
+
+---
+
+# Step 9 — Upload the changed nested template
+
+Because your `main.yaml` downloads:
+
+```text
+nested/rds.yaml
+```
+
+from your Terraform-created CloudFormation template S3 bucket, make sure the **new `rds.yaml` is uploaded to that bucket**.
+
+This is very important.
+
+Changing your local:
+
+```text
+infrastructure/cloudformation/nested/rds.yaml
+```
+
+doesn't help if CloudFormation is still downloading the old version from S3.
+
+Your `main.yaml` explicitly constructs the nested-template URL using the template bucket and `nested/rds.yaml`. 
+
+---
+
+# Step 10 — What you should NOT do
+
+Don't add this:
+
+```yaml
+CidrIp: 0.0.0.0/0
+```
+
+for port 3306.
+
+Don't add:
+
+```yaml
+CidrIp: <EC2_PRIVATE_IP>
+```
+
+Don't manually copy an EC2 private IP into the RDS template.
+
+Don't create a second EC2 security group just for this.
+
+You already have the correct EC2 security group:
+
+```text
+WebSecurityGroup
+```
+
+and your EC2 instance already uses it. 
+
+---
+
+# The 3 changes you actually need
+
+Think of the whole fix as only **three changes**:
+
+### 1. `ec2.yaml`
+
+**No functional change needed.**
+
+You already have:
+
+```yaml
+Outputs:
+
+  SecurityGroupId:
+    Description: EC2 security group
+    Value:
+      !Ref WebSecurityGroup
+```
+
+This is already correct. 
+
+### 2. `rds.yaml`
+
+Add:
+
+```yaml
+Ec2SecurityGroupId:
+  Type: AWS::EC2::SecurityGroup::Id
+```
+
+Then add:
+
+```yaml
+SecurityGroupIngress:
+
+  - IpProtocol: tcp
+    FromPort: 3306
+    ToPort: 3306
+    SourceSecurityGroupId: !Ref Ec2SecurityGroupId
+    Description: Allow MySQL access from EC2 application security group
+```
+
+### 3. `main.yaml`
+
+Change:
+
+```yaml
+DependsOn:
+  - VPCStack
+```
+
+to:
+
+```yaml
+DependsOn:
+  - VPCStack
+  - EC2Stack
+```
+
+and add:
+
+```yaml
+Ec2SecurityGroupId: !GetAtt EC2Stack.Outputs.SecurityGroupId
+```
+
+inside the RDS nested-stack `Parameters`.
+
+---
+
+## Final result
+
+You will have:
+
+```text
+                    Internet
+                       |
+                     HTTP 80
+                       |
+                       v
+                +-------------+
+                |     EC2     |
+                |             |
+                |  EC2-SG     |
+                +------+------+
+                       |
+                       | TCP 3306
+                       | allowed
+                       v
+                +-------------+
+                |    RDS-SG   |
+                |             |
+                +------+------+
+                       |
+                       v
+                 +-----------+
+                 | RDS MySQL |
+                 | Private   |
+                 +-----------+
+```
+
+This is the **right fix for your current architecture**. Your RDS remains private (`PubliclyAccessible: false`), and the RDS security group allows MySQL only from the EC2 security group. Your existing RDS configuration already has the private/public-access design and attaches `DatabaseSecurityGroup` to the DB instance. 
+
+**One more important point:** this fixes the **network path** only. Your application will still need IAM permission to read the RDS-managed Secrets Manager secret (`DatabaseSecretArn`) before it can retrieve the database credentials. Your current design already exposes only the secret ARN, not the secret value. 
+
+---
+Absolutely. Let’s make this **very simple**. You do **not** need to change many things.
+
+### What is the problem?
+
+You have **two YAML files**:
+
+```text
+main.yaml
+   ↓
+rds.yaml
+```
+
+`main.yaml` is the **parent/root stack**.
+
+`rds.yaml` is the **RDS nested stack**.
+
+Both files define the same parameter:
+
+```yaml
+DatabaseUsername
+```
+
+But they currently have different rules.
+
+### Your current situation
+
+In `rds.yaml` you have:
+
+```yaml
+DatabaseUsername:
+  Type: String
+  Default: admin
+  NoEcho: true
+```
+
+This says:
+
+> If nobody gives me a username, use `admin`.
+
+That's perfectly fine.
+
+But in `main.yaml` you have:
+
+```yaml
+DatabaseUsername:
+  Type: String
+  NoEcho: true
+  MinLength: 8
+```
+
+This says:
+
+> The username must be at least 8 characters.
+
+So you have a conflict:
+
+```text
+main.yaml
+admin ❌
+minimum 8 characters
+
+rds.yaml
+admin ✅
+```
+
+---
+
+# What I recommend for your lab
+
+Since you want to use:
+
+```text
+admin
+```
+
+as your database username, **remove the `MinLength: 8` requirement from `main.yaml`.**
+
+## Step 1 — Open `main.yaml`
+
+Find this:
+
+```yaml
+DatabaseUsername:
+  Type: String
+  NoEcho: true
+  MinLength: 8
+```
+
+## Step 2 — Change it to this
+
+```yaml
+DatabaseUsername:
+  Type: String
+  Default: admin
+  NoEcho: true
+  Description: RDS database administrator username.
+```
+
+That's it. ✅
+
+---
+
+# Step 3 — Leave `rds.yaml` like this
+
+Your `rds.yaml` should have:
+
+```yaml
+DatabaseUsername:
+  Type: String
+  Default: admin
+  NoEcho: true
+```
+
+You can optionally make the description consistent too:
+
+```yaml
+DatabaseUsername:
+  Type: String
+  Default: admin
+  NoEcho: true
+  Description: RDS database administrator username.
+```
+
+---
+
+# Final result
+
+Both files should now agree.
+
+### `main.yaml`
+
+```yaml
+DatabaseUsername:
+  Type: String
+  Default: admin
+  NoEcho: true
+  Description: RDS database administrator username.
+```
+
+### `rds.yaml`
+
+```yaml
+DatabaseUsername:
+  Type: String
+  Default: admin
+  NoEcho: true
+  Description: RDS database administrator username.
+```
+
+Think of it like this:
+
+```text
+                 main.yaml
+                     │
+                     │ DatabaseUsername
+                     │
+                     ▼
+              ┌──────────────┐
+              │     admin    │
+              └──────────────┘
+                     │
+                     ▼
+                 rds.yaml
+                     │
+                     ▼
+              RDS MySQL
+              username=admin
+```
+
+### Important
+
+You **do not need to add a new variable in Terraform** for this issue.
+
+You **do not need to change your password/Secrets Manager setup** for this issue.
+
+You are simply making the `DatabaseUsername` parameter consistent between the parent and nested CloudFormation templates.
+
+**So your action is simply:**
+
+> `main.yaml` → remove `MinLength: 8` and add `Default: admin`.
+
+If you paste your **current `main.yaml` and `rds.yaml`**, I can mark **exactly which lines to change and which lines to leave alone**.
+---

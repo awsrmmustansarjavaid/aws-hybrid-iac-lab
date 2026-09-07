@@ -1,387 +1,203 @@
 # ============================================================
-
 # HYBRID TERRAFORM + CLOUDFORMATION AWS DEVOPS LAB
-
 # ============================================================
-
 #
-
 # File:
-
-# infrastructure/terraform/cloudformation.tf
-
 #
-
+#   infrastructure/terraform/cloudformation.tf
+#
 # Purpose:
-
-# Terraform creates and manages the ROOT CloudFormation stack.
-
 #
-
+#   Terraform creates and manages the ROOT CloudFormation stack.
 #
-
+#
 # Architecture:
-
 #
-
-# Terraform
-
-# |
-
-# +-- CloudFormation Template S3 Bucket
-
-# |
-
-# +-- IAM
-
-# |
-
-# +-- Root CloudFormation Stack
-
-# |
-
-# +-- VPC
-
-# +-- S3
-
-# +-- DynamoDB
-
-# +-- ECR
-
-# +-- Lambda
-
-# +-- API Gateway
-
-# +-- CloudFront
-
-# +-- EC2
-
-# +-- EKS
-
-# +-- RDS
-
+#   Terraform
+#      |
+#      +-- CloudFormation Template S3 Bucket
+#      |
+#      +-- IAM
+#      |
+#      +-- Root CloudFormation Stack
+#              |
+#              +-- VPC
+#              +-- S3
+#              +-- DynamoDB
+#              +-- ECR
+#              +-- Lambda
+#              +-- API Gateway
+#              +-- CloudFront
+#              +-- EC2
+#              +-- EKS
+#              +-- RDS
 #
-
-#
-
 # ============================================================
-
 # IMPORTANT DEPLOYMENT ARCHITECTURE
-
 # ============================================================
-
 #
-
 # This Terraform resource is responsible for the
-
 # INFRASTRUCTURE / BOOTSTRAP phase.
-
 #
-
 # The root CloudFormation stack creates the infrastructure
-
 # resources through nested CloudFormation stacks.
-
 #
-
 # The ECR repository is created during this phase.
-
 #
-
 # The Docker image is NOT created during this phase.
-
 #
-
 # The Docker image is built and pushed later by GitHub Actions.
-
 #
-
 #
-
 # Deployment flow:
-
 #
-
-# Terraform
-
-# |
-
-# +--> CloudFormation template bucket
-
-# |
-
-# +--> Root CloudFormation stack
-
-# |
-
-# +--> VPC
-
-# +--> S3
-
-# +--> DynamoDB
-
-# +--> ECR repository
-
-# +--> Lambda
-
-# +--> API Gateway
-
-# +--> CloudFront
-
-# +--> EC2
-
-# +--> EKS
-
-# +--> RDS
-
+#   Terraform
+#      |
+#      +--> CloudFormation template bucket
+#      |
+#      +--> Root CloudFormation stack
+#              |
+#              +--> VPC
+#              +--> S3
+#              +--> DynamoDB
+#              +--> ECR repository
+#              +--> Lambda
+#              +--> API Gateway
+#              +--> CloudFront
+#              +--> EC2
+#              +--> EKS
+#              +--> RDS
 #
-
 #
-
 # Then:
-
 #
-
-# GitHub Actions Docker workflow
-
-# |
-
-# +--> Build Docker image
-
-# |
-
-# +--> Login to ECR
-
-# |
-
-# +--> Push image:${GITHUB_SHA}
-
-# |
-
-# +--> Deploy/update ECS
-
+#   GitHub Actions Docker workflow
+#      |
+#      +--> Build Docker image
+#      |
+#      +--> Login to ECR
+#      |
+#      +--> Push image:${GITHUB_SHA}
+#      |
+#      +--> Deploy/update ECS
 #
-
-#
-
 # ============================================================
-
 # IMPORTANT ECR / ECS RULE
-
 # ============================================================
-
 #
-
 # ECR repository creation and ECS application deployment are
-
 # intentionally separated.
-
 #
-
 # ECR:
-
 #
-
-# CloudFormation creates the repository.
-
+#   CloudFormation creates the repository.
 #
-
 # ECS:
-
 #
-
-# GitHub Actions deploys ECS after the Docker image exists.
-
+#   GitHub Actions deploys ECS after the Docker image exists.
 #
-
 #
-
 # This prevents Terraform from requiring an application image
-
 # before the Docker workflow has built and pushed that image.
-
 #
-
 #
-
 # Therefore this file MUST NOT contain:
-
 #
-
-# EcrImageUri = var.ecr_image_uri
-
+#   EcrImageUri = var.ecr_image_uri
 #
-
 #
-
 # The root main.yaml no longer accepts EcrImageUri either.
-
 #
-
-#
-
 # ============================================================
-
 # RESOURCE OWNERSHIP RULE
-
 # ============================================================
-
 #
-
 # Terraform owns:
-
 #
-
-# - The CloudFormation template bucket
-
-# - CloudFormation template objects
-
-# - IAM resources
-
-# - The root CloudFormation stack
-
+#   - The CloudFormation template bucket
+#   - CloudFormation template objects
+#   - IAM resources
+#   - The root CloudFormation stack
 #
-
 #
-
 # CloudFormation owns:
-
 #
-
-# - VPC
-
-# - Application S3 bucket
-
-# - DynamoDB
-
-# - ECR repository
-
-# - Lambda
-
-# - API Gateway
-
-# - CloudFront
-
-# - EC2
-
-# - EKS
-
-# - RDS
-
+#   - VPC
+#   - Application S3 bucket
+#   - DynamoDB
+#   - ECR repository
+#   - Lambda
+#   - API Gateway
+#   - CloudFront
+#   - EC2
+#   - EKS
+#   - RDS
 #
-
 #
-
 # GitHub Actions application deployment owns:
-
 #
-
-# - Docker image build
-
-# - Docker image push
-
-# - ECS application deployment/update
-
+#   - Docker image build
+#   - Docker image push
+#   - ECS application deployment/update
 #
-
 #
-
 # This separation keeps infrastructure provisioning and
-
 # application deployment as two different lifecycle stages.
-
 #
-
 # ============================================================
+
 
 resource "aws_cloudformation_stack" "main" {
 
   # ==========================================================
-
   # STACK NAME
-
   # ==========================================================
-
   #
-
   # Terraform creates a predictable root CloudFormation
-
   # stack name.
-
   #
-
   # Example:
-
   #
-
-  # HybridIaCLab-dev-MainStack
-
+  #   HybridIaCLab-dev-MainStack
   #
-
   # ==========================================================
 
   name = "${local.name_prefix}-MainStack"
 
-  # ==========================================================
 
+  # ==========================================================
   # ROOT CLOUDFORMATION TEMPLATE
-
   # ==========================================================
-
   #
-
   # Terraform uploads main.yaml into the dedicated
-
   # CloudFormation template S3 bucket.
-
   #
-
   # CloudFormation then retrieves main.yaml from that bucket.
-
   #
-
   # The root template is responsible for creating and
-
   # connecting the nested CloudFormation stacks.
-
   #
-
   # ==========================================================
 
   template_url = "https://${aws_s3_bucket.cloudformation_templates.bucket_regional_domain_name}/main.yaml"
 
-  # ==========================================================
 
+  # ==========================================================
   # CLOUDFORMATION CAPABILITIES
-
   # ==========================================================
-
   #
-
   # Some nested CloudFormation stacks create IAM resources.
-
   #
-
   # CAPABILITY_IAM:
-
   #
-
-  # Allows CloudFormation to create IAM resources.
-
+  #   Allows CloudFormation to create IAM resources.
   #
-
   #
-
   # CAPABILITY_NAMED_IAM:
-
   #
-
-  # Allows CloudFormation to create IAM resources with
-
-  # explicitly specified names.
-
+  #   Allows CloudFormation to create IAM resources with
+  #   explicitly specified names.
   #
-
   # ==========================================================
 
   capabilities = [
@@ -389,58 +205,34 @@ resource "aws_cloudformation_stack" "main" {
     "CAPABILITY_NAMED_IAM"
   ]
 
-  # ==========================================================
 
+  # ==========================================================
   # ROOT STACK PARAMETERS
-
   # ==========================================================
-
   #
-
   # Only genuine external inputs are supplied here.
-
   #
-
   #
-
   # Resources created inside nested CloudFormation stacks
-
   # should NOT be passed through Terraform.
-
   #
-
   #
-
   # For example, Terraform does NOT provide:
-
   #
-
-  # VpcId
-
-  # PublicSubnetId
-
-  # PrivateSubnetId
-
-  # ApplicationBucketName
-
-  # LambdaFunctionArn
-
-  # EcrImageUri
-
+  #   VpcId
+  #   PublicSubnetId
+  #   PrivateSubnetId
+  #   ApplicationBucketName
+  #   LambdaFunctionArn
+  #   EcrImageUri
   #
-
   #
-
   # Those values are handled by the CloudFormation hierarchy
-
   # or by the later application deployment pipeline.
-
   #
-
   # ==========================================================
 
   parameters = {
-
 
     # ========================================================
     # BASIC PROJECT CONFIGURATION
@@ -454,7 +246,6 @@ resource "aws_cloudformation_stack" "main" {
     # ========================================================
 
     ProjectName = var.project_name
-
     Environment = var.environment
 
 
@@ -470,7 +261,6 @@ resource "aws_cloudformation_stack" "main" {
     # ========================================================
 
     TemplateBucket = aws_s3_bucket.cloudformation_templates.bucket
-
     TemplatePrefix = ""
 
 
@@ -557,61 +347,26 @@ resource "aws_cloudformation_stack" "main" {
     # ========================================================
 
     DatabaseUsername = var.database_username
-
-
-    # ========================================================
-    # DATABASE PASSWORD
-    # ========================================================
-    #
-    # Sensitive database credential.
-    #
-    # Do NOT hard-code this value in GitHub workflow files.
-    #
-    # Ideally this should eventually be supplied through a
-    # secure secret-management architecture such as AWS Secrets
-    # Manager or GitHub encrypted secrets.
-    #
-    # ========================================================
-
-    DatabasePassword = var.database_password
-
-
   }
 
-  # ==========================================================
 
+  # ==========================================================
   # DEPENDENCIES
-
   # ==========================================================
-
   #
-
   # The root CloudFormation stack must only be created after:
-
   #
-
-  # 1. All CloudFormation templates have been uploaded.
-
+  #   1. All CloudFormation templates have been uploaded.
   #
-
-  # 2. The CloudFormation execution role permissions exist.
-
+  #   2. The CloudFormation execution role permissions exist.
   #
-
   #
-
   # This ensures CloudFormation can:
-
   #
-
-  # - Download main.yaml
-
-  # - Download nested templates
-
-  # - Create the required nested resources
-
+  #   - Download main.yaml
+  #   - Download nested templates
+  #   - Create the required nested resources
   #
-
   # ==========================================================
 
   depends_on = [
@@ -620,8 +375,8 @@ resource "aws_cloudformation_stack" "main" {
   ]
 }
 
-# ============================================================
 
+# ============================================================
 # END OF cloudformation.tf
-
 # ============================================================
+

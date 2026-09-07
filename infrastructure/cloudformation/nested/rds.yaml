@@ -138,6 +138,29 @@ Parameters:
     Type: AWS::EC2::VPC::Id
     Description: VPC where the RDS database will be deployed.
 
+  # ----------------------------------------------------------
+  # EC2 APPLICATION SECURITY GROUP
+  # ----------------------------------------------------------
+  #
+  # This is the security group attached to the EC2 instance.
+  #
+  # RDS will allow MySQL traffic only from this security
+  # group.
+  #
+  # Traffic:
+  #
+  #   EC2-SG
+  #      |
+  #      | TCP 3306
+  #      v
+  #   RDS-SG
+  #
+  # ----------------------------------------------------------
+
+  Ec2SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: EC2 security group allowed to access RDS MySQL  
+
 
   # ----------------------------------------------------------
   # PRIVATE SUBNET 1
@@ -279,6 +302,27 @@ Resources:
       VpcId:
         !Ref VpcId
 
+      # ======================================================
+      # INBOUND RULES
+      # ======================================================
+
+      SecurityGroupIngress:
+
+        # ----------------------------------------------------
+        # MySQL - TCP 3306
+        # ----------------------------------------------------
+        #
+        # Allow MySQL traffic ONLY from the EC2 security group.
+        #
+        # This is a security-group-to-security-group rule.
+        #
+        # ----------------------------------------------------
+
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref Ec2SecurityGroupId
+          Description: Allow MySQL access from EC2 application security group
 
       # ------------------------------------------------------
       # TAGS

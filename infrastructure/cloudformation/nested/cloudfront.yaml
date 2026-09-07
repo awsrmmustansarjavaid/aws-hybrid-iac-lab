@@ -1,1389 +1,999 @@
 # ============================================================
-
 # AWS HYBRID IaC LAB
-
 # CLOUDFRONT CDN LAYER
-
 # ============================================================
-
 #
-
 # File:
-
-# infrastructure/cloudformation/cloudfront.yaml
-
 #
-
+#   infrastructure/cloudformation/cloudfront.yaml
+#
 # Purpose:
-
-# Creates an Amazon CloudFront distribution in front of the
-
-# application's private S3 bucket.
-
 #
-
+#   Creates an Amazon CloudFront distribution in front of the
+#   application's private S3 bucket.
+#
+#
 # Architecture:
-
 #
-
-# Internet
-
-# |
-
-# | HTTPS
-
-# v
-
-# +----------------+
-
-# |   CloudFront   |
-
-# |      CDN       |
-
-# +----------------+
-
-# |
-
-# | Origin Access Control
-
-# | SigV4
-
-# v
-
-# +----------------+
-
-# |   S3 Bucket    |
-
-# | Static Website  |
-
-# +----------------+
-
+#   Internet
+#       |
+#       | HTTPS
+#       v
+#   +----------------+
+#   |   CloudFront   |
+#   |      CDN       |
+#   +----------------+
+#       |
+#       | Origin Access Control
+#       | AWS Signature Version 4
+#       v
+#   +----------------+
+#   |   S3 Bucket    |
+#   | Static Website |
+#   +----------------+
 #
-
 #
-
 # Security model:
-
 #
-
-# Internet
-
-# |
-
-# v
-
-# CloudFront
-
-# |
-
-# | AWS Signature Version 4
-
-# v
-
-# Private S3 Bucket
-
+#   Internet
+#       |
+#       v
+#   CloudFront
+#       |
+#       | AWS Signature Version 4
+#       v
+#   Private S3 Bucket
 #
-
-# The bucket does NOT need to be publicly readable.
-
 #
-
+# The S3 bucket does NOT need to be publicly readable.
 #
-
+#
 # ============================================================
-
 # RESOURCES CREATED
-
 # ============================================================
-
 #
-
-# 1. CloudFront Origin Access Control
-
-# 2. CloudFront Distribution
-
-# 3. S3 Bucket Policy
-
+#   1. CloudFront Origin Access Control
+#   2. CloudFront Distribution
+#   3. S3 Bucket Policy
 #
-
 #
-
 # ============================================================
-
 # IMPORTANT SECURITY DESIGN
-
 # ============================================================
-
 #
-
 # This template uses:
-
 #
-
-# Origin Access Control (OAC)
-
+#   Origin Access Control (OAC)
 #
-
-# instead of the older Origin Access Identity (OAI).
-
+# instead of the older:
 #
-
+#   Origin Access Identity (OAI)
+#
+#
 # OAC allows CloudFront to sign requests to S3 using:
-
 #
-
-# AWS Signature Version 4
-
+#   AWS Signature Version 4
 #
-
+#
 # The S3 bucket policy then grants:
-
 #
-
-# cloudfront.amazonaws.com
-
+#   cloudfront.amazonaws.com
 #
-
 # permission to read objects from the bucket.
-
 #
-
+#
 # IMPORTANT:
-
 #
-
 # The S3 bucket itself should remain private.
-
 #
-
 # Do NOT add:
-
 #
-
-# Principal: "*"
-
+#   Principal: "*"
 #
-
-# with:
-
+# together with:
 #
-
-# s3:GetObject
-
+#   s3:GetObject
 #
-
 # for this architecture.
-
 #
-
 #
-
 # ============================================================
-
+# IMPORTANT S3 ORIGIN NOTE
+# ============================================================
+#
+# This template uses the S3 REST API endpoint:
+#
+#   bucket-name.s3.REGION.amazonaws.com
+#
+# It does NOT use the S3 static website endpoint:
+#
+#   bucket-name.s3-website-REGION.amazonaws.com
+#
+#
+# This is intentional.
+#
+# Origin Access Control works with the S3 REST endpoint and
+# allows the S3 bucket to remain private.
+#
+#
+# ============================================================
 # AWS CLI COMMANDS
-
 # ============================================================
-
 #
-
 # These commands assume you are running them from:
-
 #
-
-# infrastructure/cloudformation/
-
+#   infrastructure/cloudformation/
 #
-
 #
-
 # ============================================================
-
 # 1. VERIFY AWS CLI
-
 # ============================================================
-
 #
-
 # aws --version
-
 #
-
 #
-
 # ============================================================
-
 # 2. VERIFY AWS ACCOUNT
-
 # ============================================================
-
 #
-
 # aws sts get-caller-identity
-
 #
-
 #
-
 # ============================================================
-
 # 3. CHECK AWS REGION
-
 # ============================================================
-
 #
-
 # aws configure get region
-
 #
-
 # Example:
-
 #
-
-# us-east-1
-
+#   us-east-1
 #
-
 #
-
 # ============================================================
-
 # 4. CHECK S3 BUCKET
-
 # ============================================================
-
 #
-
 # aws s3 ls
-
 #
-
 #
-
 # Check a specific bucket:
-
 #
-
 # aws s3api head-bucket \
-
-# --bucket YOUR_APPLICATION_BUCKET
-
+#   --bucket YOUR_APPLICATION_BUCKET
 #
-
 #
-
 # ============================================================
-
 # 5. CHECK S3 BUCKET REGION
-
 # ============================================================
-
 #
-
 # aws s3api get-bucket-location \
-
-# --bucket YOUR_APPLICATION_BUCKET
-
+#   --bucket YOUR_APPLICATION_BUCKET
 #
-
 #
-
 # ============================================================
-
 # 6. VALIDATE CLOUDFORMATION TEMPLATE
-
 # ============================================================
-
 #
-
 # aws cloudformation validate-template \
-
-# --template-body file://cloudfront.yaml \
-
-# --region us-east-1
-
+#   --template-body file://cloudfront.yaml \
+#   --region us-east-1
 #
-
 #
-
 # ============================================================
-
 # 7. DEPLOY CLOUDFRONT STACK
-
 # ============================================================
-
 #
-
 # Example:
-
 #
-
 # aws cloudformation deploy \
-
-# --template-file cloudfront.yaml \
-
-# --stack-name HybridIaCLab-CloudFront \
-
-# --parameter-overrides \
-
-# ProjectName=HybridIaCLab \
-
-# Environment=dev \
-
-# ApplicationBucketName=YOUR_APPLICATION_BUCKET \
-
-# --region us-east-1
-
+#   --template-file cloudfront.yaml \
+#   --stack-name HybridIaCLab-CloudFront \
+#   --parameter-overrides \
+#   ProjectName=HybridIaCLab \
+#   Environment=dev \
+#   ApplicationBucketName=YOUR_APPLICATION_BUCKET \
+#   --region us-east-1
 #
-
 #
-
 # IMPORTANT:
-
 #
-
 # Replace:
-
 #
-
-# YOUR_APPLICATION_BUCKET
-
+#   YOUR_APPLICATION_BUCKET
 #
-
 # with the real S3 bucket name.
-
 #
-
 #
-
 # ============================================================
-
 # 8. CHECK STACK STATUS
-
 # ============================================================
-
 #
-
 # aws cloudformation describe-stacks \
-
-# --stack-name HybridIaCLab-CloudFront \
-
-# --region us-east-1
-
+#   --stack-name HybridIaCLab-CloudFront \
+#   --region us-east-1
 #
-
 #
-
 # ============================================================
-
 # 9. WATCH CLOUDFORMATION EVENTS
-
 # ============================================================
-
 #
-
 # CloudFront distributions can take several minutes to deploy.
-
 #
-
 # aws cloudformation describe-stack-events \
-
-# --stack-name HybridIaCLab-CloudFront \
-
-# --region us-east-1
-
+#   --stack-name HybridIaCLab-CloudFront \
+#   --region us-east-1
 #
-
 #
-
 # ============================================================
-
 # 10. GET CLOUDFORMATION OUTPUTS
-
 # ============================================================
-
 #
-
 # aws cloudformation describe-stacks \
-
-# --stack-name HybridIaCLab-CloudFront \
-
-# --query "Stacks[0].Outputs" \
-
-# --output table \
-
-# --region us-east-1
-
+#   --stack-name HybridIaCLab-CloudFront \
+#   --query "Stacks[0].Outputs" \
+#   --output table \
+#   --region us-east-1
 #
-
 #
-
 # ============================================================
-
 # 11. GET CLOUDFRONT DISTRIBUTION ID
-
 # ============================================================
-
 #
-
 # aws cloudformation describe-stacks \
-
-# --stack-name HybridIaCLab-CloudFront \
-
-# --query "Stacks[0].Outputs[?OutputKey=='DistributionId'].OutputValue" \
-
-# --output text \
-
-# --region us-east-1
-
+#   --stack-name HybridIaCLab-CloudFront \
+#   --query "Stacks[0].Outputs[?OutputKey=='DistributionId'].OutputValue" \
+#   --output text \
+#   --region us-east-1
 #
-
 #
-
 # ============================================================
-
 # 12. GET CLOUDFRONT DOMAIN NAME
-
 # ============================================================
-
 #
-
 # aws cloudformation describe-stacks \
-
-# --stack-name HybridIaCLab-CloudFront \
-
-# --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDomainName'].OutputValue" \
-
-# --output text \
-
-# --region us-east-1
-
+#   --stack-name HybridIaCLab-CloudFront \
+#   --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDomainName'].OutputValue" \
+#   --output text \
+#   --region us-east-1
 #
-
 #
-
 # ============================================================
-
 # 13. DESCRIBE DISTRIBUTION
-
 # ============================================================
-
 #
-
 # aws cloudfront get-distribution \
-
-# --id YOUR_DISTRIBUTION_ID
-
+#   --id YOUR_DISTRIBUTION_ID
 #
-
 #
-
 # ============================================================
-
 # 14. CHECK DISTRIBUTION STATUS
-
 # ============================================================
-
 #
-
 # aws cloudfront get-distribution \
-
-# --id YOUR_DISTRIBUTION_ID \
-
-# --query "Distribution.Status" \
-
-# --output text
-
+#   --id YOUR_DISTRIBUTION_ID \
+#   --query "Distribution.Status" \
+#   --output text
 #
-
+#
 # Expected:
-
 #
-
-# Deployed
-
+#   Deployed
 #
-
 #
-
 # ============================================================
-
 # 15. CHECK CLOUDFRONT ENABLED STATUS
-
 # ============================================================
-
 #
-
 # aws cloudfront get-distribution \
-
-# --id YOUR_DISTRIBUTION_ID \
-
-# --query "Distribution.DistributionConfig.Enabled" \
-
-# --output text
-
+#   --id YOUR_DISTRIBUTION_ID \
+#   --query "Distribution.DistributionConfig.Enabled" \
+#   --output text
 #
-
+#
 # Expected:
-
 #
-
-# True
-
+#   True
 #
-
 #
-
 # ============================================================
-
 # 16. TEST CLOUDFRONT WEBSITE
-
 # ============================================================
-
 #
-
 # Get the CloudFront domain:
-
 #
-
 # aws cloudformation describe-stacks \
-
-# --stack-name HybridIaCLab-CloudFront \
-
-# --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDomainName'].OutputValue" \
-
-# --output text \
-
-# --region us-east-1
-
+#   --stack-name HybridIaCLab-CloudFront \
+#   --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDomainName'].OutputValue" \
+#   --output text \
+#   --region us-east-1
 #
-
 #
-
 # Then open:
-
 #
-
-# https://YOUR_CLOUDFRONT_DOMAIN/
-
+#   https://YOUR_CLOUDFRONT_DOMAIN/
 #
-
+#
 # Because DefaultRootObject is:
-
 #
-
-# index.html
-
+#   index.html
 #
-
 # CloudFront will request:
-
 #
-
-# /index.html
-
+#   /index.html
 #
-
 #
-
 # ============================================================
-
 # 17. TEST USING CURL
-
 # ============================================================
-
 #
-
 # curl -I https://YOUR_CLOUDFRONT_DOMAIN/
-
 #
-
 #
-
-# Expected response should contain something similar to:
-
+# Expected response:
 #
-
-# HTTP/2 200
-
+#   HTTP/2 200
 #
-
 #
-
 # ============================================================
-
 # 18. TEST INDEX.HTML
-
 # ============================================================
-
 #
-
 # curl https://YOUR_CLOUDFRONT_DOMAIN/index.html
-
 #
-
 #
-
 # ============================================================
-
 # 19. CHECK S3 OBJECTS
-
 # ============================================================
-
 #
-
 # aws s3 ls s3://YOUR_APPLICATION_BUCKET/
-
 #
-
 #
-
-# Make sure index.html exists.
-
+# Make sure:
 #
-
+#   index.html
 #
-
+# exists in the bucket.
+#
+#
 # ============================================================
-
 # 20. TEST DIRECT S3 ACCESS
-
 # ============================================================
-
 #
-
 # The S3 bucket should NOT be publicly accessible.
-
 #
-
-# A direct public URL should not be used as the application
-
-# endpoint.
-
+# The intended application access path is:
 #
-
-# The intended access path is:
-
+#   Browser
+#      |
+#      v
+#   CloudFront
+#      |
+#      v
+#   S3
 #
-
-# Browser
-
-# |
-
-# v
-
-# CloudFront
-
-# |
-
-# v
-
-# S3
-
 #
-
+# CloudFront is the public application endpoint.
 #
-
+#
 # ============================================================
-
 # 21. CHECK S3 PUBLIC ACCESS BLOCK
-
 # ============================================================
-
 #
-
 # aws s3api get-public-access-block \
-
-# --bucket YOUR_APPLICATION_BUCKET
-
+#   --bucket YOUR_APPLICATION_BUCKET
 #
-
 #
-
 # Recommended configuration:
-
 #
-
-# BlockPublicAcls: true
-
-# IgnorePublicAcls: true
-
-# BlockPublicPolicy: true
-
-# RestrictPublicBuckets: true
-
+#   BlockPublicAcls: true
+#   IgnorePublicAcls: true
+#   BlockPublicPolicy: true
+#   RestrictPublicBuckets: true
 #
-
 #
-
 # ============================================================
-
 # 22. CHECK S3 BUCKET POLICY
-
 # ============================================================
-
 #
-
 # aws s3api get-bucket-policy \
-
-# --bucket YOUR_APPLICATION_BUCKET \
-
-# --query Policy \
-
-# --output text
-
+#   --bucket YOUR_APPLICATION_BUCKET \
+#   --query Policy \
+#   --output text
 #
-
 #
-
 # The policy should contain the CloudFront service principal:
-
 #
-
-# cloudfront.amazonaws.com
-
+#   cloudfront.amazonaws.com
 #
-
 #
-
 # and the CloudFront distribution ARN condition.
-
 #
-
 #
-
 # ============================================================
-
 # 23. CREATE CLOUDFRONT INVALIDATION
-
 # ============================================================
-
 #
-
 # After uploading a changed index.html, CloudFront may still
-
 # serve a cached version.
-
 #
-
 # Create an invalidation:
-
 #
-
 # aws cloudfront create-invalidation \
-
-# --distribution-id YOUR_DISTRIBUTION_ID \
-
-# --paths "/*"
-
+#   --distribution-id YOUR_DISTRIBUTION_ID \
+#   --paths "/*"
 #
-
 #
-
 # ============================================================
-
 # 24. CHECK INVALIDATION
-
 # ============================================================
-
 #
-
 # aws cloudfront list-invalidations \
-
-# --distribution-id YOUR_DISTRIBUTION_ID
-
+#   --distribution-id YOUR_DISTRIBUTION_ID
 #
-
 #
-
 # ============================================================
-
 # 25. CHECK DISTRIBUTION CONFIGURATION
-
 # ============================================================
-
 #
-
 # aws cloudfront get-distribution-config \
-
-# --id YOUR_DISTRIBUTION_ID
-
+#   --id YOUR_DISTRIBUTION_ID
 #
-
 #
-
 # ============================================================
-
 # 26. DELETE CLOUDFRONT STACK
-
 # ============================================================
-
 #
-
 # IMPORTANT:
-
 #
-
-# CloudFormation cannot delete a CloudFront distribution while
-
-# the distribution is enabled.
-
+# CloudFront distributions must be disabled before they can
+# be completely deleted.
 #
-
-# Normally CloudFormation handles the disable operation during
-
-# stack deletion, but distribution deletion can take time.
-
+# CloudFormation manages this lifecycle during stack deletion,
+# but distribution deletion can take several minutes.
 #
-
 # Delete:
-
 #
-
 # aws cloudformation delete-stack \
-
-# --stack-name HybridIaCLab-CloudFront \
-
-# --region us-east-1
-
+#   --stack-name HybridIaCLab-CloudFront \
+#   --region us-east-1
 #
-
 #
-
 # ============================================================
-
 # 27. CHECK STACK DELETION
-
 # ============================================================
-
 #
-
 # aws cloudformation describe-stack-events \
-
-# --stack-name HybridIaCLab-CloudFront \
-
-# --region us-east-1
-
+#   --stack-name HybridIaCLab-CloudFront \
+#   --region us-east-1
 #
-
 #
-
 # ============================================================
-
 # CLOUDFORMATION TEMPLATE
-
 # ============================================================
 
 AWSTemplateFormatVersion: "2010-09-09"
 
 Description: >
-CloudFront CDN layer for the Hybrid IaC Lab.
+  CloudFront CDN layer for the AWS Hybrid IaC Lab.
+  Creates a CloudFront distribution using Origin Access Control
+  to securely access a private S3 application bucket.
+
 
 # ============================================================
-
 # PARAMETERS
-
 # ============================================================
 
 Parameters:
 
-# ----------------------------------------------------------
+  # ----------------------------------------------------------
+  # Project Name
+  # ----------------------------------------------------------
+  #
+  # Example:
+  #
+  #   HybridIaCLab
+  #
+  # Used for resource naming and tagging.
+  #
+  # ----------------------------------------------------------
 
-# Project name
+  ProjectName:
+    Type: String
+    Description: Project name used for resource naming.
 
-# ----------------------------------------------------------
 
-ProjectName:
-Type: String
-Description: Project name
+  # ----------------------------------------------------------
+  # Environment
+  # ----------------------------------------------------------
+  #
+  # Example:
+  #
+  #   dev
+  #
+  # Other possible values:
+  #
+  #   test
+  #   staging
+  #   prod
+  #
+  # ----------------------------------------------------------
 
-# ----------------------------------------------------------
+  Environment:
+    Type: String
+    Description: Deployment environment such as dev, test, staging, or prod.
 
-# Environment
 
-# ----------------------------------------------------------
+  # ----------------------------------------------------------
+  # S3 Application Bucket Name
+  # ----------------------------------------------------------
+  #
+  # CloudFront uses this existing S3 bucket as its origin.
+  #
+  # IMPORTANT:
+  #
+  # The bucket must already exist before this stack is deployed.
+  #
+  # Terraform can create the S3 bucket while this CloudFormation
+  # stack manages the CloudFront layer.
+  #
+  # This is an example of the Hybrid IaC architecture.
+  #
+  # ----------------------------------------------------------
 
-Environment:
-Type: String
-Description: Deployment environment
+  ApplicationBucketName:
+    Type: String
+    Description: Name of the existing private S3 application bucket.
 
-# ----------------------------------------------------------
-
-# S3 APPLICATION BUCKET
-
-# ----------------------------------------------------------
-
-#
-
-# CloudFront uses this S3 bucket as its origin.
-
-#
-
-# IMPORTANT:
-
-#
-
-# The bucket must already exist before this stack is
-
-# deployed.
-
-#
-
-ApplicationBucketName:
-Type: String
-Description: Name of the application S3 bucket
 
 # ============================================================
-
 # RESOURCES
-
 # ============================================================
 
 Resources:
 
-# ==========================================================
 
-# CLOUDFRONT ORIGIN ACCESS CONTROL
+  # ==========================================================
+  # CLOUDFRONT ORIGIN ACCESS CONTROL
+  # ==========================================================
+  #
+  # OAC allows CloudFront to securely access private S3 objects.
+  #
+  # CloudFront signs requests using AWS Signature Version 4.
+  #
+  # ==========================================================
 
-# ==========================================================
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
 
-#
+    Properties:
 
-# OAC allows CloudFront to securely access private S3
+      OriginAccessControlConfig:
 
-# objects.
+        # ----------------------------------------------------
+        # OAC NAME
+        # ----------------------------------------------------
 
-#
-
-# CloudFront signs requests using AWS Signature Version 4.
-
-#
-
-# ==========================================================
-
-OriginAccessControl:
-Type: AWS::CloudFront::OriginAccessControl
-
-
-Properties:
-
-  OriginAccessControlConfig:
+        Name:
+          !Sub "${ProjectName}-${Environment}-OAC"
 
 
-    # ------------------------------------------------------
-    # OAC NAME
-    # ------------------------------------------------------
+        # ----------------------------------------------------
+        # OAC DESCRIPTION
+        # ----------------------------------------------------
 
-    Name:
-      !Sub "${ProjectName}-${Environment}-OAC"
-
-
-    # ------------------------------------------------------
-    # OAC DESCRIPTION
-    # ------------------------------------------------------
-
-    Description:
-      !Sub "OAC for ${ProjectName}-${Environment}"
+        Description:
+          !Sub "Origin Access Control for ${ProjectName}-${Environment} S3 origin"
 
 
-    # ------------------------------------------------------
-    # ORIGIN TYPE
-    # ------------------------------------------------------
-    #
-    # This OAC is specifically for an S3 origin.
-    #
-    OriginAccessControlOriginType: s3
-
-
-    # ------------------------------------------------------
-    # SIGNING BEHAVIOR
-    # ------------------------------------------------------
-    #
-    # always means CloudFront always signs requests sent
-    # to the S3 origin.
-    #
-    SigningBehavior: always
-
-
-    # ------------------------------------------------------
-    # SIGNING PROTOCOL
-    # ------------------------------------------------------
-    #
-    # AWS Signature Version 4.
-    #
-    SigningProtocol: sigv4
-
-
-# ==========================================================
-
-# CLOUDFRONT DISTRIBUTION
-
-# ==========================================================
-
-#
-
-# Creates the CDN distribution.
-
-#
-
-# ==========================================================
-
-Distribution:
-Type: AWS::CloudFront::Distribution
-
-
-Properties:
-
-  DistributionConfig:
-
-
-    # ------------------------------------------------------
-    # ENABLE DISTRIBUTION
-    # ------------------------------------------------------
-
-    Enabled: true
-
-
-    # ------------------------------------------------------
-    # DISTRIBUTION COMMENT
-    # ------------------------------------------------------
-
-    Comment:
-      !Sub "${ProjectName}-${Environment} CloudFront distribution"
-
-
-    # ------------------------------------------------------
-    # DEFAULT ROOT OBJECT
-    # ------------------------------------------------------
-    #
-    # When users request:
-    #
-    #   https://example.cloudfront.net/
-    #
-    # CloudFront requests:
-    #
-    #   index.html
-    #
-    DefaultRootObject: index.html
-
-
-    # ------------------------------------------------------
-    # PRICE CLASS
-    # ------------------------------------------------------
-    #
-    # PriceClass_100 limits CloudFront edge locations to
-    # a lower-cost geographic set.
-    #
-    # This is suitable for a cost-conscious learning lab.
-    #
-    PriceClass: PriceClass_100
-
-
-    # ======================================================
-    # ORIGINS
-    # ======================================================
-    #
-    # S3 is the origin.
-    #
-    # ======================================================
-
-    Origins:
-
-      - Id: S3Origin
-
-
-        # --------------------------------------------------
-        # S3 REGIONAL DOMAIN
-        # --------------------------------------------------
+        # ----------------------------------------------------
+        # ORIGIN TYPE
+        # ----------------------------------------------------
         #
-        # This uses the S3 REST endpoint rather than the
-        # S3 website endpoint.
+        # This OAC is specifically for an S3 origin.
         #
-        # That is required for the OAC design.
+        # ----------------------------------------------------
+
+        OriginAccessControlOriginType: s3
+
+
+        # ----------------------------------------------------
+        # SIGNING BEHAVIOR
+        # ----------------------------------------------------
         #
-        DomainName:
-          !Sub "${ApplicationBucketName}.s3.${AWS::Region}.amazonaws.com"
-
-
-        # --------------------------------------------------
-        # ATTACH OAC
-        # --------------------------------------------------
-
-        OriginAccessControlId:
-          !Ref OriginAccessControl
-
-
-        # --------------------------------------------------
-        # S3 ORIGIN CONFIGURATION
-        # --------------------------------------------------
-
-        S3OriginConfig: {}
-
-
-    # ======================================================
-    # DEFAULT CACHE BEHAVIOR
-    # ======================================================
-
-    DefaultCacheBehavior:
-
-
-      # ----------------------------------------------------
-      # TARGET ORIGIN
-      # ----------------------------------------------------
-
-      TargetOriginId: S3Origin
-
-
-      # ----------------------------------------------------
-      # HTTP TO HTTPS REDIRECT
-      # ----------------------------------------------------
-      #
-      # HTTP requests are redirected to HTTPS.
-      #
-      ViewerProtocolPolicy: redirect-to-https
-
-
-      # ----------------------------------------------------
-      # ALLOWED METHODS
-      # ----------------------------------------------------
-      #
-      # This static website only needs:
-      #
-      #   GET
-      #   HEAD
-      #
-      AllowedMethods:
-
-        - GET
-        - HEAD
-
-
-      # ----------------------------------------------------
-      # CACHED METHODS
-      # ----------------------------------------------------
-
-      CachedMethods:
-
-        - GET
-        - HEAD
-
-
-      # ----------------------------------------------------
-      # FORWARDED VALUES
-      # ----------------------------------------------------
-      #
-      # Query strings are not forwarded because this basic
-      # static website does not require them.
-      #
-      # Cookies are also not forwarded.
-      #
-      ForwardedValues:
-
-        QueryString: false
-
-        Cookies:
-          Forward: none
-
-
-    # ======================================================
-    # VIEWER CERTIFICATE
-    # ======================================================
-    #
-    # CloudFront's default certificate provides HTTPS for:
-    #
-    #   *.cloudfront.net
-    #
-    # For a custom domain such as:
-    #
-    #   www.example.com
-    #
-    # you would later configure:
-    #
-    #   - ACM certificate
-    #   - Alternate domain name
-    #   - Route 53 DNS
-    #
-    # ======================================================
-
-    ViewerCertificate:
-
-      CloudFrontDefaultCertificate: true
-
-
-# ==========================================================
-
-# S3 BUCKET POLICY
-
-# ==========================================================
-
-#
-
-# Grants CloudFront permission to read objects from the
-
-# application bucket.
-
-#
-
-# ==========================================================
-
-BucketPolicy:
-Type: AWS::S3::BucketPolicy
-
-
-Properties:
-
-
-  # ------------------------------------------------------
-  # TARGET BUCKET
-  # ------------------------------------------------------
-
-  Bucket:
-    !Ref ApplicationBucketName
-
-
-  # ======================================================
-  # POLICY DOCUMENT
-  # ======================================================
-
-  PolicyDocument:
-
-    Version: "2012-10-17"
-
-    Statement:
-
-
-      # ==================================================
-      # ALLOW CLOUDFRONT READ
-      # ==================================================
-      #
-      # CloudFront is allowed to perform:
-      #
-      #   s3:GetObject
-      #
-      # on objects inside this specific bucket.
-      #
-      # ==================================================
-
-      - Sid: AllowCloudFrontRead
-
-        Effect: Allow
-
-
-        # ------------------------------------------------
-        # CLOUDFRONT SERVICE PRINCIPAL
-        # ------------------------------------------------
-
-        Principal:
-          Service: cloudfront.amazonaws.com
-
-
-        # ------------------------------------------------
-        # ACTION
-        # ------------------------------------------------
-
-        Action:
-
-          - s3:GetObject
-
-
-        # ------------------------------------------------
-        # RESOURCE
-        # ------------------------------------------------
+        # always means CloudFront always signs requests sent
+        # to the S3 origin.
         #
-        # /* means all objects inside the bucket.
+        # ----------------------------------------------------
+
+        SigningBehavior: always
+
+
+        # ----------------------------------------------------
+        # SIGNING PROTOCOL
+        # ----------------------------------------------------
         #
-        Resource:
-          !Sub "arn:${AWS::Partition}:s3:::${ApplicationBucketName}/*"
-
-
-        # ------------------------------------------------
-        # SECURITY CONDITION
-        # ------------------------------------------------
+        # AWS Signature Version 4.
         #
-        # This is one of the most important parts of the
-        # policy.
+        # ----------------------------------------------------
+
+        SigningProtocol: sigv4
+
+
+  # ==========================================================
+  # CLOUDFRONT DISTRIBUTION
+  # ==========================================================
+  #
+  # Creates the CDN distribution.
+  #
+  # ==========================================================
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+
+    Properties:
+
+      DistributionConfig:
+
+        # ----------------------------------------------------
+        # ENABLE DISTRIBUTION
+        # ----------------------------------------------------
+
+        Enabled: true
+
+
+        # ----------------------------------------------------
+        # DISTRIBUTION COMMENT
+        # ----------------------------------------------------
+
+        Comment:
+          !Sub "${ProjectName}-${Environment} CloudFront distribution"
+
+
+        # ----------------------------------------------------
+        # DEFAULT ROOT OBJECT
+        # ----------------------------------------------------
         #
-        # It restricts access to the specific CloudFront
-        # distribution created by this stack.
+        # When users request:
         #
-        # ------------------------------------------------
+        #   https://example.cloudfront.net/
+        #
+        # CloudFront requests:
+        #
+        #   index.html
+        #
+        # ----------------------------------------------------
 
-        Condition:
+        DefaultRootObject: index.html
 
-          StringEquals:
 
-            AWS:SourceArn:
-              !Sub >
-                arn:${AWS::Partition}:cloudfront::
-                ${AWS::AccountId}:distribution/${Distribution}
+        # ----------------------------------------------------
+        # PRICE CLASS
+        # ----------------------------------------------------
+        #
+        # PriceClass_100 limits CloudFront edge locations to
+        # a lower-cost geographic set.
+        #
+        # This is suitable for a cost-conscious learning lab.
+        #
+        # ----------------------------------------------------
+
+        PriceClass: PriceClass_100
+
+
+        # ====================================================
+        # ORIGINS
+        # ====================================================
+        #
+        # The S3 bucket is the CloudFront origin.
+        #
+        # IMPORTANT:
+        #
+        # We use the S3 REST endpoint instead of the S3 website
+        # endpoint because OAC requires the S3 origin model.
+        #
+        # ====================================================
+
+        Origins:
+
+          - Id: S3Origin
+
+            # ------------------------------------------------
+            # S3 REGIONAL DOMAIN
+            # ------------------------------------------------
+            #
+            # Example:
+            #
+            #   bucket-name.s3.us-east-1.amazonaws.com
+            #
+            # ------------------------------------------------
+
+            DomainName:
+              !Sub "${ApplicationBucketName}.s3.${AWS::Region}.amazonaws.com"
+
+
+            # ------------------------------------------------
+            # ATTACH ORIGIN ACCESS CONTROL
+            # ------------------------------------------------
+
+            OriginAccessControlId:
+              !Ref OriginAccessControl
+
+
+            # ------------------------------------------------
+            # S3 ORIGIN CONFIGURATION
+            # ------------------------------------------------
+            #
+            # Empty S3OriginConfig is intentional when using OAC.
+            #
+            # ------------------------------------------------
+
+            S3OriginConfig: {}
+
+
+        # ====================================================
+        # DEFAULT CACHE BEHAVIOR
+        # ====================================================
+
+        DefaultCacheBehavior:
+
+          # --------------------------------------------------
+          # TARGET ORIGIN
+          # --------------------------------------------------
+
+          TargetOriginId: S3Origin
+
+
+          # --------------------------------------------------
+          # VIEWER PROTOCOL POLICY
+          # --------------------------------------------------
+          #
+          # HTTP requests are redirected to HTTPS.
+          #
+          # Example:
+          #
+          #   http://example.cloudfront.net
+          #
+          # becomes:
+          #
+          #   https://example.cloudfront.net
+          #
+          # --------------------------------------------------
+
+          ViewerProtocolPolicy: redirect-to-https
+
+
+          # --------------------------------------------------
+          # ALLOWED METHODS
+          # --------------------------------------------------
+          #
+          # This static website only requires:
+          #
+          #   GET
+          #   HEAD
+          #
+          # --------------------------------------------------
+
+          AllowedMethods:
+
+            - GET
+            - HEAD
+
+
+          # --------------------------------------------------
+          # CACHED METHODS
+          # --------------------------------------------------
+
+          CachedMethods:
+
+            - GET
+            - HEAD
+
+
+          # --------------------------------------------------
+          # FORWARDED VALUES
+          # --------------------------------------------------
+          #
+          # Query strings are not forwarded because this basic
+          # static website does not require them.
+          #
+          # Cookies are also not forwarded.
+          #
+          # --------------------------------------------------
+
+          ForwardedValues:
+
+            QueryString: false
+
+            Cookies:
+              Forward: none
+
+
+        # ====================================================
+        # VIEWER CERTIFICATE
+        # ====================================================
+        #
+        # CloudFront's default certificate provides HTTPS for:
+        #
+        #   *.cloudfront.net
+        #
+        # For a custom domain such as:
+        #
+        #   www.example.com
+        #
+        # you can later configure:
+        #
+        #   1. ACM certificate
+        #   2. Alternate domain name
+        #   3. Route 53 DNS record
+        #
+        # ====================================================
+
+        ViewerCertificate:
+
+          CloudFrontDefaultCertificate: true
+
+
+  # ==========================================================
+  # S3 BUCKET POLICY
+  # ==========================================================
+  #
+  # Grants CloudFront permission to read objects from the
+  # application bucket.
+  #
+  # ==========================================================
+
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+
+    Properties:
+
+      # ------------------------------------------------------
+      # TARGET BUCKET
+      # ------------------------------------------------------
+
+      Bucket:
+        !Ref ApplicationBucketName
+
+
+      # ======================================================
+      # POLICY DOCUMENT
+      # ======================================================
+
+      PolicyDocument:
+
+        Version: "2012-10-17"
+
+        Statement:
+
+
+          # ==================================================
+          # ALLOW CLOUDFRONT READ
+          # ==================================================
+          #
+          # CloudFront is allowed to perform:
+          #
+          #   s3:GetObject
+          #
+          # on objects inside this specific bucket.
+          #
+          # ==================================================
+
+          - Sid: AllowCloudFrontRead
+
+            Effect: Allow
+
+
+            # ------------------------------------------------
+            # CLOUDFRONT SERVICE PRINCIPAL
+            # ------------------------------------------------
+
+            Principal:
+              Service: cloudfront.amazonaws.com
+
+
+            # ------------------------------------------------
+            # ACTION
+            # ------------------------------------------------
+
+            Action:
+              - s3:GetObject
+
+
+            # ------------------------------------------------
+            # RESOURCE
+            # ------------------------------------------------
+            #
+            # /* means all objects inside the bucket.
+            #
+            # AWS::Partition makes this work across AWS
+            # partitions.
+            #
+            # ------------------------------------------------
+
+            Resource:
+              !Sub "arn:${AWS::Partition}:s3:::${ApplicationBucketName}/*"
+
+
+            # ------------------------------------------------
+            # SECURITY CONDITION
+            # ------------------------------------------------
+            #
+            # This is one of the most important parts of the
+            # bucket policy.
+            #
+            # It restricts access to the specific CloudFront
+            # distribution created by this stack.
+            #
+            # ------------------------------------------------
+
+            Condition:
+
+              StringEquals:
+
+                AWS:SourceArn:
+                  !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}"
 
 
 # ============================================================
-
 # OUTPUTS
-
 # ============================================================
 
 Outputs:
 
-# ==========================================================
 
-# CLOUDFRONT DISTRIBUTION ID
+  # ==========================================================
+  # CLOUDFRONT DISTRIBUTION ID
+  # ==========================================================
+  #
+  # Used with AWS CLI commands such as:
+  #
+  #   aws cloudfront get-distribution
+  #
+  # and:
+  #
+  #   aws cloudfront create-invalidation
+  #
+  # ==========================================================
 
-# ==========================================================
+  DistributionId:
 
-#
+    Description: CloudFront distribution ID
 
-# Used with AWS CLI commands such as:
-
-#
-
-# aws cloudfront get-distribution
-
-#
-
-# and:
-
-#
-
-# aws cloudfront create-invalidation
-
-#
-
-# ==========================================================
-
-DistributionId:
+    Value:
+      !Ref Distribution
 
 
-Description: CloudFront distribution ID
+  # ==========================================================
+  # CLOUDFRONT DOMAIN NAME
+  # ==========================================================
+  #
+  # Example:
+  #
+  #   d1234567890abc.cloudfront.net
+  #
+  # ==========================================================
 
-Value:
-  !Ref Distribution
+  CloudFrontDomainName:
 
+    Description: CloudFront distribution domain name
 
-# ==========================================================
-
-# CLOUDFRONT DOMAIN NAME
-
-# ==========================================================
-
-#
-
-# Example:
-
-#
-
-# d1234567890abc.cloudfront.net
-
-#
-
-# ==========================================================
-
-CloudFrontDomainName:
+    Value:
+      !GetAtt Distribution.DomainName
 
 
-Description: CloudFront domain name
+  # ==========================================================
+  # CLOUDFRONT HTTPS URL
+  # ==========================================================
+  #
+  # Provides the complete HTTPS application URL.
+  #
+  # ==========================================================
 
-Value:
-  !GetAtt Distribution.DomainName
+  CloudFrontUrl:
+
+    Description: HTTPS URL for the CloudFront distribution
+
+    Value:
+      !Sub "https://${Distribution.DomainName}/"
 

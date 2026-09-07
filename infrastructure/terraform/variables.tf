@@ -341,72 +341,7 @@ variable "database_username" {
 
 
 # ============================================================
-# 7. DATABASE PASSWORD
-# ============================================================
-#
-# Sensitive RDS database password.
-#
-# IMPORTANT:
-#
-# Terraform marks this value as sensitive.
-#
-# However, sensitive does NOT mean that the value can never
-# appear in Terraform state.
-#
-# If Terraform passes the password into CloudFormation
-# parameters or resources, the value may still be stored
-# in Terraform state.
-#
-#
-# NEVER:
-#
-#   - Commit the real password to GitHub.
-#   - Put the real password in this file.
-#   - Put the real password in README.md.
-#   - Hard-code the password in .tf resources.
-#
-#
-# Recommended:
-#
-# Local:
-#
-#   terraform.tfvars
-#
-# CI/CD:
-#
-#   TF_VAR_database_password
-#
-# supplied from a GitHub Actions secret.
-#
-# Production:
-#
-#   Prefer AWS Secrets Manager where the architecture
-#   permits it.
-#
-# ============================================================
-
-variable "database_password" {
-
-  description = "Sensitive RDS database administrator password."
-
-  type = string
-
-  sensitive = true
-
-  validation {
-
-    condition = length(
-      var.database_password
-    ) >= 8
-
-    error_message = "database_password must contain at least 8 characters."
-  }
-}
-
-
-
-# ============================================================
-# 8. GITHUB ACTIONS IAM ROLE NAME
+# 7. GITHUB ACTIONS IAM ROLE NAME
 # ============================================================
 #
 # Name of the IAM role assumed by GitHub Actions through
@@ -456,7 +391,7 @@ variable "github_actions_role_name" {
 
 
 # ============================================================
-# 9. GITHUB ACTIONS IAM POLICY NAME
+# 8. GITHUB ACTIONS IAM POLICY NAME
 # ============================================================
 #
 # Name of the customer-managed IAM policy used by the
@@ -500,7 +435,7 @@ variable "github_actions_policy_name" {
 
 
 # ============================================================
-# 10. TERRAFORM BACKEND IAM POLICY NAME
+# 9. TERRAFORM BACKEND IAM POLICY NAME
 # ============================================================
 #
 # Name of the customer-managed IAM policy used for the
@@ -540,7 +475,7 @@ variable "terraform_backend_policy_name" {
 
 
 # ============================================================
-# 11. GITHUB CI/CD COMBINED POLICY NAME
+# 10. GITHUB CI/CD COMBINED POLICY NAME
 # ============================================================
 #
 # Name of the customer-managed IAM policy containing the
@@ -583,7 +518,7 @@ variable "github_ci_cd_combined_policy_name" {
 
 
 # ============================================================
-# 12. IAM POLICY PATHS
+# 11. IAM POLICY PATHS
 # ============================================================
 #
 # NO IAM POLICY DIRECTORY VARIABLE IS REQUIRED.
@@ -617,7 +552,7 @@ variable "github_ci_cd_combined_policy_name" {
 
 
 # ============================================================
-# 13. IAM ROLE ARN / POLICY ARN
+# 12. IAM ROLE ARN / POLICY ARN
 # ============================================================
 #
 # NO IAM ROLE ARN VARIABLE IS REQUIRED.
