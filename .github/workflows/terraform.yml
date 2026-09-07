@@ -1,4 +1,5 @@
 # ============================================================
+#
 # GitHub Actions - Terraform Infrastructure Deployment
 #
 # Project:
@@ -20,34 +21,37 @@
 #   9. Initialize Terraform.
 #   10. Check Terraform formatting.
 #   11. Validate Terraform configuration.
-#   12. Display Terraform state.
+#   12. Diagnose Terraform state safely.
 #   13. Discover the latest Amazon Linux 2023 AMI.
 #   14. Generate Terraform plan.
 #   15. Apply the exact generated Terraform plan.
 #
 # ============================================================
+#
 # AUTHENTICATION ARCHITECTURE
+#
 # ============================================================
 #
-#   GitHub Actions
-#        |
-#        | OIDC JWT
-#        v
-#   token.actions.githubusercontent.com
-#        |
-#        | sts:AssumeRoleWithWebIdentity
-#        v
-#   AWS IAM Role
-#   aws-hybrid-iac-lab-GitHubActions
-#        |
-#        | Temporary AWS credentials
-#        v
-#   AWS Services
-#
+# GitHub Actions
+#       |
+#       | OIDC JWT
+#       v
+# token.actions.githubusercontent.com
+#       |
+#       | sts:AssumeRoleWithWebIdentity
+#       v
+# AWS IAM Role
+# aws-hybrid-iac-lab-GitHubActions
+#       |
+#       | Temporary AWS credentials
+#       v
+# AWS Services
 #
 # IMPORTANT:
 #
-# This workflow does NOT use:
+# This workflow does NOT use long-lived AWS access keys.
+#
+# It does NOT require:
 #
 #   AWS_ACCESS_KEY_ID
 #   AWS_SECRET_ACCESS_KEY
@@ -55,15 +59,85 @@
 # AWS credentials are obtained through GitHub OIDC.
 #
 # ============================================================
-# IMPORTANT SECURITY NOTE
+#
+# IMPORTANT SECURITY / CONFIGURATION NOTE
+#
 # ============================================================
 #
-# AWS_ROLE_ARN is intentionally stored as a workflow-level
-# environment variable.
+# AWS_ACCOUNT_ID and AWS_ROLE_ARN are intentionally NOT stored
+# directly in the workflow-level environment configuration.
 #
-# An IAM role ARN is an identifier, NOT a password or credential.
+# They are stored as GitHub Actions REPOSITORY VARIABLES.
 #
-# No long-lived AWS access keys should be added to this workflow.
+# These values are identifiers, not AWS credentials.
+#
+# AWS_ACCOUNT_ID
+#   -> Identifies the AWS account.
+#
+# AWS_ROLE_ARN
+#   -> Identifies the IAM role that GitHub Actions assumes.
+#
+# Configure them under:
+#
+# GitHub Repository
+#   |
+#   v
+# Settings
+#   |
+#   v
+# Secrets and variables
+#   |
+#   v
+# Actions
+#   |
+#   v
+# Variables
+#
+# Required repository variables:
+#
+#   AWS_ACCOUNT_ID
+#   AWS_ROLE_ARN
+#
+# ============================================================
+#
+# HOW TO CREATE THE REQUIRED GITHUB VARIABLES
+#
+# ============================================================
+#
+# Repository:
+#
+# https://github.com/awsrmmustansarjavaid/aws-hybrid-iac-lab
+#
+# Navigate to:
+#
+# Settings
+#   -> Secrets and variables
+#   -> Actions
+#   -> Variables
+#
+# Create:
+#
+# ------------------------------------------------------------
+# GITHUB VARIABLE #1
+# ------------------------------------------------------------
+#
+# Name:
+#   AWS_ACCOUNT_ID
+#
+# Value:
+#   123654789
+#
+# ------------------------------------------------------------
+# GITHUB VARIABLE #2
+# ------------------------------------------------------------
+#
+# Name:
+#   AWS_ROLE_ARN
+#
+# Value:
+#   arn:aws:iam::your aws id:role/aws-hybrid-iac-lab-GitHubActions
+#
+# Variable names are CASE-SENSITIVE.
 #
 # ============================================================
 
@@ -80,27 +154,19 @@ name: Terraform Infrastructure
 # ============================================================
 #
 # workflow_dispatch:
-#   Allows manual execution.
+#   Allows manual execution from GitHub Actions.
 #
 # workflow_call:
-#   Allows another GitHub Actions workflow to call this
-#   workflow as a reusable workflow.
+#   Allows another workflow to call this workflow as a
+#   reusable workflow.
 #
 # IMPORTANT:
 #
-# This workflow itself does NOT contain a push trigger.
-#
-# If you see:
-#
-#   Event: push
-#
-# in the logs, another workflow may have triggered this
-# reusable workflow through workflow_call.
+# This workflow intentionally does NOT contain a push trigger.
 #
 # ============================================================
 
-"on":
-
+on:
   workflow_dispatch:
 
   workflow_call:
@@ -110,7 +176,10 @@ name: Terraform Infrastructure
 # GLOBAL CONFIGURATION
 # ============================================================
 #
-# Keep frequently changed configuration here.
+# Keep non-sensitive configuration here.
+#
+# AWS_ACCOUNT_ID and AWS_ROLE_ARN are intentionally loaded
+# at the JOB level below from GitHub Repository Variables.
 #
 # ============================================================
 
@@ -120,14 +189,7 @@ env:
   # AWS CONFIGURATION
   # ----------------------------------------------------------
 
-  # AWS region used by Terraform and AWS CLI.
   AWS_REGION: "us-east-1"
-
-  # AWS account that must receive the deployment.
-  AWS_ACCOUNT_ID: "537236558357"
-
-  # IAM role that GitHub Actions will assume.
-  AWS_ROLE_ARN: "arn:aws:iam::537236558357:role/aws-hybrid-iac-lab-GitHubActions"
 
   # IAM role name used for post-authentication verification.
   AWS_EXPECTED_ROLE_NAME: "aws-hybrid-iac-lab-GitHubActions"
@@ -139,14 +201,11 @@ env:
   # ----------------------------------------------------------
   # AWS OIDC CONFIGURATION
   # ----------------------------------------------------------
-
+  #
   # GitHub requests an OIDC token with this audience.
   #
-  # For AWS commercial regions the normal audience is:
-  #
-  #   sts.amazonaws.com
-  #
   # AWS IAM must trust the same audience.
+  #
 
   AWS_OIDC_AUDIENCE: "sts.amazonaws.com"
 
@@ -156,7 +215,6 @@ env:
   # ----------------------------------------------------------
 
   PROJECT_NAME: "aws-hybrid-iac-lab"
-
   ENVIRONMENT: "dev"
 
 
@@ -183,24 +241,24 @@ env:
   # ----------------------------------------------------------
   # TERRAFORM STATE CONFIGURATION
   # ----------------------------------------------------------
-
+  #
   # This bucket is ONLY for Terraform state.
   #
   # It is separate from the CloudFormation template bucket.
+  #
 
   TF_STATE_BUCKET: "aws-hybrid-iac-lab-terraform-state-537236558357"
-
   TF_STATE_REGION: "us-east-1"
-
   TF_STATE_KEY: "aws-hybrid-iac-lab/terraform.tfstate"
 
 
   # ----------------------------------------------------------
   # TERRAFORM APPLY CONFIGURATION
   # ----------------------------------------------------------
-
+  #
   # true  = automatically apply the generated plan.
   # false = skip the Terraform Apply step.
+  #
 
   TF_AUTO_APPROVE: "true"
 
@@ -215,9 +273,7 @@ env:
 # ============================================================
 
 concurrency:
-
   group: "terraform-${{ github.repository }}-${{ github.ref }}"
-
   cancel-in-progress: false
 
 
@@ -226,31 +282,31 @@ concurrency:
 # ============================================================
 #
 # id-token: write
-#
-# REQUIRED for GitHub OIDC.
-#
-# This does NOT give AWS permissions.
-#
-# It only allows GitHub Actions to request an OIDC token.
+#   REQUIRED for GitHub OIDC.
 #
 # contents: read
+#   Required for actions/checkout.
 #
-# Required for actions/checkout.
+# id-token: write does NOT give AWS permissions.
+#
+# It only allows GitHub Actions to request an OIDC token.
 #
 # ============================================================
 
 permissions:
-
   id-token: write
-
   contents: read
 
 
 # ============================================================
-# TERRAFORM DEPLOYMENT JOB
+# JOBS
 # ============================================================
 
 jobs:
+
+  # ==========================================================
+  # TERRAFORM DEPLOYMENT JOB
+  # ==========================================================
 
   terraform:
 
@@ -258,6 +314,28 @@ jobs:
 
     runs-on: ubuntu-latest
 
+
+    # ========================================================
+    # JOB-LEVEL AWS CONFIGURATION
+    # ========================================================
+    #
+    # These values come from GitHub Repository Variables.
+    #
+    # GitHub variable names:
+    #
+    #   AWS_ACCOUNT_ID
+    #   AWS_ROLE_ARN
+    #
+    # ========================================================
+
+    env:
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+
+
+    # ========================================================
+    # JOB STEPS
+    # ========================================================
 
     steps:
 
@@ -268,7 +346,6 @@ jobs:
       # ======================================================
 
       - name: Checkout Repository
-
         uses: actions/checkout@v4
 
 
@@ -279,24 +356,41 @@ jobs:
       #
       # This step runs BEFORE AWS authentication.
       #
-      # It validates the configuration needed for OIDC and
+      # It validates configuration needed for OIDC and
       # Terraform without calling AWS APIs.
       #
       # ======================================================
 
       - name: Preflight Configuration Validation
-
         shell: bash
-
         run: |
-
           set -euo pipefail
-
 
           echo "=================================================="
           echo "PRE-FLIGHT CONFIGURATION VALIDATION"
           echo "=================================================="
 
+          # --------------------------------------------------
+          # Verify GitHub Repository Variables exist.
+          # --------------------------------------------------
+
+          if [[ -z "${AWS_ACCOUNT_ID:-}" ]]; then
+            echo ""
+            echo "ERROR: GitHub Repository Variable AWS_ACCOUNT_ID is empty or missing."
+            echo ""
+            echo "Create it at:"
+            echo "Repository Settings -> Secrets and variables -> Actions -> Variables"
+            exit 1
+          fi
+
+          if [[ -z "${AWS_ROLE_ARN:-}" ]]; then
+            echo ""
+            echo "ERROR: GitHub Repository Variable AWS_ROLE_ARN is empty or missing."
+            echo ""
+            echo "Create it at:"
+            echo "Repository Settings -> Secrets and variables -> Actions -> Variables"
+            exit 1
+          fi
 
           # --------------------------------------------------
           # Display important configuration.
@@ -366,172 +460,123 @@ jobs:
           echo "Terraform State Key:"
           echo "${TF_STATE_KEY}"
 
-
           # --------------------------------------------------
           # Validate AWS region.
           # --------------------------------------------------
 
           if [[ ! "${AWS_REGION}" =~ ^[a-z]{2}-[a-z0-9-]+-[0-9]+$ ]]; then
-
             echo ""
             echo "ERROR: Invalid AWS_REGION:"
             echo "${AWS_REGION}"
-
             exit 1
-
           fi
-
 
           # --------------------------------------------------
           # Validate AWS account ID.
           # --------------------------------------------------
 
           if [[ ! "${AWS_ACCOUNT_ID}" =~ ^[0-9]{12}$ ]]; then
-
             echo ""
             echo "ERROR: Invalid AWS_ACCOUNT_ID."
-
             echo ""
             echo "Expected a 12-digit AWS account ID."
-
             exit 1
-
           fi
-
 
           # --------------------------------------------------
           # Validate IAM role ARN.
           # --------------------------------------------------
 
           if [[ ! "${AWS_ROLE_ARN}" =~ ^arn:aws:iam::[0-9]{12}:role/.+ ]]; then
-
             echo ""
             echo "ERROR: Invalid AWS_ROLE_ARN format."
-
             echo "${AWS_ROLE_ARN}"
-
             exit 1
-
           fi
 
-
           # --------------------------------------------------
-          # Verify that the role ARN belongs to the expected
-          # AWS account.
+          # Verify role ARN belongs to expected AWS account.
           # --------------------------------------------------
 
           ROLE_ACCOUNT_ID="$(echo "${AWS_ROLE_ARN}" | cut -d ':' -f 5)"
 
           if [[ "${ROLE_ACCOUNT_ID}" != "${AWS_ACCOUNT_ID}" ]]; then
-
             echo ""
             echo "ERROR: IAM role ARN belongs to a different AWS account."
-
             echo ""
             echo "Expected account:"
             echo "${AWS_ACCOUNT_ID}"
-
             echo ""
             echo "Role ARN account:"
             echo "${ROLE_ACCOUNT_ID}"
-
             exit 1
-
           fi
-
 
           # --------------------------------------------------
           # Validate expected IAM role name.
           # --------------------------------------------------
 
           if [[ -z "${AWS_EXPECTED_ROLE_NAME}" ]]; then
-
             echo ""
             echo "ERROR: AWS_EXPECTED_ROLE_NAME is empty."
-
             exit 1
-
           fi
 
-
           # --------------------------------------------------
-          # Verify that the role ARN ends with the expected
-          # IAM role name.
+          # Verify role ARN and expected role name match.
           # --------------------------------------------------
 
           ROLE_NAME_FROM_ARN="${AWS_ROLE_ARN##*/}"
 
           if [[ "${ROLE_NAME_FROM_ARN}" != "${AWS_EXPECTED_ROLE_NAME}" ]]; then
-
             echo ""
             echo "ERROR: AWS_ROLE_ARN and AWS_EXPECTED_ROLE_NAME do not match."
-
             echo ""
             echo "Role from ARN:"
             echo "${ROLE_NAME_FROM_ARN}"
-
             echo ""
             echo "Expected role:"
             echo "${AWS_EXPECTED_ROLE_NAME}"
-
             exit 1
-
           fi
-
 
           # --------------------------------------------------
           # Validate AWS role session name.
           # --------------------------------------------------
 
           if [[ -z "${AWS_ROLE_SESSION_NAME}" ]]; then
-
             echo ""
             echo "ERROR: AWS_ROLE_SESSION_NAME is empty."
-
             exit 1
-
           fi
-
 
           # --------------------------------------------------
           # Validate AWS OIDC audience.
           # --------------------------------------------------
 
           if [[ -z "${AWS_OIDC_AUDIENCE:-}" ]]; then
-
             echo ""
             echo "ERROR: AWS_OIDC_AUDIENCE is empty or undefined."
-
             echo ""
             echo "Expected:"
             echo "sts.amazonaws.com"
-
             exit 1
-
           fi
 
-
           if [[ "${AWS_OIDC_AUDIENCE}" != "sts.amazonaws.com" ]]; then
-
             echo ""
             echo "ERROR: Invalid AWS_OIDC_AUDIENCE."
-
             echo ""
             echo "Expected:"
             echo "sts.amazonaws.com"
-
             echo ""
             echo "Actual:"
             echo "${AWS_OIDC_AUDIENCE}"
-
             exit 1
-
           fi
-
 
           echo ""
           echo "AWS OIDC audience validation: PASSED"
-
 
           # --------------------------------------------------
           # Validate GitHub repository.
@@ -540,22 +585,16 @@ jobs:
           EXPECTED_REPOSITORY="awsrmmustansarjavaid/aws-hybrid-iac-lab"
 
           if [[ "${GITHUB_REPOSITORY}" != "${EXPECTED_REPOSITORY}" ]]; then
-
             echo ""
             echo "ERROR: Unexpected GitHub repository."
-
             echo ""
             echo "Expected:"
             echo "${EXPECTED_REPOSITORY}"
-
             echo ""
             echo "Actual:"
             echo "${GITHUB_REPOSITORY}"
-
             exit 1
-
           fi
-
 
           # --------------------------------------------------
           # Validate workflow branch.
@@ -565,87 +604,63 @@ jobs:
           # --------------------------------------------------
 
           if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
-
             echo ""
             echo "WARNING: Workflow is not running from main."
-
             echo ""
             echo "Current ref:"
             echo "${GITHUB_REF}"
-
             echo ""
-            echo "The current AWS IAM trust policy is expected to"
-            echo "allow the main branch."
-
+            echo "The current AWS IAM trust policy is expected to allow the main branch."
           fi
-
 
           # --------------------------------------------------
           # Verify AWS CLI exists.
           # --------------------------------------------------
 
           if ! command -v aws >/dev/null 2>&1; then
-
             echo ""
             echo "ERROR: AWS CLI is not installed."
-
             exit 1
-
           fi
-
 
           echo ""
           echo "AWS CLI:"
           aws --version
-
 
           # --------------------------------------------------
           # Verify jq exists.
           # --------------------------------------------------
 
           if ! command -v jq >/dev/null 2>&1; then
-
             echo ""
             echo "ERROR: jq is not installed."
-
             exit 1
-
           fi
-
 
           echo ""
           echo "jq:"
           jq --version
-
 
           # --------------------------------------------------
           # Verify curl exists.
           # --------------------------------------------------
 
           if ! command -v curl >/dev/null 2>&1; then
-
             echo ""
             echo "ERROR: curl is not installed."
-
             exit 1
-
           fi
-
 
           # --------------------------------------------------
           # Verify Terraform directory exists.
           # --------------------------------------------------
 
           if [[ ! -d "${TF_WORKING_DIRECTORY}" ]]; then
-
             echo ""
             echo "ERROR: Terraform directory does not exist:"
             echo "${TF_WORKING_DIRECTORY}"
-
             exit 1
-
           fi
-
 
           # --------------------------------------------------
           # Verify Terraform configuration files exist.
@@ -659,139 +674,95 @@ jobs:
             -quit |
             grep -q .
           then
-
             echo ""
             echo "ERROR: No Terraform .tf files found."
-
             echo "${TF_WORKING_DIRECTORY}"
-
             exit 1
-
           fi
 
-
           # --------------------------------------------------
-          # Verify state bucket configuration.
+          # Verify Terraform state configuration.
           # --------------------------------------------------
 
           if [[ -z "${TF_STATE_BUCKET}" ]]; then
-
             echo ""
             echo "ERROR: TF_STATE_BUCKET is empty."
-
             exit 1
-
           fi
-
 
           if [[ -z "${TF_STATE_REGION}" ]]; then
-
             echo ""
             echo "ERROR: TF_STATE_REGION is empty."
-
             exit 1
-
           fi
-
 
           if [[ -z "${TF_STATE_KEY}" ]]; then
-
             echo ""
             echo "ERROR: TF_STATE_KEY is empty."
-
             exit 1
-
           fi
-
 
           # --------------------------------------------------
           # Verify state region matches AWS deployment region.
           # --------------------------------------------------
 
           if [[ "${TF_STATE_REGION}" != "${AWS_REGION}" ]]; then
-
             echo ""
             echo "ERROR: Terraform state region does not match AWS region."
-
             echo ""
             echo "AWS_REGION:"
             echo "${AWS_REGION}"
-
             echo ""
             echo "TF_STATE_REGION:"
             echo "${TF_STATE_REGION}"
-
             exit 1
-
           fi
 
-
           # --------------------------------------------------
-          # Verify that long-lived AWS credentials are NOT
-          # being supplied.
+          # Verify long-lived AWS credentials are NOT supplied.
           #
           # This workflow uses GitHub OIDC.
           # --------------------------------------------------
 
           if [[ -n "${AWS_ACCESS_KEY_ID:-}" ]]; then
-
             echo ""
             echo "ERROR: AWS_ACCESS_KEY_ID is present."
-
             echo ""
             echo "This workflow is designed to use GitHub OIDC."
-
             exit 1
-
           fi
-
 
           if [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
-
             echo ""
             echo "ERROR: AWS_SECRET_ACCESS_KEY is present."
-
             echo ""
             echo "This workflow is designed to use GitHub OIDC."
-
             exit 1
-
           fi
-
 
           # --------------------------------------------------
           # Verify GitHub supplied OIDC runtime variables.
           # --------------------------------------------------
 
           if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
-
             echo ""
             echo "ERROR: ACTIONS_ID_TOKEN_REQUEST_TOKEN is unavailable."
-
             echo ""
             echo "Check:"
             echo "  permissions:"
             echo "    id-token: write"
-
             exit 1
-
           fi
-
 
           if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]]; then
-
             echo ""
             echo "ERROR: ACTIONS_ID_TOKEN_REQUEST_URL is unavailable."
-
             echo ""
             echo "Check:"
             echo "  permissions:"
             echo "    id-token: write"
-
             exit 1
-
           fi
-
 
           echo ""
           echo "=================================================="
@@ -805,19 +776,14 @@ jobs:
       # ======================================================
 
       - name: Diagnose GitHub OIDC Claims
-
         shell: bash
-
         run: |
-
           set -euo pipefail
-
 
           echo ""
           echo "=================================================="
           echo "GITHUB OIDC CLAIM DIAGNOSTIC"
           echo "=================================================="
-
 
           echo ""
           echo "Repository:"
@@ -843,30 +809,21 @@ jobs:
           echo "Job:"
           echo "${GITHUB_JOB}"
 
-
           # --------------------------------------------------
           # Verify GitHub OIDC environment variables.
           # --------------------------------------------------
 
           if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
-
             echo ""
             echo "ERROR: ACTIONS_ID_TOKEN_REQUEST_TOKEN is unavailable."
-
             exit 1
-
           fi
-
 
           if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]]; then
-
             echo ""
             echo "ERROR: ACTIONS_ID_TOKEN_REQUEST_URL is unavailable."
-
             exit 1
-
           fi
-
 
           # --------------------------------------------------
           # Request OIDC token.
@@ -874,7 +831,6 @@ jobs:
 
           echo ""
           echo "Requesting OIDC token..."
-
 
           OIDC_RESPONSE="$(
             curl \
@@ -888,29 +844,18 @@ jobs:
               "${ACTIONS_ID_TOKEN_REQUEST_URL}"
           )"
 
-
           # --------------------------------------------------
           # Validate JSON response.
           # --------------------------------------------------
 
           if ! echo "${OIDC_RESPONSE}" | jq empty >/dev/null 2>&1; then
-
             echo ""
             echo "ERROR: GitHub returned invalid JSON."
-
             exit 1
-
           fi
-
 
           # --------------------------------------------------
           # Extract JWT from JSON response.
-          #
-          # GitHub normally returns:
-          #
-          # {
-          #   "value": "JWT..."
-          # }
           # --------------------------------------------------
 
           OIDC_TOKEN="$(
@@ -918,21 +863,14 @@ jobs:
               jq -r '.value // empty'
           )"
 
-
           if [[ -z "${OIDC_TOKEN}" ]]; then
-
             echo ""
             echo "ERROR: OIDC token value was not found."
-
             echo ""
             echo "Returned JSON keys:"
-
             echo "${OIDC_RESPONSE}" | jq -r 'keys[]'
-
             exit 1
-
           fi
-
 
           # --------------------------------------------------
           # NEVER PRINT THE JWT.
@@ -940,9 +878,7 @@ jobs:
 
           echo ""
           echo "OIDC token received successfully."
-
           echo "JWT token itself will NOT be printed."
-
 
           # --------------------------------------------------
           # Extract JWT payload.
@@ -953,16 +889,11 @@ jobs:
               cut -d '.' -f 2
           )"
 
-
           if [[ -z "${JWT_PAYLOAD_B64}" ]]; then
-
             echo ""
             echo "ERROR: Could not extract JWT payload."
-
             exit 1
-
           fi
-
 
           # --------------------------------------------------
           # Decode Base64URL JWT payload.
@@ -988,26 +919,20 @@ jobs:
               base64 --decode
           )"
 
-
           # --------------------------------------------------
           # Verify decoded payload is valid JSON.
           # --------------------------------------------------
 
           if ! echo "${JWT_PAYLOAD}" | jq empty >/dev/null 2>&1; then
-
             echo ""
             echo "ERROR: Decoded OIDC payload is not valid JSON."
-
             exit 1
-
           fi
-
 
           echo ""
           echo "=================================================="
           echo "OIDC CLAIMS"
           echo "=================================================="
-
 
           # --------------------------------------------------
           # Display safe/non-secret claims only.
@@ -1030,7 +955,6 @@ jobs:
             "environment: \(.environment // "<not present>")"
           '
 
-
           # --------------------------------------------------
           # Extract claims used for validation.
           # --------------------------------------------------
@@ -1040,172 +964,95 @@ jobs:
               jq -r '.iss // empty'
           )"
 
-
           AUD="$(
             echo "${JWT_PAYLOAD}" |
               jq -r '.aud // empty'
           )"
-
 
           SUB="$(
             echo "${JWT_PAYLOAD}" |
               jq -r '.sub // empty'
           )"
 
-
           REPOSITORY="$(
             echo "${JWT_PAYLOAD}" |
               jq -r '.repository // empty'
           )"
-
 
           REF="$(
             echo "${JWT_PAYLOAD}" |
               jq -r '.ref // empty'
           )"
 
-
-          # --------------------------------------------------
-          # Expected issuer.
-          # --------------------------------------------------
-
           EXPECTED_ISSUER="https://token.actions.githubusercontent.com"
-
 
           echo ""
           echo "=================================================="
           echo "OIDC VALIDATION"
           echo "=================================================="
 
-
           if [[ "${ISS}" == "${EXPECTED_ISSUER}" ]]; then
-
             echo "PASS: OIDC issuer is correct."
-
           else
-
             echo "FAIL: OIDC issuer is incorrect."
-
             echo "Expected: ${EXPECTED_ISSUER}"
-
             echo "Actual:   ${ISS}"
-
             exit 1
-
           fi
-
-
-          # --------------------------------------------------
-          # Expected audience.
-          # --------------------------------------------------
 
           if [[ "${AUD}" == "${AWS_OIDC_AUDIENCE}" ]]; then
-
             echo "PASS: OIDC audience is correct."
-
           else
-
             echo "FAIL: OIDC audience is incorrect."
-
             echo "Expected: ${AWS_OIDC_AUDIENCE}"
-
             echo "Actual:   ${AUD}"
-
             exit 1
-
           fi
-
-
-          # --------------------------------------------------
-          # Expected repository.
-          # --------------------------------------------------
 
           if [[ "${REPOSITORY}" == "${GITHUB_REPOSITORY}" ]]; then
-
             echo "PASS: Repository claim is correct."
-
           else
-
             echo "FAIL: Repository claim does not match workflow repository."
-
             echo "Expected: ${GITHUB_REPOSITORY}"
-
             echo "Actual:   ${REPOSITORY}"
-
             exit 1
-
           fi
-
-
-          # --------------------------------------------------
-          # Expected ref.
-          # --------------------------------------------------
 
           if [[ "${REF}" == "${GITHUB_REF}" ]]; then
-
             echo "PASS: Ref claim is correct."
-
           else
-
             echo "WARNING: Ref claim differs from GITHUB_REF."
-
             echo "GITHUB_REF: ${GITHUB_REF}"
-
             echo "OIDC ref:    ${REF}"
-
           fi
 
-
-          # --------------------------------------------------
-          # Subject claim analysis.
-          #
-          # Classic GitHub subject:
-          #
-          #   repo:OWNER/REPOSITORY:ref:refs/heads/main
-          #
-          # We display the actual subject rather than modifying
-          # IAM automatically.
-          # --------------------------------------------------
-
           EXPECTED_CLASSIC_SUB="repo:${GITHUB_REPOSITORY}:ref:${GITHUB_REF}"
-
 
           echo ""
           echo "=================================================="
           echo "SUBJECT CLAIM ANALYSIS"
           echo "=================================================="
 
-
           echo ""
           echo "Actual OIDC sub:"
           echo "${SUB}"
-
 
           echo ""
           echo "Classic IAM expected sub:"
           echo "${EXPECTED_CLASSIC_SUB}"
 
-
           if [[ "${SUB}" == "${EXPECTED_CLASSIC_SUB}" ]]; then
-
             echo ""
             echo "PASS: OIDC sub matches the classic IAM trust policy format."
-
           else
-
             echo ""
             echo "WARNING: OIDC sub does NOT match the classic IAM trust policy."
-
             echo ""
             echo "The IAM trust policy may need to be updated."
-
             echo ""
             echo "DO NOT change IAM automatically."
-
             echo "Use the actual 'sub' value displayed above."
-
           fi
-
 
           echo ""
           echo "=================================================="
@@ -1219,18 +1066,13 @@ jobs:
       # ======================================================
 
       - name: Display AWS Deployment Configuration
-
         shell: bash
-
         run: |
-
           set -euo pipefail
-
 
           echo "=================================================="
           echo "AWS DEPLOYMENT CONFIGURATION"
           echo "=================================================="
-
 
           echo ""
           echo "AWS Region:"
@@ -1280,7 +1122,6 @@ jobs:
           echo "Terraform State Key:"
           echo "${TF_STATE_KEY}"
 
-
           echo ""
           echo "=================================================="
           echo "CONFIGURATION DISPLAY COMPLETED"
@@ -1291,32 +1132,14 @@ jobs:
       # STEP 5
       # CONFIGURE AWS CREDENTIALS USING GITHUB OIDC
       # ======================================================
-      #
-      # v5.1.1 is retained for this project because this workflow
-      # is being used as a reusable workflow.
-      #
-      # ======================================================
 
       - name: Configure AWS Credentials Using OIDC
-
         uses: aws-actions/configure-aws-credentials@v5.1.1
-
         with:
-
-          # AWS deployment region.
           aws-region: ${{ env.AWS_REGION }}
-
-          # IAM role GitHub Actions will assume.
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
-
-          # CloudTrail/STS session name.
           role-session-name: ${{ env.AWS_ROLE_SESSION_NAME }}
-
-          # Explicit OIDC audience.
           audience: ${{ env.AWS_OIDC_AUDIENCE }}
-
-          # Extra safety:
-          # only allow credentials from the expected account.
           allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
 
 
@@ -1326,72 +1149,43 @@ jobs:
       # ======================================================
 
       - name: Verify AWS Identity
-
         shell: bash
-
         run: |
-
           set -euo pipefail
-
 
           echo "=================================================="
           echo "AWS STS IDENTITY"
           echo "=================================================="
 
-
           IDENTITY_JSON="$(aws sts get-caller-identity)"
 
-
           echo "${IDENTITY_JSON}" | jq .
-
 
           ACCOUNT_ID="$(
             echo "${IDENTITY_JSON}" |
               jq -r '.Account'
           )"
 
-
           ARN="$(
             echo "${IDENTITY_JSON}" |
               jq -r '.Arn'
           )"
 
-
-          # --------------------------------------------------
-          # Verify expected AWS account.
-          # --------------------------------------------------
-
           if [[ "${ACCOUNT_ID}" != "${AWS_ACCOUNT_ID}" ]]; then
-
             echo ""
             echo "ERROR: Unexpected AWS account."
-
             echo "Expected: ${AWS_ACCOUNT_ID}"
-
             echo "Actual:   ${ACCOUNT_ID}"
-
             exit 1
-
           fi
-
-
-          # --------------------------------------------------
-          # Verify expected IAM role.
-          # --------------------------------------------------
 
           if [[ "${ARN}" != *"${AWS_EXPECTED_ROLE_NAME}"* ]]; then
-
             echo ""
             echo "ERROR: Unexpected AWS IAM role."
-
             echo "Expected role: ${AWS_EXPECTED_ROLE_NAME}"
-
             echo "Actual ARN:    ${ARN}"
-
             exit 1
-
           fi
-
 
           echo ""
           echo "AWS account verification: PASSED"
@@ -1401,7 +1195,6 @@ jobs:
 
           echo ""
           echo "AWS OIDC authentication: PASSED"
-
 
           echo ""
           echo "=================================================="
@@ -1415,18 +1208,13 @@ jobs:
       # ======================================================
 
       - name: Bootstrap Terraform State Bucket
-
         shell: bash
-
         run: |
-
           set -euo pipefail
-
 
           echo "=================================================="
           echo "TERRAFORM STATE BACKEND BOOTSTRAP"
           echo "=================================================="
-
 
           echo ""
           echo "State bucket:"
@@ -1440,77 +1228,44 @@ jobs:
           echo "State key:"
           echo "${TF_STATE_KEY}"
 
-
-          # --------------------------------------------------
-          # Check whether bucket exists.
-          # --------------------------------------------------
-
           echo ""
           echo "Checking Terraform state bucket..."
-
 
           if aws s3api head-bucket \
             --bucket "${TF_STATE_BUCKET}" \
             --region "${TF_STATE_REGION}" \
             2>/dev/null
           then
-
             echo "Terraform state bucket already exists."
-
           else
-
             echo "Terraform state bucket does not exist."
-
             echo "Creating Terraform state bucket..."
 
-
-            # ------------------------------------------------
-            # us-east-1 does not use LocationConstraint.
-            # ------------------------------------------------
-
             if [[ "${TF_STATE_REGION}" == "us-east-1" ]]; then
-
               aws s3api create-bucket \
                 --bucket "${TF_STATE_BUCKET}" \
                 --region "${TF_STATE_REGION}"
-
             else
-
               aws s3api create-bucket \
                 --bucket "${TF_STATE_BUCKET}" \
                 --region "${TF_STATE_REGION}" \
                 --create-bucket-configuration \
                   LocationConstraint="${TF_STATE_REGION}"
-
             fi
 
-
             echo "Terraform state bucket created."
-
           fi
-
-
-          # --------------------------------------------------
-          # Enable versioning.
-          # --------------------------------------------------
 
           echo ""
           echo "Enabling S3 versioning..."
-
 
           aws s3api put-bucket-versioning \
             --bucket "${TF_STATE_BUCKET}" \
             --region "${TF_STATE_REGION}" \
             --versioning-configuration Status=Enabled
 
-
-          # --------------------------------------------------
-          # Enable SSE-S3 encryption.
-          # --------------------------------------------------
-
           echo ""
           echo "Enabling S3 encryption..."
-
 
           aws s3api put-bucket-encryption \
             --bucket "${TF_STATE_BUCKET}" \
@@ -1526,14 +1281,8 @@ jobs:
               ]
             }'
 
-
-          # --------------------------------------------------
-          # Block public access.
-          # --------------------------------------------------
-
           echo ""
           echo "Blocking public access..."
-
 
           aws s3api put-public-access-block \
             --bucket "${TF_STATE_BUCKET}" \
@@ -1541,14 +1290,8 @@ jobs:
             --public-access-block-configuration \
             BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
 
-
-          # --------------------------------------------------
-          # Apply bucket tags.
-          # --------------------------------------------------
-
           echo ""
           echo "Applying bucket tags..."
-
 
           aws s3api put-bucket-tagging \
             --bucket "${TF_STATE_BUCKET}" \
@@ -1578,16 +1321,10 @@ jobs:
               ]
             }'
 
-
-          # --------------------------------------------------
-          # Verify bucket.
-          # --------------------------------------------------
-
           echo ""
           echo "=================================================="
           echo "STATE BUCKET VERIFICATION"
           echo "=================================================="
-
 
           echo ""
           echo "Bucket:"
@@ -1596,14 +1333,12 @@ jobs:
             --bucket "${TF_STATE_BUCKET}" \
             --region "${TF_STATE_REGION}"
 
-
           echo ""
           echo "Versioning:"
 
           aws s3api get-bucket-versioning \
             --bucket "${TF_STATE_BUCKET}" \
             --region "${TF_STATE_REGION}"
-
 
           echo ""
           echo "Encryption:"
@@ -1612,14 +1347,12 @@ jobs:
             --bucket "${TF_STATE_BUCKET}" \
             --region "${TF_STATE_REGION}"
 
-
           echo ""
           echo "Public Access Block:"
 
           aws s3api get-public-access-block \
             --bucket "${TF_STATE_BUCKET}" \
             --region "${TF_STATE_REGION}"
-
 
           echo ""
           echo "Terraform state backend bootstrap completed."
@@ -1631,11 +1364,8 @@ jobs:
       # ======================================================
 
       - name: Setup Terraform
-
         uses: hashicorp/setup-terraform@v3
-
         with:
-
           terraform_version: ${{ env.TF_VERSION }}
 
 
@@ -1643,15 +1373,43 @@ jobs:
       # STEP 9
       # TERRAFORM INIT
       # ======================================================
+      #
+      # Initializes the S3 backend.
+      #
+      # IMPORTANT:
+      #
+      # This assumes your Terraform configuration contains:
+      #
+      #   terraform {
+      #     backend "s3" {}
+      #   }
+      #
+      # The actual bucket/key/region are supplied here so the
+      # backend does not depend on hard-coded credentials.
+      #
+      # ======================================================
 
       - name: Terraform Init
-
         working-directory: ${{ env.TF_WORKING_DIRECTORY }}
-
+        shell: bash
         run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "TERRAFORM INIT"
+          echo "=================================================="
 
           terraform init \
-            -input=false
+            -input=false \
+            -reconfigure \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=${TF_STATE_KEY}" \
+            -backend-config="region=${TF_STATE_REGION}"
+
+          echo ""
+          echo "=================================================="
+          echo "TERRAFORM INIT COMPLETED"
+          echo "=================================================="
 
 
       # ======================================================
@@ -1660,10 +1418,10 @@ jobs:
       # ======================================================
 
       - name: Terraform Format Check
-
         working-directory: ${{ env.TF_WORKING_DIRECTORY }}
-
+        shell: bash
         run: |
+          set -euo pipefail
 
           terraform fmt \
             -check \
@@ -1676,10 +1434,10 @@ jobs:
       # ======================================================
 
       - name: Terraform Validate
-
         working-directory: ${{ env.TF_WORKING_DIRECTORY }}
-
+        shell: bash
         run: |
+          set -euo pipefail
 
           terraform validate
 
@@ -1689,80 +1447,79 @@ jobs:
       # TERRAFORM STATE DIAGNOSTIC
       # ======================================================
       #
-      # IMPORTANT:
+      # On the FIRST Terraform deployment there may be no state
+      # file yet.
       #
-      # A first deployment normally has no Terraform state.
+      # In that situation:
       #
-      # However, we must NOT hide real backend errors.
+      #   terraform state list
+      #
+      # may return a non-zero exit code.
+      #
+      # That is NOT automatically a deployment failure.
+      #
+      # Genuine backend/authentication/configuration errors
+      # must still fail the workflow.
       #
       # Therefore:
       #
-      #   - genuine "no state" condition = informational
-      #   - unexpected Terraform error = workflow failure
+      #   Missing initial state -> acceptable
+      #   Any other error        -> workflow fails
       #
       # ======================================================
 
       - name: Terraform State Diagnostic
-
-        shell: bash
-
         working-directory: ${{ env.TF_WORKING_DIRECTORY }}
-
+        shell: bash
         run: |
-
-          set -u
-
+          set -uo pipefail
 
           echo "=================================================="
           echo "TERRAFORM STATE DIAGNOSTIC"
           echo "=================================================="
 
+          STATE_FILE="$(mktemp)"
 
-          STATE_FILE="/tmp/terraform-state.txt"
+          cleanup() {
+            rm -f "${STATE_FILE}"
+          }
 
+          trap cleanup EXIT
 
-          rm -f "${STATE_FILE}"
-
+          echo ""
+          echo "Checking current Terraform state..."
 
           # --------------------------------------------------
-          # Query Terraform state.
+          # Do NOT use set -e here because terraform state list
+          # can legitimately return a non-zero code when no
+          # state exists yet.
           # --------------------------------------------------
 
           terraform state list > "${STATE_FILE}" 2>&1
-
           STATE_EXIT_CODE=$?
 
+          echo ""
+          echo "Terraform state command exit code: ${STATE_EXIT_CODE}"
 
           # --------------------------------------------------
-          # Successful state query.
+          # EXIT CODE 0
+          #
+          # State exists and command completed normally.
           # --------------------------------------------------
 
           if [[ "${STATE_EXIT_CODE}" -eq 0 ]]; then
 
+            echo ""
+            echo "Terraform state exists."
+
             if [[ -s "${STATE_FILE}" ]]; then
-
               echo ""
-              echo "Terraform state resources:"
-              echo ""
-
+              echo "Resources currently recorded in Terraform state:"
               cat "${STATE_FILE}"
-
-              echo ""
-              echo "Terraform state status:"
-              echo "STATE EXISTS AND CONTAINS RESOURCES."
-
             else
-
               echo ""
-              echo "Terraform state exists but contains no resources."
-
-              echo ""
-              echo "Terraform state status:"
-              echo "STATE EXISTS BUT IS EMPTY."
-
+              echo "Terraform state exists but currently contains no resources."
             fi
-
-            rm -f "${STATE_FILE}"
 
             echo ""
             echo "=================================================="
@@ -1770,76 +1527,70 @@ jobs:
             echo "=================================================="
 
             exit 0
-
           fi
 
-
           # --------------------------------------------------
-          # Non-zero result.
+          # NON-ZERO EXIT CODE
           #
-          # Determine whether this is the expected first-run
-          # "no state file" condition.
-          # --------------------------------------------------
-
-          if grep -qiE \
-            "No state file was found|No state file|state file was not found" \
-            "${STATE_FILE}"
-          then
-
-            echo ""
-            echo "No Terraform state currently exists."
-
-            echo ""
-            echo "Terraform state status:"
-            echo "FIRST DEPLOYMENT / NO STATE."
-
-            echo ""
-            echo "This is normal before the first successful apply."
-
-            echo ""
-            echo "Terraform will create/update the state after apply."
-
-
-            if [[ -s "${STATE_FILE}" ]]; then
-
-              echo ""
-              echo "Terraform diagnostic output:"
-              cat "${STATE_FILE}"
-
-            fi
-
-
-            rm -f "${STATE_FILE}"
-
-
-            echo ""
-            echo "=================================================="
-            echo "TERRAFORM STATE DIAGNOSTIC COMPLETED"
-            echo "=================================================="
-
-
-            exit 0
-
-          fi
-
-
-          # --------------------------------------------------
-          # Any other non-zero result is a REAL error.
-          #
-          # Do not hide backend/authentication/state errors.
+          # Display diagnostic output.
           # --------------------------------------------------
 
           echo ""
-          echo "ERROR: Terraform state command failed."
+          echo "Terraform returned a non-zero exit code."
 
           echo ""
           echo "Terraform diagnostic output:"
 
           cat "${STATE_FILE}"
 
+          # --------------------------------------------------
+          # FIRST DEPLOYMENT / EMPTY STATE
+          #
+          # These messages indicate that the state file does
+          # not exist yet.
+          # --------------------------------------------------
 
-          rm -f "${STATE_FILE}"
+          if grep -qiE \
+            "No state file was found|State management commands require a state file|No state file|state file was found" \
+            "${STATE_FILE}"
+          then
 
+            echo ""
+            echo "=================================================="
+            echo "NO TERRAFORM STATE FILE EXISTS YET"
+            echo "=================================================="
+
+            echo ""
+            echo "This is expected for the first deployment."
+
+            echo ""
+            echo "Terraform will create the state after terraform apply."
+
+            echo ""
+            echo "Terraform state diagnostic completed successfully."
+
+            exit 0
+          fi
+
+          # --------------------------------------------------
+          # ANY OTHER ERROR
+          #
+          # Do NOT hide real backend/authentication/configuration
+          # problems.
+          # --------------------------------------------------
+
+          echo ""
+          echo "=================================================="
+          echo "ERROR: TERRAFORM STATE COMMAND FAILED"
+          echo "=================================================="
+
+          echo ""
+          echo "The failure was NOT caused by a missing initial state file."
+
+          echo ""
+          echo "Terraform diagnostic output:"
+
+          cat "${STATE_FILE}"
 
           exit "${STATE_EXIT_CODE}"
 
@@ -1849,14 +1600,8 @@ jobs:
       # DISCOVER AMAZON LINUX 2023 AMI
       # ======================================================
       #
-      # PURPOSE:
-      #
       # Dynamically discovers the latest Amazon Linux 2023
       # x86_64 AMI from AWS Systems Manager Parameter Store.
-      #
-      # This prevents hard-coding an AMI such as:
-      #
-      #   ami-xxxxxxxxxxxxxxxxx
       #
       # The discovered value is exported as:
       #
@@ -1880,39 +1625,23 @@ jobs:
       # ======================================================
 
       - name: Discover Amazon Linux 2023 AMI
-
         shell: bash
-
         run: |
-
           set -euo pipefail
-
 
           echo "=================================================="
           echo "DISCOVER AMAZON LINUX 2023 AMI"
           echo "=================================================="
 
-
-          # --------------------------------------------------
-          # AWS-managed public SSM parameter.
-          # --------------------------------------------------
-
           SSM_AMI_PARAMETER="/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
-
 
           echo ""
           echo "SSM AMI Parameter:"
           echo "${SSM_AMI_PARAMETER}"
 
-
           echo ""
           echo "AWS Region:"
           echo "${AWS_REGION}"
-
-
-          # --------------------------------------------------
-          # Query SSM Parameter Store.
-          # --------------------------------------------------
 
           AMI_ID="$(
             aws ssm get-parameter \
@@ -1922,51 +1651,27 @@ jobs:
               --region "${AWS_REGION}"
           )"
 
-
-          # --------------------------------------------------
-          # Verify AMI value.
-          # --------------------------------------------------
-
           if [[ -z "${AMI_ID}" || "${AMI_ID}" == "None" ]]; then
-
             echo ""
             echo "ERROR: Failed to discover Amazon Linux 2023 AMI."
-
             echo ""
             echo "SSM parameter:"
             echo "${SSM_AMI_PARAMETER}"
-
             exit 1
-
           fi
 
-
-          # --------------------------------------------------
-          # Validate AMI ID format.
-          # --------------------------------------------------
-
           if [[ ! "${AMI_ID}" =~ ^ami-[0-9a-fA-F]{8,}$ ]]; then
-
             echo ""
             echo "ERROR: Invalid AMI ID returned by AWS."
-
             echo ""
             echo "Returned value:"
             echo "${AMI_ID}"
-
             exit 1
-
           fi
-
-
-          # --------------------------------------------------
-          # Display discovered AMI.
-          # --------------------------------------------------
 
           echo ""
           echo "Amazon Linux 2023 AMI:"
           echo "${AMI_ID}"
-
 
           # --------------------------------------------------
           # Export AMI for subsequent Terraform steps.
@@ -1985,11 +1690,9 @@ jobs:
 
           echo "TF_VAR_ami_id=${AMI_ID}" >> "${GITHUB_ENV}"
 
-
           echo ""
           echo "Terraform variable exported:"
           echo "TF_VAR_ami_id=${AMI_ID}"
-
 
           echo ""
           echo "=================================================="
@@ -2001,50 +1704,36 @@ jobs:
       # STEP 14
       # TERRAFORM PLAN
       # ======================================================
-      #
-      # The plan is saved to:
-      #
-      #   TF_PLAN_FILE
-      #
-      # The AMI variable is now available through:
-      #
-      #   TF_VAR_ami_id
-      #
-      # ======================================================
 
       - name: Terraform Plan
-
         working-directory: ${{ env.TF_WORKING_DIRECTORY }}
-
+        shell: bash
         run: |
-
           set -euo pipefail
-
 
           echo "=================================================="
           echo "TERRAFORM PLAN"
           echo "=================================================="
 
-
           echo ""
           echo "Terraform directory:"
           echo "${TF_WORKING_DIRECTORY}"
-
 
           echo ""
           echo "Plan file:"
           echo "${TF_PLAN_FILE}"
 
-
           echo ""
           echo "AMI variable:"
           echo "${TF_VAR_ami_id}"
 
+          # --------------------------------------------------
+          # Generate the exact plan that will be applied.
+          # --------------------------------------------------
 
           terraform plan \
             -input=false \
             -out="${TF_PLAN_FILE}"
-
 
           echo ""
           echo "=================================================="
@@ -2065,31 +1754,24 @@ jobs:
       # ======================================================
 
       - name: Terraform Apply
-
         if: ${{ env.TF_AUTO_APPROVE == 'true' }}
-
         working-directory: ${{ env.TF_WORKING_DIRECTORY }}
-
+        shell: bash
         run: |
-
           set -euo pipefail
-
 
           echo "=================================================="
           echo "TERRAFORM APPLY"
           echo "=================================================="
 
-
           echo ""
           echo "Applying exact generated plan:"
           echo "${TF_PLAN_FILE}"
-
 
           terraform apply \
             -input=false \
             -auto-approve \
             "${TF_PLAN_FILE}"
-
 
           echo ""
           echo "=================================================="
