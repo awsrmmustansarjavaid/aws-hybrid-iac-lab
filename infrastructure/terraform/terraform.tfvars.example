@@ -3,35 +3,119 @@
 # ============================================================
 #
 # File:
+#
 #   infrastructure/terraform/terraform.tfvars.example
 #
 # Purpose:
-#   Example/template configuration file showing all variables
-#   required by the Terraform deployment.
 #
-# IMPORTANT:
+#   Example/template Terraform configuration showing the
+#   variables required by the Hybrid Terraform +
+#   CloudFormation architecture.
 #
-#   This is an EXAMPLE file.
 #
-#   Replace every REPLACE_WITH_* value with the appropriate
-#   value when creating your own terraform.tfvars.
+# ============================================================
+# IMPORTANT
+# ============================================================
 #
-#   DO NOT place real passwords or sensitive values in this
-#   example file.
+# This is an EXAMPLE file.
+#
+# It must NOT contain:
+#
+#   - Real database passwords
+#   - Real secrets
+#   - Private credentials
+#   - Unnecessary production values
+#
 #
 # Recommended workflow:
 #
-#   1. Copy this file:
+#   1. Copy:
 #
-#      terraform.tfvars.example
+#        terraform.tfvars.example
 #
 #      to:
 #
-#      terraform.tfvars
+#        terraform.tfvars
 #
-#   2. Replace the placeholders with REAL AWS values.
+#
+#   2. Replace the REPLACE_WITH_* placeholders.
+#
 #
 #   3. Keep terraform.tfvars out of Git.
+#
+#
+# Recommended .gitignore entries:
+#
+#   terraform.tfvars
+#   *.tfvars
+#   *.tfvars.json
+#
+#
+# ============================================================
+# ARCHITECTURE
+# ============================================================
+#
+# Terraform manages:
+#
+#   - IAM
+#   - CloudFormation root stack
+#   - CloudFormation template bucket
+#   - Other Terraform-specific infrastructure
+#
+#
+# CloudFormation creates:
+#
+#   - VPC
+#   - Subnets
+#   - Application S3 bucket
+#   - Lambda
+#   - ECR repository
+#   - DynamoDB
+#   - API Gateway
+#   - CloudFront
+#   - EC2
+#   - ECS
+#   - EKS
+#   - RDS
+#
+#
+# Therefore this example intentionally DOES NOT contain
+# variables for CloudFormation-created resource IDs or ARNs.
+#
+#
+# ============================================================
+# IAM ARCHITECTURE
+# ============================================================
+#
+# Terraform creates/manages the IAM resources.
+#
+# Therefore IAM resource NAME variables are included:
+#
+#   github_actions_role_name
+#   github_actions_policy_name
+#   terraform_backend_policy_name
+#   github_ci_cd_combined_policy_name
+#
+#
+# The IAM policy JSON documents themselves remain in:
+#
+#   repository-root/IAM/
+#
+#
+# Do NOT add:
+#
+#   iam_policy_directory
+#
+#
+# Do NOT add IAM ARN variables such as:
+#
+#   github_actions_role_arn
+#   github_actions_policy_arn
+#
+#
+# Terraform obtains those values directly from the resources
+# it creates.
+#
 #
 # ============================================================
 
@@ -39,81 +123,55 @@
 # ============================================================
 # 1. AWS REGION
 # ============================================================
+#
+# Example:
+#
+#   us-east-1
+#
+# ============================================================
 
 aws_region = "us-east-1"
+
 
 
 # ============================================================
 # 2. PROJECT NAME
 # ============================================================
+#
+# Main project/lab name.
+#
+# ============================================================
 
 project_name = "HybridIaCLab"
+
 
 
 # ============================================================
 # 3. ENVIRONMENT
 # ============================================================
+#
+# Supported:
+#
+#   dev
+#   test
+#   staging
+#   prod
+#
+# ============================================================
 
 environment = "dev"
 
 
-# ============================================================
-# 4. VPC ID
-# ============================================================
-#
-# Replace with your real VPC ID.
-#
-# Example:
-#
-#   vpc-0123456789abcdef0
-#
-# ============================================================
-
-vpc_id = "REPLACE_WITH_REAL_VPC_ID"
-
 
 # ============================================================
-# 5. PRIMARY PUBLIC SUBNET ID
-# ============================================================
-
-public_subnet_id = "REPLACE_WITH_REAL_PUBLIC_SUBNET_ID"
-
-
-# ============================================================
-# 6. PUBLIC SUBNET 1 ID
-# ============================================================
-
-public_subnet_1_id = "REPLACE_WITH_REAL_PUBLIC_SUBNET_1_ID"
-
-
-# ============================================================
-# 7. PUBLIC SUBNET 2 ID
-# ============================================================
-
-public_subnet_2_id = "REPLACE_WITH_REAL_PUBLIC_SUBNET_2_ID"
-
-
-# ============================================================
-# 8. PRIVATE SUBNET 1 ID
-# ============================================================
-
-private_subnet_1_id = "REPLACE_WITH_REAL_PRIVATE_SUBNET_1_ID"
-
-
-# ============================================================
-# 9. PRIVATE SUBNET 2 ID
-# ============================================================
-
-private_subnet_2_id = "REPLACE_WITH_REAL_PRIVATE_SUBNET_2_ID"
-
-
-# ============================================================
-# 10. AMAZON LINUX 2023 AMI ID
+# 4. AMAZON LINUX 2023 AMI ID
 # ============================================================
 #
-# For us-east-1.
+# Replace with the current Amazon Linux 2023 AMI ID for
+# your selected AWS region.
 #
-# Recommended command:
+#
+# Recommended command for us-east-1:
 #
 #   aws ssm get-parameter `
 #     --name "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64" `
@@ -121,74 +179,256 @@ private_subnet_2_id = "REPLACE_WITH_REAL_PRIVATE_SUBNET_2_ID"
 #     --output text `
 #     --region us-east-1
 #
+#
+# Example:
+#
+#   ami-0123456789abcdef0
+#
 # ============================================================
 
 ami_id = "REPLACE_WITH_REAL_AMAZON_LINUX_2023_AMI_ID"
 
 
+
 # ============================================================
-# 11. APPLICATION S3 BUCKET NAME
+# 5. DATABASE USERNAME
 # ============================================================
 #
-# This is the APPLICATION bucket.
-#
-# It is NOT the CloudFormation template bucket.
-#
-# CloudFormation template bucket:
-#
-#   hybridiaclab-dev-cfn-templates-a635abe09098d12756b031e2bb
+# RDS administrator username.
 #
 # ============================================================
 
-application_bucket_name = "REPLACE_WITH_REAL_APPLICATION_BUCKET_NAME"
+database_username = "admin"
 
-
-# ============================================================
-# 12. LAMBDA FUNCTION ARN
-# ============================================================
-
-lambda_function_arn = "REPLACE_WITH_REAL_LAMBDA_FUNCTION_ARN"
 
 
 # ============================================================
-# 13. ECR IMAGE URI
-# ============================================================
-
-ecr_image_uri = "REPLACE_WITH_REAL_ECR_IMAGE_URI"
-
-
-# ============================================================
-# 14. DATABASE PASSWORD
+# 6. DATABASE PASSWORD
 # ============================================================
 #
-# NEVER put a real password in this example file.
+# NEVER place a real password in this example file.
 #
-# The actual password belongs only in your local
-# terraform.tfvars or a secure secret-management system.
+# Replace the placeholder only in your private:
+#
+#   terraform.tfvars
+#
+#
+# For CI/CD, prefer a GitHub Actions secret exposed as:
+#
+#   TF_VAR_database_password
 #
 # ============================================================
 
 database_password = "REPLACE_WITH_STRONG_DATABASE_PASSWORD"
 
 
+
+# ============================================================
+# 7. GITHUB ACTIONS IAM ROLE NAME
+# ============================================================
+#
+# Name of the IAM role assumed by GitHub Actions through
+# GitHub OIDC.
+#
+# Terraform creates/manages this role.
+#
+# ============================================================
+
+github_actions_role_name = "github-actions-oidc-role"
+
+
+
+# ============================================================
+# 8. GITHUB ACTIONS IAM POLICY NAME
+# ============================================================
+#
+# Name of the customer-managed IAM policy attached to the
+# GitHub Actions OIDC role.
+#
+# The policy JSON document itself is stored under:
+#
+#   IAM/aws-hybrid-iac-lab-GitHubActionsPolicy.json
+#
+# ============================================================
+
+github_actions_policy_name = "aws-hybrid-iac-lab-GitHubActionsPolicy"
+
+
+
+# ============================================================
+# 9. TERRAFORM BACKEND IAM POLICY NAME
+# ============================================================
+#
+# Name of the customer-managed IAM policy used by the
+# Terraform backend.
+#
+# ============================================================
+
+terraform_backend_policy_name = "github-actions-terraform-backend-policy"
+
+
+
+# ============================================================
+# 10. GITHUB CI/CD COMBINED IAM POLICY NAME
+# ============================================================
+#
+# Name of the customer-managed IAM policy containing the
+# combined AWS permissions required by the GitHub CI/CD
+# identity.
+#
+# The policy document itself is stored under:
+#
+#   IAM/github-ci-cd-user-combined-access.json
+#
+# ============================================================
+
+github_ci_cd_combined_policy_name = "github-ci-cd-user-combined-access"
+
+
+
+# ============================================================
+# ARCHITECTURE NOTE
+# ============================================================
+#
+# The following variables intentionally DO NOT exist:
+#
+#   vpc_id
+#   public_subnet_id
+#   public_subnet_1_id
+#   public_subnet_2_id
+#   private_subnet_1_id
+#   private_subnet_2_id
+#   application_bucket_name
+#   lambda_function_arn
+#
+#
+# These values are created by CloudFormation.
+#
+#
+# Example:
+#
+#   Terraform
+#       |
+#       v
+#   CloudFormation Root Stack
+#       |
+#       +--> VPC Stack
+#       |      |
+#       |      +--> VpcId
+#       |      +--> PublicSubnet1Id
+#       |      +--> PublicSubnet2Id
+#       |      +--> PrivateSubnet1Id
+#       |      +--> PrivateSubnet2Id
+#       |
+#       +--> S3 Stack
+#       |      |
+#       |      +--> Application Bucket
+#       |
+#       +--> Lambda Stack
+#       |      |
+#       |      +--> Lambda Function
+#       |
+#       +--> ECR Stack
+#       |
+#       +--> Database Stack
+#       |
+#       +--> Application Stacks
+#
+#
+# CloudFormation outputs should be used when another
+# CloudFormation stack or Terraform resource needs values
+# created inside the hierarchy.
+#
+#
+# ============================================================
+# IAM NOTE
+# ============================================================
+#
+# IAM is managed separately by Terraform.
+#
+#
+# Example:
+#
+#   Terraform
+#       |
+#       +--> IAM Role
+#       |
+#       +--> IAM Policy
+#       |
+#       +--> Policy Attachment
+#       |
+#       v
+#      AWS IAM
+#
+#
+# IAM JSON policy files remain repository files:
+#
+#   repository-root/
+#   |
+#   +-- IAM/
+#       |
+#       +-- aws-hybrid-iac-lab-GitHubActionsPolicy.json
+#       +-- github-actions-terraform-backend-policy.json
+#       +-- github-ci-cd-user-combined-access.json
+#
+#
+# iam.tf references these using the fixed repository path.
+#
+#
 # ============================================================
 # EXAMPLE FILE CHECKLIST
 # ============================================================
 #
 # This file intentionally contains placeholders.
 #
-# DO NOT replace the placeholders here with your real AWS
-# infrastructure values.
 #
-# Instead:
+# Values to replace after copying to terraform.tfvars:
 #
-#   terraform.tfvars.example
-#             |
-#             v
-#       copy to terraform.tfvars
-#             |
-#             v
-#       add REAL values
+#   [ ] ami_id
+#   [ ] database_password
+#
+#
+# IAM names can remain at their defaults or be customized:
+#
+#   [ ] github_actions_role_name
+#   [ ] github_actions_policy_name
+#   [ ] terraform_backend_policy_name
+#   [ ] github_ci_cd_combined_policy_name
+#
+#
+# ============================================================
+# VARIABLES INTENTIONALLY REMOVED
+# ============================================================
+#
+# These are no longer Terraform input variables because
+# CloudFormation creates the corresponding resources:
+#
+#   [x] vpc_id
+#   [x] public_subnet_id
+#   [x] public_subnet_1_id
+#   [x] public_subnet_2_id
+#   [x] private_subnet_1_id
+#   [x] private_subnet_2_id
+#   [x] application_bucket_name
+#   [x] lambda_function_arn
+#
+#
+# ============================================================
+# IAM VALUES INTENTIONALLY NOT INCLUDED
+# ============================================================
+#
+# These are also intentionally NOT variables:
+#
+#   [x] github_actions_role_arn
+#   [x] github_actions_policy_arn
+#   [x] terraform_backend_policy_arn
+#   [x] iam_policy_directory
+#
+#
+# IAM ARNs are obtained from Terraform-managed IAM resources.
+#
+# The IAM directory is a fixed repository path.
+#
 #
 # ============================================================
 # END OF terraform.tfvars.example

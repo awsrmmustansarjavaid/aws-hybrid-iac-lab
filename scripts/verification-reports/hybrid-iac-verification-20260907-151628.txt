@@ -1,0 +1,124 @@
+﻿============================================================
+HYBRID AWS IAC LAB - ARCHITECTURE VERIFICATION REPORT
+============================================================
+
+Project Root: C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab
+Verification Started: 09/07/2026 15:16:28
+Verification Finished: 09/07/2026 15:17:15
+Duration: 00:00:47.1187196
+
+FINAL RESULT: FAIL - ARCHITECTURE VERIFICATION FAILED
+
+Passed Checks : 55
+Failed Checks : 10
+Warnings      : 3
+
+============================================================
+DETAILED CHECK RESULTS
+============================================================
+
+============================================================
+ERROR LOG
+============================================================
+[ERROR] [TERRAFORM] cloudformation.tf must not pass EcrImageUri - Unexpected text was found: EcrImageUri = var.ecr_image_uri
+[ERROR] [TERRAFORM] terraform fmt -check - Terraform formatting check failed. Output: cloudformation.tf
+[ERROR] [CLOUDFORMATION] Validate main.yaml - main.yaml failed validation. Output: aws.exe : 
+At C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\scripts\verify-hybrid-iac-architecture.ps1:223 char:19
++         $Output = & $FilePath @Arguments 2>&1
++                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+aws: [ERROR]: An error occurred (ValidationError) when calling the ValidateTemplate operation: Template parameters must be a map
+[ERROR] [CLOUDFORMATION] Validate lambda.yaml - lambda.yaml failed validation. Output: aws.exe : 
+At C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\scripts\verify-hybrid-iac-architecture.ps1:223 char:19
++         $Output = & $FilePath @Arguments 2>&1
++                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+aws: [ERROR]: An error occurred (ValidationError) when calling the ValidateTemplate operation: Template format error: YAML not well-formed. (line 518, column 1)
+[ERROR] [CLOUDFORMATION] Validate api-gateway.yaml - api-gateway.yaml failed validation. Output: aws.exe : 
+At C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\scripts\verify-hybrid-iac-architecture.ps1:223 char:19
++         $Output = & $FilePath @Arguments 2>&1
++                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+aws: [ERROR]: An error occurred (ValidationError) when calling the ValidateTemplate operation: Template format error: YAML not well-formed. (line 339, column 1)
+[ERROR] [CLOUDFORMATION] Validate cloudfront.yaml - cloudfront.yaml failed validation. Output: aws.exe : 
+At C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\scripts\verify-hybrid-iac-architecture.ps1:223 char:19
++         $Output = & $FilePath @Arguments 2>&1
++                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+aws: [ERROR]: An error occurred (ValidationError) when calling the ValidateTemplate operation: Template format error: YAML not well-formed. (line 882, column 1)
+[ERROR] [CLOUDFORMATION] Validate ec2.yaml - ec2.yaml failed validation. Output: aws.exe : 
+At C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\scripts\verify-hybrid-iac-architecture.ps1:223 char:19
++         $Output = & $FilePath @Arguments 2>&1
++                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+aws: [ERROR]: An error occurred (ValidationError) when calling the ValidateTemplate operation: Template format error: YAML not well-formed. (line 680, column 1)
+[ERROR] [CLOUDFORMATION] Validate eks.yaml - eks.yaml failed validation. Output: aws.exe : 
+At C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\scripts\verify-hybrid-iac-architecture.ps1:223 char:19
++         $Output = & $FilePath @Arguments 2>&1
++                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+aws: [ERROR]: An error occurred (ValidationError) when calling the ValidateTemplate operation: Template parameters must be a map
+[ERROR] [CLOUDFORMATION] Validate rds.yaml - rds.yaml failed validation. Output: aws.exe : 
+At C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\scripts\verify-hybrid-iac-architecture.ps1:223 char:19
++         $Output = & $FilePath @Arguments 2>&1
++                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+aws: [ERROR]: An error occurred (ValidationError) when calling the ValidateTemplate operation: Template format error: YAML not well-formed. (line 936, column 1)
+[ERROR] [ARCHITECTURE] Bootstrap does not require Docker image - Bootstrap still contains an ECR image dependency or ECS resource.
+
+============================================================
+WARNING LOG
+============================================================
+[WARNING] [TERRAFORM] No remaining ecr_image_uri references - References still exist: C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\infrastructure\terraform\cloudformation.tf:211: # EcrImageUri = var.ecr_image_uri | C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\infrastructure\terraform\cloudformation.tf:524: #   EcrImageUri = var.ecr_image_uri | C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\infrastructure\terraform\terraform.tfvars:435: #   [x] ecr_image_uri
+[WARNING] [GITHUB ACTIONS] Docker runs after Terraform - Could not confirm that the Docker job explicitly depends on Terraform.
+[WARNING] [GITHUB ACTIONS] Kubernetes runs after Docker - Could not confirm that Kubernetes depends on Docker.
+
+============================================================
+EXPECTED DEPLOYMENT ARCHITECTURE
+============================================================
+
+PHASE 1 - INFRASTRUCTURE
+Terraform
+ -> CloudFormation Template S3 Bucket
+ -> Root CloudFormation Stack
+ -> VPC
+ -> S3
+ -> DynamoDB
+ -> ECR Repository
+ -> Lambda
+ -> API Gateway
+ -> CloudFront
+ -> EC2
+ -> EKS
+ -> RDS
+
+PHASE 2 - APPLICATION DEPLOYMENT
+GitHub Actions
+ -> Docker Build
+ -> ECR Login
+ -> Push immutable image using Git commit SHA
+ -> ECS Deployment
+
+IMPORTANT:
+ECR repository creation must happen before Docker push.
+Docker image must exist before ECS application deployment.
+Immutable ECR tags should use commit SHA values.
+ECS should receive the image URI during application deployment.
+
+============================================================
+END OF VERIFICATION REPORT
+============================================================

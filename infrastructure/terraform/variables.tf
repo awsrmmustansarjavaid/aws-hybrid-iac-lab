@@ -1,6 +1,6 @@
-# ==========================================================
-# Terraform Input Variables
-# ==========================================================
+# ============================================================
+# HYBRID TERRAFORM + CLOUDFORMATION AWS DEVOPS LAB
+# ============================================================
 #
 # File:
 #
@@ -12,124 +12,148 @@
 #
 # Purpose:
 #
-#   Defines all input variables used throughout the Terraform
-#   project.
+#   Defines Terraform input variables required by the
+#   infrastructure layer.
 #
 #
-# ==========================================================
-# WHY VARIABLES ARE USED
-# ==========================================================
+# ============================================================
+# ARCHITECTURE RULE
+# ============================================================
 #
-# Terraform variables prevent infrastructure-specific values
-# from being hard-coded directly inside Terraform resources.
+# This project uses a hybrid infrastructure model:
 #
-# Values can be supplied through:
-#
-#   - terraform.tfvars
-#   - *.auto.tfvars
-#   - Command-line -var arguments
-#   - Environment variables
-#   - CI/CD secret/variable systems
+#   Terraform
+#       |
+#       +--> Terraform-managed infrastructure
+#       |
+#       +--> CloudFormation root stack
+#               |
+#               +--> Nested CloudFormation stacks
 #
 #
 # IMPORTANT:
 #
-# Repository-specific paths, such as the location of IAM JSON
-# policy documents, are NOT defined as Terraform variables.
+# Terraform should only request values that are genuinely
+# external inputs.
 #
-# Those paths are part of the repository structure and are
-# therefore handled directly by the Terraform configuration
-# that consumes them.
-#
-# Example:
-#
-#   iam.tf
-#      |
-#      +--> ${path.module}/../../IAM/*.json
-#
-# No iam_policy_directory variable is required.
+# CloudFormation creates and manages its own resources.
 #
 #
-# SECURITY:
+# Therefore Terraform should NOT require variables for
+# resources that CloudFormation itself creates, such as:
 #
-# Sensitive values such as database passwords must NOT be
-# hard-coded into this file or committed to GitHub.
+#   - VPC
+#   - Subnets
+#   - Application S3 bucket
+#   - Lambda functions
+#   - ECR repository
+#   - DynamoDB
+#   - API Gateway
+#   - CloudFront
+#   - EC2
+#   - ECS
+#   - EKS
+#   - RDS
 #
 #
-# ==========================================================
+# Their IDs, ARNs, and names should flow from the
+# CloudFormation hierarchy through stack outputs when
+# Terraform needs to consume them.
+#
+#
+# ============================================================
+# IAM ARCHITECTURE RULE
+# ============================================================
+#
+# IAM is different from the CloudFormation infrastructure.
+#
+# Terraform manages the IAM resources defined in:
+#
+#   infrastructure/terraform/iam.tf
+#
+#
+# Therefore IAM resource NAME variables are allowed.
+#
+# For example:
+#
+#   github_actions_role_name
+#
+#   github_actions_policy_name
+#
+#   terraform_backend_policy_name
+#
+#   github_ci_cd_combined_policy_name
+#
+#
+# However, repository-specific IAM JSON file paths are NOT
+# variables.
+#
+# The IAM JSON files live at a fixed repository location:
+#
+#   repository-root/
+#   |
+#   +-- IAM/
+#       |
+#       +-- aws-hybrid-iac-lab-GitHubActionsPolicy.json
+#       +-- github-actions-terraform-backend-policy.json
+#       +-- github-ci-cd-user-combined-access.json
+#
+#
+# iam.tf references these files directly with:
+#
+#   ${path.module}/../../IAM/<file>.json
+#
+#
+# There is intentionally NO:
+#
+#   variable "iam_policy_directory"
+#
+#
+# ============================================================
 # VARIABLE ORGANIZATION
-# ==========================================================
+# ============================================================
 #
 # This file contains variables for:
 #
 #   1. AWS configuration
 #   2. Project configuration
 #   3. Environment configuration
-#   4. Networking
-#   5. Compute
-#   6. Application infrastructure
-#   7. Database configuration
+#   4. External compute/application inputs
+#   5. Database credentials
+#   6. Terraform-managed IAM resource names
 #
 #
-# IAM RESOURCES
-# ==========================================================
-#
-# IAM policy resources themselves are NOT controlled through
-# variables in this file.
-#
-# IAM policy definitions are stored separately under:
-#
-#   <repository-root>/IAM/
-#
-# IAM Terraform resources are defined in:
-#
-#   <repository-root>/infrastructure/terraform/iam.tf
-#
-# Therefore:
-#
-#   variables.tf
-#        |
-#        +--> infrastructure inputs
-#
-#   iam.tf
-#        |
-#        +--> IAM resources
-#        +--> IAM policy JSON files
-#        +--> IAM role attachments
-#
-#
-# ==========================================================
-
-
-
-# ==========================================================
+# ============================================================
 # 1. AWS REGION
-# ==========================================================
+# ============================================================
 #
-# Defines the AWS region where Terraform manages the lab.
+# AWS region where Terraform manages the lab.
 #
 # Example:
 #
 #   us-east-1
 #
-# The provider.tf file uses:
+# provider.tf uses:
 #
 #   region = var.aws_region
 #
-# ==========================================================
+# ============================================================
 
 variable "aws_region" {
 
-  description = "AWS region where the hybrid Terraform and CloudFormation lab will be deployed"
+  description = "AWS region where the hybrid Terraform and CloudFormation lab is deployed."
 
   type = string
 
   # Default region for this lab.
   #
-  # This can still be overridden by terraform.tfvars.
+  # This can be overridden through terraform.tfvars,
+  # *.auto.tfvars, CLI arguments, or environment variables.
+
   default = "us-east-1"
 
   validation {
+
     condition = length(
       trimspace(var.aws_region)
     ) > 0
@@ -140,71 +164,78 @@ variable "aws_region" {
 
 
 
-# ==========================================================
+# ============================================================
 # 2. PROJECT NAME
-# ==========================================================
+# ============================================================
 #
-# Identifies the project/application.
+# Main project/lab name.
 #
 # Used for:
 #
 #   - Resource naming
-#   - AWS tags
-#   - CloudFormation stack names
+#   - Resource tags
+#   - CloudFormation stack naming
 #   - Logging
-#   - Cost tracking
+#   - Cost identification
 #
 # Example:
 #
 #   HybridIaCLab
 #
-# ==========================================================
+# ============================================================
 
 variable "project_name" {
 
-  description = "Project name used for resource naming, tagging, and CloudFormation"
+  description = "Main project/lab name used for resource naming, tagging, and CloudFormation."
 
   type = string
 
   default = "HybridIaCLab"
 
   validation {
-    condition = length(
-      trimspace(var.project_name)
-    ) > 0
 
-    error_message = "project_name must not be empty."
+    condition = can(
+      regex(
+        "^[A-Za-z0-9-]+$",
+        trimspace(var.project_name)
+      )
+    )
+
+    error_message = "project_name may contain only letters, numbers, and hyphens."
   }
 }
 
 
 
-# ==========================================================
+# ============================================================
 # 3. ENVIRONMENT
-# ==========================================================
+# ============================================================
 #
-# Identifies the deployment environment.
+# Deployment environment.
 #
-# Common values:
+# Supported values:
 #
 #   dev
 #   test
 #   staging
 #   prod
 #
-# This value is also used by provider default tags.
+# Example:
 #
-# ==========================================================
+#   dev
+#
+# ============================================================
 
 variable "environment" {
 
-  description = "Deployment environment"
+  description = "Deployment environment."
 
   type = string
 
   default = "dev"
 
   validation {
+
     condition = contains(
       ["dev", "test", "staging", "prod"],
       lower(trimspace(var.environment))
@@ -216,243 +247,29 @@ variable "environment" {
 
 
 
-# ==========================================================
-# 4. VPC ID
-# ==========================================================
+# ============================================================
+# 4. AMAZON LINUX 2023 AMI ID
+# ============================================================
 #
-# ID of the VPC used by the CloudFormation root stack and
-# nested infrastructure.
+# The AMI is NOT created by the CloudFormation hierarchy.
 #
-# Example:
-#
-#   vpc-0123456789abcdef0
-#
-# IMPORTANT:
-#
-# There is intentionally NO default value here.
-#
-# The real VPC ID must be supplied through terraform.tfvars
-# or another Terraform variable source.
-#
-# ==========================================================
-
-variable "vpc_id" {
-
-  description = "VPC ID used by the CloudFormation root stack"
-
-  type = string
-
-  validation {
-    condition = can(
-      regex(
-        "^vpc-[0-9a-fA-F]{8,}$",
-        trimspace(var.vpc_id)
-      )
-    )
-
-    error_message = "vpc_id must be a valid AWS VPC ID such as vpc-0123456789abcdef0."
-  }
-}
-
-
-
-# ==========================================================
-# 5. PUBLIC SUBNET ID
-# ==========================================================
-#
-# Primary public subnet used by resources such as EC2.
-#
-# Example:
-#
-#   subnet-0123456789abcdef0
-#
-# ==========================================================
-
-variable "public_subnet_id" {
-
-  description = "Primary public subnet ID used by EC2 or other public resources"
-
-  type = string
-
-  validation {
-    condition = can(
-      regex(
-        "^subnet-[0-9a-fA-F]{8,}$",
-        trimspace(var.public_subnet_id)
-      )
-    )
-
-    error_message = "public_subnet_id must be a valid AWS subnet ID such as subnet-0123456789abcdef0."
-  }
-}
-
-
-
-# ==========================================================
-# 6. PUBLIC SUBNET 1 ID
-# ==========================================================
-#
-# First public subnet used by the CloudFormation
-# infrastructure.
-#
-# For a Multi-AZ architecture, this subnet should normally
-# exist in one Availability Zone.
-#
-# Example:
-#
-#   subnet-0123456789abcdef0
-#
-# ==========================================================
-
-variable "public_subnet_1_id" {
-
-  description = "First public subnet ID used by the CloudFormation infrastructure"
-
-  type = string
-
-  validation {
-    condition = can(
-      regex(
-        "^subnet-[0-9a-fA-F]{8,}$",
-        trimspace(var.public_subnet_1_id)
-      )
-    )
-
-    error_message = "public_subnet_1_id must be a valid AWS subnet ID such as subnet-0123456789abcdef0."
-  }
-}
-
-
-
-# ==========================================================
-# 7. PUBLIC SUBNET 2 ID
-# ==========================================================
-#
-# Second public subnet used by the CloudFormation
-# infrastructure.
-#
-# For Multi-AZ architecture, this subnet should normally be
-# located in a different Availability Zone from
-# public_subnet_1_id.
-#
-# Example:
-#
-#   subnet-0123456789abcdef1
-#
-# ==========================================================
-
-variable "public_subnet_2_id" {
-
-  description = "Second public subnet ID used by the CloudFormation infrastructure"
-
-  type = string
-
-  validation {
-    condition = can(
-      regex(
-        "^subnet-[0-9a-fA-F]{8,}$",
-        trimspace(var.public_subnet_2_id)
-      )
-    )
-
-    error_message = "public_subnet_2_id must be a valid AWS subnet ID such as subnet-0123456789abcdef0."
-  }
-}
-
-
-
-# ==========================================================
-# 8. PRIVATE SUBNET 1 ID
-# ==========================================================
-#
-# First private subnet used by resources such as RDS.
-#
-# RDS should normally use private subnets rather than
-# directly exposing the database to the public internet.
-#
-# Example:
-#
-#   subnet-0123456789abcdef2
-#
-# ==========================================================
-
-variable "private_subnet_1_id" {
-
-  description = "First private subnet ID used by the CloudFormation infrastructure and RDS"
-
-  type = string
-
-  validation {
-    condition = can(
-      regex(
-        "^subnet-[0-9a-fA-F]{8,}$",
-        trimspace(var.private_subnet_1_id)
-      )
-    )
-
-    error_message = "private_subnet_1_id must be a valid AWS subnet ID such as subnet-0123456789abcdef0."
-  }
-}
-
-
-
-# ==========================================================
-# 9. PRIVATE SUBNET 2 ID
-# ==========================================================
-#
-# Second private subnet used by resources such as RDS.
-#
-# For Multi-AZ architecture, this subnet should normally
-# exist in a different Availability Zone from
-# private_subnet_1_id.
-#
-# Example:
-#
-#   subnet-0123456789abcdef3
-#
-# ==========================================================
-
-variable "private_subnet_2_id" {
-
-  description = "Second private subnet ID used by the CloudFormation infrastructure and RDS"
-
-  type = string
-
-  validation {
-    condition = can(
-      regex(
-        "^subnet-[0-9a-fA-F]{8,}$",
-        trimspace(var.private_subnet_2_id)
-      )
-    )
-
-    error_message = "private_subnet_2_id must be a valid AWS subnet ID such as subnet-0123456789abcdef0."
-  }
-}
-
-
-
-# ==========================================================
-# 10. AMAZON LINUX 2023 AMI ID
-# ==========================================================
-#
-# AMI used by the EC2 nested CloudFormation stack.
+# Therefore Terraform may still receive this as an external
+# input.
 #
 # Example:
 #
 #   ami-0123456789abcdef0
 #
+#
 # IMPORTANT:
 #
 # AMI IDs are region-specific.
 #
-# Because this lab uses:
+# For this lab, the AMI must exist in:
 #
 #   us-east-1
 #
-# the AMI must exist in us-east-1.
-#
-# Recommended command:
+# Recommended AWS CLI lookup:
 #
 # PowerShell:
 #
@@ -462,17 +279,16 @@ variable "private_subnet_2_id" {
 #     --output text `
 #     --region us-east-1
 #
-# Do NOT use an example AMI ID.
-#
-# ==========================================================
+# ============================================================
 
 variable "ami_id" {
 
-  description = "Amazon Linux 2023 AMI ID used by the EC2 CloudFormation stack"
+  description = "Amazon Linux 2023 AMI ID used by the EC2 CloudFormation stack."
 
   type = string
 
   validation {
+
     condition = can(
       regex(
         "^ami-[0-9a-fA-F]{8,}$",
@@ -486,175 +302,99 @@ variable "ami_id" {
 
 
 
-# ==========================================================
-# 11. APPLICATION S3 BUCKET NAME
-# ==========================================================
+# ============================================================
+# 6. DATABASE USERNAME
+# ============================================================
 #
-# Name of the S3 bucket used by the application.
+# Database administrator username.
 #
-# IMPORTANT:
+# This is not considered highly sensitive in the same way as
+# the database password.
 #
-# This is different from the CloudFormation template bucket
-# unless your architecture intentionally uses the same bucket.
+# Default:
 #
-# Terraform creates/manages the CloudFormation template bucket
-# separately through:
+#   admin
 #
-#   aws_s3_bucket.cloudformation_templates
-#
-# This variable represents the APPLICATION bucket.
-#
-# Example:
-#
-#   hybridiaclab-dev-app
-#
-# ==========================================================
+# ============================================================
 
-variable "application_bucket_name" {
+variable "database_username" {
 
-  description = "Application S3 bucket name used by the CloudFormation infrastructure"
+  description = "RDS database administrator username."
 
   type = string
 
+  default = "admin"
+
   validation {
+
     condition = can(
       regex(
-        "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$",
-        trimspace(var.application_bucket_name)
+        "^[A-Za-z][A-Za-z0-9_]{0,15}$",
+        trimspace(var.database_username)
       )
     )
 
-    error_message = "application_bucket_name must be a valid S3 bucket-style name."
+    error_message = "database_username must begin with a letter and contain only letters, numbers, and underscores."
   }
 }
 
 
 
-# ==========================================================
-# 12. LAMBDA FUNCTION ARN
-# ==========================================================
+# ============================================================
+# 7. DATABASE PASSWORD
+# ============================================================
 #
-# ARN of the Lambda function used by the application or
-# CloudFormation resources.
-#
-# Example:
-#
-#   arn:aws:lambda:us-east-1:537236558357:function:MyFunction
+# Sensitive RDS database password.
 #
 # IMPORTANT:
 #
-# The Lambda function must actually exist if the nested
-# CloudFormation templates reference it as an existing
-# resource.
+# Terraform marks this value as sensitive.
 #
-# ==========================================================
-
-variable "lambda_function_arn" {
-
-  description = "Lambda function ARN used by the CloudFormation infrastructure"
-
-  type = string
-
-  validation {
-    condition = can(
-      regex(
-        "^arn:aws:lambda:[a-z0-9-]+:[0-9]{12}:function:[A-Za-z0-9-_]+$",
-        trimspace(var.lambda_function_arn)
-      )
-    )
-
-    error_message = "lambda_function_arn must be a valid AWS Lambda function ARN."
-  }
-}
-
-
-
-# ==========================================================
-# 13. ECR IMAGE URI
-# ==========================================================
+# However, sensitive does NOT mean that the value can never
+# appear in Terraform state.
 #
-# Full URI of the container image stored in Amazon ECR.
+# If Terraform passes the password into CloudFormation
+# parameters or resources, the value may still be stored
+# in Terraform state.
 #
-# ECS/container-based CloudFormation resources can use this
-# value to deploy the application image.
-#
-# Example:
-#
-#   537236558357.dkr.ecr.us-east-1.amazonaws.com/my-app:latest
-#
-# ==========================================================
-
-variable "ecr_image_uri" {
-
-  description = "Full Amazon ECR container image URI used by ECS or other container resources"
-
-  type = string
-
-  validation {
-    condition = can(
-      regex(
-        "^[0-9]{12}\\.dkr\\.ecr\\.[a-z0-9-]+\\.amazonaws\\.com/[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+$",
-        trimspace(var.ecr_image_uri)
-      )
-    )
-
-    error_message = "ecr_image_uri must be a valid ECR image URI including a repository and image tag."
-  }
-}
-
-
-
-# ==========================================================
-# 14. DATABASE PASSWORD
-# ==========================================================
-#
-# Password used by the RDS database.
-#
-# SECURITY WARNING
-# ==========================================================
-#
-# This variable contains sensitive information.
-#
-# Terraform will treat this value as sensitive because:
-#
-#   sensitive = true
-#
-# IMPORTANT:
-#
-# Even though the value is hidden in normal Terraform CLI
-# output, it can still exist in Terraform state because
-# Terraform passes the value to CloudFormation.
 #
 # NEVER:
 #
 #   - Commit the real password to GitHub.
-#   - Put the real password in variables.tf.
+#   - Put the real password in this file.
 #   - Put the real password in README.md.
-#   - Put the real password directly into .tf resources.
-#   - Publish the Terraform state.
+#   - Hard-code the password in .tf resources.
 #
-# Recommended approaches:
 #
-#   - Local development:
-#       terraform.tfvars
+# Recommended:
 #
-#   - CI/CD:
-#       GitHub Secrets
+# Local:
 #
-#   - Production:
-#       AWS Secrets Manager
+#   terraform.tfvars
 #
-# ==========================================================
+# CI/CD:
+#
+#   TF_VAR_database_password
+#
+# supplied from a GitHub Actions secret.
+#
+# Production:
+#
+#   Prefer AWS Secrets Manager where the architecture
+#   permits it.
+#
+# ============================================================
 
 variable "database_password" {
 
-  description = "Sensitive RDS database password"
+  description = "Sensitive RDS database administrator password."
 
   type = string
 
   sensitive = true
 
   validation {
+
     condition = length(
       var.database_password
     ) >= 8
@@ -665,75 +405,350 @@ variable "database_password" {
 
 
 
-# ==========================================================
-# END OF variables.tf
-# ==========================================================
+# ============================================================
+# 8. GITHUB ACTIONS IAM ROLE NAME
+# ============================================================
+#
+# Name of the IAM role assumed by GitHub Actions through
+# GitHub OIDC.
+#
+# IMPORTANT:
+#
+# Terraform creates/manages this IAM role.
+#
+# Therefore a variable for the ROLE NAME is appropriate.
+#
+# The role ARN is NOT an input variable.
+#
+# Terraform can obtain the ARN from:
+#
+#   aws_iam_role.github_actions.arn
+#
+# or the corresponding Terraform resource.
+#
+# Example:
+#
+#   github-actions-oidc-role
+#
+# ============================================================
+
+variable "github_actions_role_name" {
+
+  description = "Name of the IAM role assumed by GitHub Actions through OIDC."
+
+  type = string
+
+  default = "github-actions-oidc-role"
+
+  validation {
+
+    condition = can(
+      regex(
+        "^[A-Za-z0-9+=,.@_-]{1,64}$",
+        trimspace(var.github_actions_role_name)
+      )
+    )
+
+    error_message = "github_actions_role_name must be a valid IAM role name with 1-64 characters."
+  }
+}
+
+
+
+# ============================================================
+# 9. GITHUB ACTIONS IAM POLICY NAME
+# ============================================================
+#
+# Name of the customer-managed IAM policy used by the
+# GitHub Actions OIDC role.
+#
+# Terraform creates the policy.
+#
+# The policy DOCUMENT itself is stored as JSON under:
+#
+#   repository-root/IAM/
+#
+# Therefore:
+#
+#   policy name --> variable
+#
+#   policy JSON path --> fixed in iam.tf
+#
+# ============================================================
+
+variable "github_actions_policy_name" {
+
+  description = "Name of the customer-managed IAM policy attached to the GitHub Actions OIDC role."
+
+  type = string
+
+  default = "aws-hybrid-iac-lab-GitHubActionsPolicy"
+
+  validation {
+
+    condition = can(
+      regex(
+        "^[A-Za-z0-9+=,.@_-]{1,128}$",
+        trimspace(var.github_actions_policy_name)
+      )
+    )
+
+    error_message = "github_actions_policy_name must be a valid IAM policy name with 1-128 characters."
+  }
+}
+
+
+
+# ============================================================
+# 10. TERRAFORM BACKEND IAM POLICY NAME
+# ============================================================
+#
+# Name of the customer-managed IAM policy used for the
+# Terraform backend.
+#
+# Example responsibilities may include:
+#
+#   - S3 state bucket access
+#   - Terraform state object access
+#   - DynamoDB locking, if used
+#
+# The actual permissions remain in the IAM JSON policy file.
+#
+# ============================================================
+
+variable "terraform_backend_policy_name" {
+
+  description = "Name of the customer-managed IAM policy used by the Terraform backend."
+
+  type = string
+
+  default = "github-actions-terraform-backend-policy"
+
+  validation {
+
+    condition = can(
+      regex(
+        "^[A-Za-z0-9+=,.@_-]{1,128}$",
+        trimspace(var.terraform_backend_policy_name)
+      )
+    )
+
+    error_message = "terraform_backend_policy_name must be a valid IAM policy name with 1-128 characters."
+  }
+}
+
+
+
+# ============================================================
+# 11. GITHUB CI/CD COMBINED POLICY NAME
+# ============================================================
+#
+# Name of the customer-managed IAM policy containing the
+# combined AWS permissions required by the CI/CD identity.
+#
+# The policy document is stored separately in:
+#
+#   IAM/github-ci-cd-user-combined-access.json
+#
+# IMPORTANT:
+#
+# The JSON file path is NOT a Terraform variable.
+#
+# The policy name is a variable because it is an actual
+# Terraform-managed IAM resource attribute.
+#
+# ============================================================
+
+variable "github_ci_cd_combined_policy_name" {
+
+  description = "Name of the customer-managed IAM policy containing the combined GitHub CI/CD AWS permissions."
+
+  type = string
+
+  default = "github-ci-cd-user-combined-access"
+
+  validation {
+
+    condition = can(
+      regex(
+        "^[A-Za-z0-9+=,.@_-]{1,128}$",
+        trimspace(var.github_ci_cd_combined_policy_name)
+      )
+    )
+
+    error_message = "github_ci_cd_combined_policy_name must be a valid IAM policy name with 1-128 characters."
+  }
+}
+
+
+
+# ============================================================
+# 12. IAM POLICY PATHS
+# ============================================================
+#
+# NO IAM POLICY DIRECTORY VARIABLE IS REQUIRED.
+#
+# Do NOT add:
+#
+#   variable "iam_policy_directory"
 #
 #
-# VARIABLE DATA FLOW
-# ==========================================================
-#
-# terraform.tfvars
-#       |
-#       | supplies actual environment values
-#       v
-# variables.tf
-#       |
-#       | exposes var.*
-#       v
-# Terraform resources
-#       |
-#       +--> CloudFormation
-#       +--> S3
-#       +--> Networking
-#       +--> Compute
-#       +--> Database
-#       +--> Application infrastructure
-#
-#
-# ==========================================================
-# IAM DATA FLOW
-# ==========================================================
-#
-# IAM policy JSON documents are stored separately:
+# The repository structure is fixed:
 #
 #   repository-root/
 #   |
 #   +-- IAM/
-#   |    |
-#   |    +-- aws-hybrid-iac-lab-GitHubActionsPolicy.json
-#   |    +-- github-actions-terraform-backend-policy.json
-#   |    +-- github-ci-cd-user-combined-access.json
-#   |
-#   +-- infrastructure/
-#        |
-#        +-- terraform/
-#             |
-#             +-- iam.tf
-#             +-- variables.tf
+#       |
+#       +-- aws-hybrid-iac-lab-GitHubActionsPolicy.json
+#       +-- github-actions-terraform-backend-policy.json
+#       +-- github-ci-cd-user-combined-access.json
 #
 #
-# iam.tf references the JSON files using:
+# iam.tf should reference these files directly using:
 #
 #   ${path.module}/../../IAM/<policy-file>.json
 #
 #
-# IMPORTANT:
+# This makes the repository structure explicit and avoids
+# unnecessary environment variables.
 #
-# There is NO:
+# ============================================================
+
+
+
+# ============================================================
+# 13. IAM ROLE ARN / POLICY ARN
+# ============================================================
 #
-#   variable "iam_policy_directory"
+# NO IAM ROLE ARN VARIABLE IS REQUIRED.
 #
-# because the IAM directory is a fixed part of the
-# repository structure rather than an environment-specific
-# input.
+# NO IAM POLICY ARN VARIABLE IS REQUIRED.
+#
+# Because Terraform creates the IAM resources, their ARNs
+# are available directly from Terraform resource attributes.
+#
+# Example:
+#
+#   aws_iam_role.github_actions.arn
+#
+#   aws_iam_policy.github_actions.arn
 #
 #
-# ==========================================================
-# IMPORTANT
-# ==========================================================
+# Do NOT create variables such as:
 #
-# The following variables intentionally have NO defaults:
+#   variable "github_actions_role_arn"
+#
+#   variable "github_actions_policy_arn"
+#
+# unless an IAM resource is genuinely created outside this
+# Terraform configuration.
+#
+# ============================================================
+
+
+
+# ============================================================
+# END OF variables.tf
+# ============================================================
+#
+#
+# FINAL VARIABLE DATA FLOW
+# ============================================================
+#
+# terraform.tfvars
+#       |
+#       | external values
+#       v
+# variables.tf
+#       |
+#       +--> AWS configuration
+#       |
+#       +--> Project configuration
+#       |
+#       +--> Environment
+#       |
+#       +--> AMI
+#       |
+#       +--> Database credentials
+#       |
+#       +--> IAM resource names
+#       |
+#       v
+# Terraform resources
+#
+#
+# ============================================================
+# CLOUDFORMATION DATA FLOW
+# ============================================================
+#
+# Terraform
+#     |
+#     | creates/updates CloudFormation root stack
+#     v
+# CloudFormation Root Stack
+#     |
+#     +--> VPC
+#     +--> Subnets
+#     +--> Application S3
+#     +--> Lambda
+#     +--> ECR repository
+#     +--> DynamoDB
+#     +--> API Gateway
+#     +--> CloudFront
+#     +--> EC2
+#     +--> ECS
+#     +--> EKS
+#     +--> RDS
+#     |
+#     v
+# CloudFormation Outputs
+#     |
+#     v
+# Terraform / dependent resources
+#
+#
+# ============================================================
+# IAM DATA FLOW
+# ============================================================
+#
+# Terraform
+#     |
+#     +--> IAM role
+#     |
+#     +--> IAM policies
+#     |
+#     +--> IAM attachments
+#     |
+#     v
+# AWS IAM
+#
+#
+# IAM POLICY DOCUMENT DATA FLOW
+# ============================================================
+#
+# repository-root/
+#
+#     IAM/
+#       |
+#       +-- aws-hybrid-iac-lab-GitHubActionsPolicy.json
+#       |
+#       +-- github-actions-terraform-backend-policy.json
+#       |
+#       +-- github-ci-cd-user-combined-access.json
+#                     |
+#                     v
+#                    iam.tf
+#                     |
+#                     v
+#              aws_iam_policy
+#
+#
+# ============================================================
+# VARIABLES THAT SHOULD NOT BE HERE
+# ============================================================
+#
+# The following are intentionally NOT Terraform input
+# variables under the new CloudFormation architecture:
 #
 #   vpc_id
 #   public_subnet_id
@@ -741,17 +756,52 @@ variable "database_password" {
 #   public_subnet_2_id
 #   private_subnet_1_id
 #   private_subnet_2_id
-#   ami_id
 #   application_bucket_name
 #   lambda_function_arn
-#   ecr_image_uri
+#
+#
+# These resources are created by CloudFormation.
+#
+#
+# Similarly, do NOT add:
+#
+#   iam_policy_directory
+#   github_actions_role_arn
+#   github_actions_policy_arn
+#
+# because those values are either fixed repository paths or
+# values Terraform can obtain directly from its own resources.
+#
+#
+# ============================================================
+# IMPORTANT
+# ============================================================
+#
+# Variables WITHOUT defaults:
+#
+#   ami_id
 #   database_password
 #
 #
-# Their actual values must be supplied through:
+# These values should normally be supplied through:
 #
 #   terraform.tfvars
 #
-# or another appropriate Terraform variable mechanism.
+# or:
 #
-# ==========================================================
+#   TF_VAR_*
+#
+# environment variables / CI/CD secret mechanisms.
+#
+#
+# IAM NAME VARIABLES WITH DEFAULTS:
+#
+#   github_actions_role_name
+#   github_actions_policy_name
+#   terraform_backend_policy_name
+#   github_ci_cd_combined_policy_name
+#
+# These defaults are naming conventions and can be overridden
+# when a different environment or naming strategy is required.
+#
+# ============================================================
