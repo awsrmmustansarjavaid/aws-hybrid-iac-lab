@@ -1447,24 +1447,36 @@ jobs:
       # TERRAFORM STATE DIAGNOSTIC
       # ======================================================
       #
-      # On the FIRST Terraform deployment there may be no state
-      # file yet.
+      # On the FIRST Terraform deployment there may be no
+      # Terraform state file yet.
       #
-      # In that situation:
+      # IMPORTANT:
+      #
+      # GitHub Actions executes Bash with:
+      #
+      #   -e
+      #
+      # Therefore this command:
       #
       #   terraform state list
       #
-      # may return a non-zero exit code.
+      # must NOT be executed as a standalone command when
+      # we intentionally expect a possible non-zero exit code.
       #
-      # That is NOT automatically a deployment failure.
+      # Instead, the command is executed inside an IF
+      # conditional so Bash does not terminate the step
+      # before we can inspect the exit code.
       #
-      # Genuine backend/authentication/configuration errors
-      # must still fail the workflow.
+      # Behavior:
       #
-      # Therefore:
+      #   Exit code 0
+      #       -> State command succeeded.
       #
-      #   Missing initial state -> acceptable
-      #   Any other error        -> workflow fails
+      #   Exit code non-zero + no state message
+      #       -> Display the real Terraform error and fail.
+      #
+      #   Exit code non-zero + missing state message
+      #       -> Treat as acceptable first deployment.
       #
       # ======================================================
 
@@ -1472,7 +1484,7 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIRECTORY }}
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
 
           echo "=================================================="
           echo "TERRAFORM STATE DIAGNOSTIC"
@@ -1490,13 +1502,23 @@ jobs:
           echo "Checking current Terraform state..."
 
           # --------------------------------------------------
-          # Do NOT use set -e here because terraform state list
-          # can legitimately return a non-zero code when no
-          # state exists yet.
+          # IMPORTANT:
+          #
+          # Run terraform state list inside an IF condition.
+          #
+          # This prevents GitHub Actions/Bash '-e' from
+          # terminating the step before we capture the result.
           # --------------------------------------------------
 
-          terraform state list > "${STATE_FILE}" 2>&1
-          STATE_EXIT_CODE=$?
+          if terraform state list > "${STATE_FILE}" 2>&1; then
+
+            STATE_EXIT_CODE=0
+
+          else
+
+            STATE_EXIT_CODE=$?
+
+          fi
 
           echo ""
           echo "Terraform state command exit code: ${STATE_EXIT_CODE}"
@@ -1504,35 +1526,43 @@ jobs:
           # --------------------------------------------------
           # EXIT CODE 0
           #
-          # State exists and command completed normally.
+          # Terraform successfully queried the state.
           # --------------------------------------------------
 
           if [[ "${STATE_EXIT_CODE}" -eq 0 ]]; then
 
             echo ""
-            echo "Terraform state exists."
+            echo "Terraform state command completed successfully."
 
             if [[ -s "${STATE_FILE}" ]]; then
+
               echo ""
               echo "Resources currently recorded in Terraform state:"
+              echo "--------------------------------------------------"
+
               cat "${STATE_FILE}"
+
             else
+
               echo ""
-              echo "Terraform state exists but currently contains no resources."
+              echo "Terraform state exists but currently contains"
+              echo "no resources."
+
             fi
 
             echo ""
             echo "=================================================="
-            echo "TERRAFORM STATE DIAGNOSTIC COMPLETED"
+            echo "TERRAFORM STATE DIAGNOSTIC PASSED"
             echo "=================================================="
 
             exit 0
+
           fi
 
           # --------------------------------------------------
           # NON-ZERO EXIT CODE
           #
-          # Display diagnostic output.
+          # Display the actual Terraform diagnostic output.
           # --------------------------------------------------
 
           echo ""
@@ -1540,14 +1570,21 @@ jobs:
 
           echo ""
           echo "Terraform diagnostic output:"
+          echo "--------------------------------------------------"
 
           cat "${STATE_FILE}"
+
+          echo ""
+          echo "--------------------------------------------------"
 
           # --------------------------------------------------
           # FIRST DEPLOYMENT / EMPTY STATE
           #
-          # These messages indicate that the state file does
-          # not exist yet.
+          # Terraform can legitimately have no state file
+          # before the first successful apply.
+          #
+          # Check the actual Terraform message rather than
+          # blindly accepting every exit code 1.
           # --------------------------------------------------
 
           if grep -qiE \
@@ -1564,19 +1601,21 @@ jobs:
             echo "This is expected for the first deployment."
 
             echo ""
-            echo "Terraform will create the state after terraform apply."
+            echo "Terraform will create the state after"
+            echo "terraform apply."
 
             echo ""
             echo "Terraform state diagnostic completed successfully."
 
             exit 0
+
           fi
 
           # --------------------------------------------------
           # ANY OTHER ERROR
           #
-          # Do NOT hide real backend/authentication/configuration
-          # problems.
+          # Do NOT hide real backend, authentication,
+          # configuration, or state errors.
           # --------------------------------------------------
 
           echo ""
@@ -1585,12 +1624,17 @@ jobs:
           echo "=================================================="
 
           echo ""
-          echo "The failure was NOT caused by a missing initial state file."
+          echo "The failure was NOT identified as a missing"
+          echo "initial Terraform state file."
 
           echo ""
           echo "Terraform diagnostic output:"
+          echo "--------------------------------------------------"
 
           cat "${STATE_FILE}"
+
+          echo ""
+          echo "--------------------------------------------------"
 
           exit "${STATE_EXIT_CODE}"
 
