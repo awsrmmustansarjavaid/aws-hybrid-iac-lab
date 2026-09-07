@@ -10,9 +10,9 @@
 # Purpose:
 #
 #   1. Checkout repository.
-#   2. Run permanent preflight validation.
+#   2. Run permanent pre-flight validation.
 #   3. Verify GitHub OIDC runtime configuration.
-#   4. Diagnose OIDC claims.
+#   4. Diagnose the actual GitHub OIDC JWT claims.
 #   5. Configure AWS credentials using GitHub OIDC.
 #   6. Verify AWS STS identity.
 #   7. Bootstrap/verify Terraform S3 state bucket.
@@ -82,10 +82,19 @@ name: Terraform Infrastructure
 #   Allows manual execution.
 #
 # workflow_call:
-#   Allows this workflow to be called by another workflow.
+#   Allows another GitHub Actions workflow to call this
+#   workflow as a reusable workflow.
 #
-# push:
-#   Intentionally disabled.
+# IMPORTANT:
+#
+# This workflow itself does NOT contain a push trigger.
+#
+# If you see:
+#
+#   Event: push
+#
+# in the logs, that means another workflow triggered this
+# reusable workflow through workflow_call.
 #
 # ============================================================
 
@@ -107,7 +116,9 @@ on:
 # If you later need to change:
 #
 #   AWS region
+#   AWS account
 #   IAM role
+#   OIDC audience
 #   Terraform working directory
 #   Terraform version
 #   state bucket
@@ -127,11 +138,44 @@ env:
   # AWS CONFIGURATION
   # ----------------------------------------------------------
 
+  # AWS region used by Terraform and AWS CLI.
   AWS_REGION: us-east-1
 
+  # AWS account that must receive the deployment.
+  AWS_ACCOUNT_ID: "537236558357"
+
+  # IAM role that GitHub Actions will assume.
   AWS_ROLE_ARN: arn:aws:iam::537236558357:role/aws-hybrid-iac-lab-GitHubActions
 
+  # IAM role name used for post-authentication verification.
+  AWS_EXPECTED_ROLE_NAME: aws-hybrid-iac-lab-GitHubActions
+
+  # STS role session name.
   AWS_ROLE_SESSION_NAME: GitHubActions-Terraform
+
+
+  # ----------------------------------------------------------
+  # AWS OIDC CONFIGURATION
+  # ----------------------------------------------------------
+  #
+  # GitHub requests an OIDC token with this audience.
+  #
+  # For AWS commercial regions the normal audience is:
+  #
+  #   sts.amazonaws.com
+  #
+  # AWS IAM must trust the same audience.
+  #
+  # This value is intentionally global so it is defined once
+  # and reused by:
+  #
+  #   - Pre-flight validation
+  #   - OIDC diagnostic
+  #   - AWS credential configuration
+  #
+  # ----------------------------------------------------------
+
+  AWS_OIDC_AUDIENCE: sts.amazonaws.com
 
 
   # ----------------------------------------------------------
@@ -179,6 +223,8 @@ env:
   # TERRAFORM APPLY CONFIGURATION
   # ----------------------------------------------------------
 
+  # true = automatically apply the generated plan.
+  # false = skip the Terraform Apply step.
   TF_AUTO_APPROVE: true
 
 
@@ -207,7 +253,8 @@ concurrency:
 # REQUIRED for GitHub OIDC.
 #
 # This does NOT give AWS permissions.
-# It only allows GitHub to request an OIDC token.
+#
+# It only allows GitHub Actions to request an OIDC token.
 #
 #
 # contents: read
@@ -254,24 +301,29 @@ jobs:
       # PERMANENT PRE-FLIGHT VALIDATION
       # ======================================================
       #
-      # This step runs BEFORE OIDC authentication.
+      # This step runs BEFORE AWS authentication.
       #
-      # Since AWS credentials intentionally do not exist yet,
-      # this step validates the configuration required for
-      # OIDC authentication instead of calling AWS APIs.
+      # At this point we intentionally do not have AWS
+      # temporary credentials yet.
+      #
+      # Therefore this step validates the configuration needed
+      # for OIDC rather than calling AWS APIs.
       #
       # Checks:
       #
       #   - AWS region
+      #   - AWS account ID
       #   - IAM role ARN
+      #   - IAM role name
+      #   - IAM role session name
+      #   - OIDC audience
       #   - GitHub repository
       #   - GitHub ref
-      #   - GitHub branch
       #   - OIDC runtime variables
       #   - AWS CLI
       #   - Terraform directory
-      #   - Terraform state bucket configuration
-      #   - long-lived AWS credential variables
+      #   - Terraform state configuration
+      #   - absence of long-lived AWS credentials
       #
       # ======================================================
 
@@ -280,11 +332,18 @@ jobs:
         shell: bash
 
         run: |
+
           set -euo pipefail
+
 
           echo "=================================================="
           echo "PRE-FLIGHT CONFIGURATION VALIDATION"
           echo "=================================================="
+
+
+          # --------------------------------------------------
+          # Display important configuration.
+          # --------------------------------------------------
 
           echo ""
           echo "Project:"
@@ -299,12 +358,24 @@ jobs:
           echo "${AWS_REGION}"
 
           echo ""
+          echo "AWS Account:"
+          echo "${AWS_ACCOUNT_ID}"
+
+          echo ""
           echo "AWS IAM Role:"
           echo "${AWS_ROLE_ARN}"
 
           echo ""
+          echo "Expected IAM Role Name:"
+          echo "${AWS_EXPECTED_ROLE_NAME}"
+
+          echo ""
           echo "AWS Role Session:"
           echo "${AWS_ROLE_SESSION_NAME}"
+
+          echo ""
+          echo "AWS OIDC Audience:"
+          echo "${AWS_OIDC_AUDIENCE}"
 
           echo ""
           echo "GitHub Repository:"
@@ -344,10 +415,30 @@ jobs:
           # --------------------------------------------------
 
           if [[ ! "${AWS_REGION}" =~ ^[a-z]{2}-[a-z0-9-]+-[0-9]+$ ]]; then
+
             echo ""
             echo "ERROR: Invalid AWS_REGION:"
             echo "${AWS_REGION}"
+
             exit 1
+
+          fi
+
+
+          # --------------------------------------------------
+          # Validate AWS account ID.
+          # --------------------------------------------------
+
+          if [[ ! "${AWS_ACCOUNT_ID}" =~ ^[0-9]{12}$ ]]; then
+
+            echo ""
+            echo "ERROR: Invalid AWS_ACCOUNT_ID."
+
+            echo ""
+            echo "Expected a 12-digit AWS account ID."
+
+            exit 1
+
           fi
 
 
@@ -356,10 +447,78 @@ jobs:
           # --------------------------------------------------
 
           if [[ ! "${AWS_ROLE_ARN}" =~ ^arn:aws:iam::[0-9]{12}:role/.+ ]]; then
+
             echo ""
             echo "ERROR: Invalid AWS_ROLE_ARN format."
+
             echo "${AWS_ROLE_ARN}"
+
             exit 1
+
+          fi
+
+
+          # --------------------------------------------------
+          # Verify that the role ARN belongs to the expected
+          # AWS account.
+          # --------------------------------------------------
+
+          ROLE_ACCOUNT_ID="$(echo "${AWS_ROLE_ARN}" | cut -d ':' -f 5)"
+
+          if [[ "${ROLE_ACCOUNT_ID}" != "${AWS_ACCOUNT_ID}" ]]; then
+
+            echo ""
+            echo "ERROR: IAM role ARN belongs to a different AWS account."
+
+            echo ""
+            echo "Expected account:"
+            echo "${AWS_ACCOUNT_ID}"
+
+            echo ""
+            echo "Role ARN account:"
+            echo "${ROLE_ACCOUNT_ID}"
+
+            exit 1
+
+          fi
+
+
+          # --------------------------------------------------
+          # Validate expected IAM role name.
+          # --------------------------------------------------
+
+          if [[ -z "${AWS_EXPECTED_ROLE_NAME}" ]]; then
+
+            echo ""
+            echo "ERROR: AWS_EXPECTED_ROLE_NAME is empty."
+
+            exit 1
+
+          fi
+
+
+          # --------------------------------------------------
+          # Verify that the role ARN ends with the expected
+          # IAM role name.
+          # --------------------------------------------------
+
+          ROLE_NAME_FROM_ARN="${AWS_ROLE_ARN##*/}"
+
+          if [[ "${ROLE_NAME_FROM_ARN}" != "${AWS_EXPECTED_ROLE_NAME}" ]]; then
+
+            echo ""
+            echo "ERROR: AWS_ROLE_ARN and AWS_EXPECTED_ROLE_NAME do not match."
+
+            echo ""
+            echo "Role from ARN:"
+            echo "${ROLE_NAME_FROM_ARN}"
+
+            echo ""
+            echo "Expected role:"
+            echo "${AWS_EXPECTED_ROLE_NAME}"
+
+            exit 1
+
           fi
 
 
@@ -368,10 +527,67 @@ jobs:
           # --------------------------------------------------
 
           if [[ -z "${AWS_ROLE_SESSION_NAME}" ]]; then
+
             echo ""
             echo "ERROR: AWS_ROLE_SESSION_NAME is empty."
+
             exit 1
+
           fi
+
+
+          # --------------------------------------------------
+          # Validate AWS OIDC audience.
+          #
+          # WHY THIS CHECK EXISTS:
+          #
+          # The OIDC token contains an "aud" claim.
+          #
+          # AWS IAM validates that claim against the audience
+          # configured for the GitHub OIDC provider/trust policy.
+          #
+          # For this AWS account we expect:
+          #
+          #   sts.amazonaws.com
+          #
+          # We validate it here BEFORE requesting the token so
+          # a typo or missing variable is caught immediately.
+          # --------------------------------------------------
+
+          if [[ -z "${AWS_OIDC_AUDIENCE:-}" ]]; then
+
+            echo ""
+            echo "ERROR: AWS_OIDC_AUDIENCE is empty or undefined."
+
+            echo ""
+            echo "Expected:"
+            echo "sts.amazonaws.com"
+
+            exit 1
+
+          fi
+
+
+          if [[ "${AWS_OIDC_AUDIENCE}" != "sts.amazonaws.com" ]]; then
+
+            echo ""
+            echo "ERROR: Invalid AWS_OIDC_AUDIENCE."
+
+            echo ""
+            echo "Expected:"
+            echo "sts.amazonaws.com"
+
+            echo ""
+            echo "Actual:"
+            echo "${AWS_OIDC_AUDIENCE}"
+
+            exit 1
+
+          fi
+
+
+          echo ""
+          echo "AWS OIDC audience validation: PASSED"
 
 
           # --------------------------------------------------
@@ -381,13 +597,20 @@ jobs:
           EXPECTED_REPOSITORY="awsrmmustansarjavaid/aws-hybrid-iac-lab"
 
           if [[ "${GITHUB_REPOSITORY}" != "${EXPECTED_REPOSITORY}" ]]; then
+
             echo ""
             echo "ERROR: Unexpected GitHub repository."
+
+            echo ""
             echo "Expected:"
             echo "${EXPECTED_REPOSITORY}"
+
+            echo ""
             echo "Actual:"
             echo "${GITHUB_REPOSITORY}"
+
             exit 1
+
           fi
 
 
@@ -395,30 +618,44 @@ jobs:
           # Validate workflow branch.
           #
           # The current IAM trust policy is configured for main.
+          #
+          # We issue a WARNING instead of failing here because
+          # this workflow can also be called as a reusable workflow.
           # --------------------------------------------------
 
           if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+
             echo ""
             echo "WARNING: Workflow is not running from main."
+
+            echo ""
             echo "Current ref:"
             echo "${GITHUB_REF}"
+
             echo ""
-            echo "The AWS IAM trust policy currently expects:"
-            echo "repo:awsrmmustansarjavaid/aws-hybrid-iac-lab:ref:refs/heads/main"
-            echo ""
-            echo "OIDC authentication may therefore be rejected."
+            echo "The current AWS IAM trust policy is expected to"
+            echo "allow the main branch."
+
           fi
 
 
           # --------------------------------------------------
           # Verify AWS CLI exists.
+          #
+          # We do not call AWS APIs here.
+          #
+          # The actual AWS authentication happens later.
           # --------------------------------------------------
 
           if ! command -v aws >/dev/null 2>&1; then
+
             echo ""
             echo "ERROR: AWS CLI is not installed."
+
             exit 1
+
           fi
+
 
           echo ""
           echo "AWS CLI:"
@@ -426,14 +663,56 @@ jobs:
 
 
           # --------------------------------------------------
+          # Verify jq exists.
+          #
+          # jq is required by the permanent OIDC diagnostic
+          # and AWS identity verification.
+          # --------------------------------------------------
+
+          if ! command -v jq >/dev/null 2>&1; then
+
+            echo ""
+            echo "ERROR: jq is not installed."
+
+            exit 1
+
+          fi
+
+
+          echo ""
+          echo "jq:"
+          jq --version
+
+
+          # --------------------------------------------------
+          # Verify curl exists.
+          #
+          # curl is required to request the GitHub OIDC token
+          # in the diagnostic step.
+          # --------------------------------------------------
+
+          if ! command -v curl >/dev/null 2>&1; then
+
+            echo ""
+            echo "ERROR: curl is not installed."
+
+            exit 1
+
+          fi
+
+
+          # --------------------------------------------------
           # Verify Terraform directory exists.
           # --------------------------------------------------
 
           if [[ ! -d "${TF_WORKING_DIRECTORY}" ]]; then
+
             echo ""
             echo "ERROR: Terraform directory does not exist:"
             echo "${TF_WORKING_DIRECTORY}"
+
             exit 1
+
           fi
 
 
@@ -441,11 +720,21 @@ jobs:
           # Verify Terraform configuration files exist.
           # --------------------------------------------------
 
-          if ! find "${TF_WORKING_DIRECTORY}" -maxdepth 1 -name "*.tf" -print -quit | grep -q .; then
+          if ! find "${TF_WORKING_DIRECTORY}" \
+            -maxdepth 1 \
+            -name "*.tf" \
+            -print \
+            -quit |
+            grep -q .
+          then
+
             echo ""
             echo "ERROR: No Terraform .tf files found."
+
             echo "${TF_WORKING_DIRECTORY}"
+
             exit 1
+
           fi
 
 
@@ -454,51 +743,92 @@ jobs:
           # --------------------------------------------------
 
           if [[ -z "${TF_STATE_BUCKET}" ]]; then
+
             echo ""
             echo "ERROR: TF_STATE_BUCKET is empty."
+
             exit 1
+
           fi
 
 
           if [[ -z "${TF_STATE_REGION}" ]]; then
+
             echo ""
             echo "ERROR: TF_STATE_REGION is empty."
+
             exit 1
+
           fi
 
 
           if [[ -z "${TF_STATE_KEY}" ]]; then
+
             echo ""
             echo "ERROR: TF_STATE_KEY is empty."
+
             exit 1
+
+          fi
+
+
+          # --------------------------------------------------
+          # Verify state region matches AWS deployment region.
+          #
+          # This prevents accidentally creating the state bucket
+          # in one region while Terraform operates in another.
+          # --------------------------------------------------
+
+          if [[ "${TF_STATE_REGION}" != "${AWS_REGION}" ]]; then
+
+            echo ""
+            echo "ERROR: Terraform state region does not match AWS region."
+
+            echo ""
+            echo "AWS_REGION:"
+            echo "${AWS_REGION}"
+
+            echo ""
+            echo "TF_STATE_REGION:"
+            echo "${TF_STATE_REGION}"
+
+            exit 1
+
           fi
 
 
           # --------------------------------------------------
           # IMPORTANT:
           #
-          # We intentionally verify that long-lived AWS
-          # credentials are NOT required.
+          # Verify that long-lived AWS credentials are NOT
+          # being supplied.
           #
-          # GitHub OIDC should provide the authentication.
+          # This workflow is designed for GitHub OIDC.
           # --------------------------------------------------
 
           if [[ -n "${AWS_ACCESS_KEY_ID:-}" ]]; then
+
             echo ""
             echo "ERROR: AWS_ACCESS_KEY_ID is present."
+
             echo ""
             echo "This workflow is designed to use GitHub OIDC."
-            echo "Do not configure long-lived AWS access keys."
+
             exit 1
+
           fi
 
 
           if [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+
             echo ""
             echo "ERROR: AWS_SECRET_ACCESS_KEY is present."
+
             echo ""
             echo "This workflow is designed to use GitHub OIDC."
+
             exit 1
+
           fi
 
 
@@ -506,31 +836,42 @@ jobs:
           # Verify GitHub supplied the OIDC token runtime
           # variables.
           #
-          # These are automatically supplied by GitHub when
-          # id-token: write is available.
+          # These are automatically supplied by GitHub when:
+          #
+          #   id-token: write
+          #
+          # is available.
           #
           # They are NOT GitHub repository secrets.
           # --------------------------------------------------
 
           if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+
             echo ""
             echo "ERROR: ACTIONS_ID_TOKEN_REQUEST_TOKEN is unavailable."
+
             echo ""
             echo "Check:"
             echo "  permissions:"
             echo "    id-token: write"
+
             exit 1
+
           fi
 
 
           if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]]; then
+
             echo ""
             echo "ERROR: ACTIONS_ID_TOKEN_REQUEST_URL is unavailable."
+
             echo ""
             echo "Check:"
             echo "  permissions:"
             echo "    id-token: write"
+
             exit 1
+
           fi
 
 
@@ -542,50 +883,48 @@ jobs:
 
       # ======================================================
       # STEP 3
-      # DIAGNOSE GITHUB OIDC CLAIMS
+      # PERMANENT GITHUB OIDC CLAIM DIAGNOSTIC
       # ======================================================
       #
       # IMPORTANT:
       #
-      # This step MUST happen before AWS authentication.
+      # This step MUST happen BEFORE AWS authentication.
       #
-      # It requests the GitHub OIDC JWT and displays the
-      # relevant claims.
+      # Its purpose is to show exactly what GitHub is sending
+      # inside the OIDC token.
       #
-      # We do NOT print the complete JWT.
+      # This is especially important because AWS IAM validates:
       #
-      # Important claims:
+      #   issuer
+      #   audience
+      #   subject
       #
-      #   iss
-      #   aud
-      #   sub
-      #   repository
-      #   repository_id
-      #   repository_owner
-      #   repository_owner_id
-      #   ref
-      #   ref_type
-      #   workflow
-      #   workflow_ref
-      #   job_workflow_ref
-      #   environment
+      # against the IAM role trust policy.
       #
-      # These values allow us to compare the actual GitHub
-      # identity against the AWS IAM trust policy.
+      # We NEVER print the complete JWT.
       #
-      # This step can be removed after the OIDC issue is fixed.
+      # We only display safe diagnostic claims.
       #
-      # ======================================================      
+      # ======================================================
 
       - name: Diagnose GitHub OIDC Claims
+
         shell: bash
+
         run: |
+
           set -euo pipefail
+
 
           echo ""
           echo "=================================================="
           echo "GITHUB OIDC CLAIM DIAGNOSTIC"
           echo "=================================================="
+
+
+          # --------------------------------------------------
+          # Display GitHub runtime information.
+          # --------------------------------------------------
 
           echo ""
           echo "Repository:"
@@ -611,36 +950,52 @@ jobs:
           echo "Job:"
           echo "${GITHUB_JOB}"
 
-          # ------------------------------------------------------
+
+          # --------------------------------------------------
           # Verify GitHub supplied the OIDC environment variables.
-          # ------------------------------------------------------
+          # --------------------------------------------------
 
           if [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+
             echo ""
             echo "ERROR: ACTIONS_ID_TOKEN_REQUEST_TOKEN is not available."
+
+            echo ""
             echo "Check that workflow/job permissions contain:"
+
             echo ""
             echo "permissions:"
             echo "  id-token: write"
             echo "  contents: read"
+
             exit 1
+
           fi
+
 
           if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+
             echo ""
             echo "ERROR: ACTIONS_ID_TOKEN_REQUEST_URL is not available."
+
             exit 1
+
           fi
 
-          # ------------------------------------------------------
+
+          # --------------------------------------------------
           # Request a GitHub OIDC token.
           #
-          # The audience must match the audience configured in
-          # the AWS IAM trust relationship.
-          # ------------------------------------------------------
+          # The audience is explicitly supplied as:
+          #
+          #   sts.amazonaws.com
+          #
+          # This must match AWS IAM's trusted audience.
+          # --------------------------------------------------
 
           echo ""
           echo "Requesting OIDC token..."
+
 
           OIDC_RESPONSE="$(
             curl \
@@ -654,114 +1009,164 @@ jobs:
               "${ACTIONS_ID_TOKEN_REQUEST_URL}"
           )"
 
-          # ------------------------------------------------------
+
+          # --------------------------------------------------
           # Validate that GitHub returned JSON.
-          # ------------------------------------------------------
+          # --------------------------------------------------
 
           if ! echo "${OIDC_RESPONSE}" | jq empty >/dev/null 2>&1; then
+
             echo ""
             echo "ERROR: GitHub returned an invalid JSON response."
+
             exit 1
+
           fi
 
-          # ------------------------------------------------------
-          # IMPORTANT:
-          #
-          # GitHub returns something similar to:
+
+          # --------------------------------------------------
+          # GitHub returns a JSON object similar to:
           #
           # {
           #   "value": "eyJhbGciOiJSUzI1NiIs..."
           # }
           #
-          # We must extract .value first.
-          # ------------------------------------------------------
+          # We must extract .value.
+          #
+          # IMPORTANT:
+          #
+          # The previous diagnostic error:
+          #
+          #   Cannot index array with string "iss"
+          #
+          # happened because the token response was not being
+          # decoded correctly before jq attempted to access
+          # claims.
+          #
+          # --------------------------------------------------
 
           OIDC_TOKEN="$(
             echo "${OIDC_RESPONSE}" |
               jq -r '.value // empty'
           )"
 
+
           if [ -z "${OIDC_TOKEN}" ]; then
+
             echo ""
-            echo "ERROR: OIDC token value was not found in GitHub response."
+            echo "ERROR: OIDC token value was not found."
+
             echo ""
             echo "Returned JSON keys:"
+
             echo "${OIDC_RESPONSE}" | jq -r 'keys[]'
+
             exit 1
+
           fi
 
-          # ------------------------------------------------------
+
+          # --------------------------------------------------
           # NEVER PRINT THE TOKEN.
           #
           # The JWT is a credential and must remain secret.
-          # ------------------------------------------------------
+          # --------------------------------------------------
 
           echo ""
           echo "OIDC token received successfully."
+
           echo "JWT token itself will NOT be printed."
 
-          # ------------------------------------------------------
+
+          # --------------------------------------------------
           # JWT format:
           #
-          # HEADER.PAYLOAD.SIGNATURE
+          #   HEADER.PAYLOAD.SIGNATURE
           #
-          # We need only PAYLOAD.
-          # ------------------------------------------------------
+          # Extract only the payload.
+          # --------------------------------------------------
 
-          JWT_PAYLOAD="$(
+          JWT_PAYLOAD_B64="$(
             echo "${OIDC_TOKEN}" |
               cut -d '.' -f 2
           )"
 
-          if [ -z "${JWT_PAYLOAD}" ]; then
+
+          if [ -z "${JWT_PAYLOAD_B64}" ]; then
+
             echo ""
             echo "ERROR: Could not extract JWT payload."
+
             exit 1
+
           fi
 
-          # ------------------------------------------------------
-          # GitHub JWT uses Base64URL encoding.
+
+          # --------------------------------------------------
+          # Decode Base64URL JWT payload.
           #
-          # Convert Base64URL characters to standard Base64,
-          # restore missing padding, then decode.
-          # ------------------------------------------------------
+          # JWT uses Base64URL encoding rather than ordinary
+          # Base64.
+          #
+          # Therefore:
+          #
+          #   - replace '-' with '+'
+          #   - replace '_' with '/'
+          #   - restore missing '=' padding
+          #   - decode
+          # --------------------------------------------------
 
           JWT_PAYLOAD="$(
-            printf '%s' "${JWT_PAYLOAD}" |
+            printf '%s' "${JWT_PAYLOAD_B64}" |
               tr '_-' '/+' |
-              awk '{
-                l = length($0) % 4;
-                if (l == 2) $0 = $0 "==";
-                else if (l == 3) $0 = $0 "=";
-                print $0;
-              }' |
+              awk '
+                {
+                  remainder = length($0) % 4;
+
+                  if (remainder == 2) {
+                    $0 = $0 "==";
+                  }
+                  else if (remainder == 3) {
+                    $0 = $0 "=";
+                  }
+
+                  print $0;
+                }
+              ' |
               base64 --decode
           )"
 
-          # ------------------------------------------------------
+
+          # --------------------------------------------------
           # Verify decoded payload is valid JSON.
-          # ------------------------------------------------------
+          # --------------------------------------------------
 
           if ! echo "${JWT_PAYLOAD}" | jq empty >/dev/null 2>&1; then
+
             echo ""
             echo "ERROR: Decoded OIDC payload is not valid JSON."
+
             exit 1
+
           fi
+
 
           echo ""
           echo "=================================================="
           echo "OIDC CLAIMS"
           echo "=================================================="
 
-          # ------------------------------------------------------
-          # Display only NON-SECRET claims.
+
+          # --------------------------------------------------
+          # Display NON-SECRET claims.
           #
           # DO NOT print:
-          #   - OIDC_TOKEN
-          #   - JWT signature
-          #   - ACTIONS_ID_TOKEN_REQUEST_TOKEN
           #
-          # ------------------------------------------------------
+          #   OIDC_TOKEN
+          #   JWT signature
+          #   ACTIONS_ID_TOKEN_REQUEST_TOKEN
+          #
+          # --------------------------------------------------
 
           echo "${JWT_PAYLOAD}" | jq -r '
             "iss: \(.iss // "<not present>")",
@@ -773,147 +1178,205 @@ jobs:
             "repository_owner_id: \(.repository_owner_id // "<not present>")",
             "ref: \(.ref // "<not present>")",
             "ref_type: \(.ref_type // "<not present>")",
-            "environment: \(.environment // "<not present>")",
             "event_name: \(.event_name // "<not present>")",
-            "job_workflow_ref: \(.job_workflow_ref // "<not present>")"
+            "job_workflow_ref: \(.job_workflow_ref // "<not present>")",
+            "workflow: \(.workflow // "<not present>")",
+            "workflow_ref: \(.workflow_ref // "<not present>")",
+            "environment: \(.environment // "<not present>")"
           '
 
-          # ------------------------------------------------------
-          # Extract important values for validation.
-          # ------------------------------------------------------
+
+          # --------------------------------------------------
+          # Extract important claims for validation.
+          # --------------------------------------------------
 
           ISS="$(
             echo "${JWT_PAYLOAD}" |
               jq -r '.iss // empty'
           )"
 
+
           AUD="$(
             echo "${JWT_PAYLOAD}" |
               jq -r '.aud // empty'
           )"
+
 
           SUB="$(
             echo "${JWT_PAYLOAD}" |
               jq -r '.sub // empty'
           )"
 
+
           REPOSITORY="$(
             echo "${JWT_PAYLOAD}" |
               jq -r '.repository // empty'
           )"
+
 
           REF="$(
             echo "${JWT_PAYLOAD}" |
               jq -r '.ref // empty'
           )"
 
-          # ------------------------------------------------------
+
+          # --------------------------------------------------
           # Expected issuer.
-          # ------------------------------------------------------
+          # --------------------------------------------------
 
           EXPECTED_ISSUER="https://token.actions.githubusercontent.com"
+
 
           echo ""
           echo "=================================================="
           echo "OIDC VALIDATION"
           echo "=================================================="
 
+
           if [ "${ISS}" = "${EXPECTED_ISSUER}" ]; then
+
             echo "PASS: OIDC issuer is correct."
+
           else
+
             echo "FAIL: OIDC issuer is incorrect."
+
             echo "Expected: ${EXPECTED_ISSUER}"
+
             echo "Actual:   ${ISS}"
+
             exit 1
+
           fi
 
-          # ------------------------------------------------------
+
+          # --------------------------------------------------
           # Expected audience.
-          # ------------------------------------------------------
+          # --------------------------------------------------
 
           if [ "${AUD}" = "${AWS_OIDC_AUDIENCE}" ]; then
+
             echo "PASS: OIDC audience is correct."
+
           else
+
             echo "FAIL: OIDC audience is incorrect."
+
             echo "Expected: ${AWS_OIDC_AUDIENCE}"
+
             echo "Actual:   ${AUD}"
+
             exit 1
+
           fi
 
-          # ------------------------------------------------------
+
+          # --------------------------------------------------
           # Expected repository.
-          # ------------------------------------------------------
+          # --------------------------------------------------
 
           if [ "${REPOSITORY}" = "${GITHUB_REPOSITORY}" ]; then
+
             echo "PASS: Repository claim is correct."
+
           else
+
             echo "FAIL: Repository claim does not match workflow repository."
+
             echo "Expected: ${GITHUB_REPOSITORY}"
+
             echo "Actual:   ${REPOSITORY}"
+
             exit 1
+
           fi
 
-          # ------------------------------------------------------
+
+          # --------------------------------------------------
           # Expected branch/ref.
-          # ------------------------------------------------------
+          # --------------------------------------------------
 
           if [ "${REF}" = "${GITHUB_REF}" ]; then
+
             echo "PASS: Ref claim is correct."
+
           else
+
             echo "WARNING: Ref claim differs from GITHUB_REF."
+
             echo "GITHUB_REF: ${GITHUB_REF}"
+
             echo "OIDC ref:    ${REF}"
+
           fi
 
-          # ------------------------------------------------------
+
+          # --------------------------------------------------
           # IMPORTANT SUBJECT CHECK
           #
-          # Your current IAM trust policy expects:
+          # Your current IAM trust policy expects the classic
+          # GitHub subject format:
           #
-          # repo:awsrmmustansarjavaid/aws-hybrid-iac-lab:
-          # ref:refs/heads/main
+          # repo:OWNER/REPOSITORY:ref:refs/heads/main
           #
-          # We calculate that value here.
+          # However, GitHub now supports immutable subject
+          # formats containing owner/repository IDs.
           #
-          # We DO NOT immediately fail if it differs because
-          # GitHub can use other valid subject formats.
-          # ------------------------------------------------------
+          # Therefore we DISPLAY the comparison instead of
+          # automatically changing or modifying IAM.
+          #
+          # The actual "sub" value printed above is the value
+          # we will use if the IAM trust policy needs updating.
+          #
+          # --------------------------------------------------
 
           EXPECTED_CLASSIC_SUB="repo:${GITHUB_REPOSITORY}:ref:${GITHUB_REF}"
+
 
           echo ""
           echo "=================================================="
           echo "SUBJECT CLAIM ANALYSIS"
           echo "=================================================="
 
+
           echo ""
           echo "Actual OIDC sub:"
           echo "${SUB}"
+
 
           echo ""
           echo "Classic IAM expected sub:"
           echo "${EXPECTED_CLASSIC_SUB}"
 
+
           if [ "${SUB}" = "${EXPECTED_CLASSIC_SUB}" ]; then
+
             echo ""
-            echo "PASS: OIDC sub matches the current IAM trust policy format."
+            echo "PASS: OIDC sub matches the classic IAM trust policy format."
+
           else
+
             echo ""
             echo "WARNING: OIDC sub DOES NOT match the classic IAM trust policy."
+
             echo ""
             echo "This is important."
-            echo "Your IAM role may need its trust policy updated to match"
+
+            echo "The IAM trust policy may need to be updated to match"
             echo "the actual GitHub OIDC subject claim."
+
             echo ""
             echo "DO NOT change IAM automatically."
+
             echo "Use the actual 'sub' value printed above."
+
           fi
+
 
           echo ""
           echo "=================================================="
           echo "OIDC DIAGNOSTIC COMPLETE"
-          echo "==================================================" 
-
+          echo "=================================================="
 
 
       # ======================================================
@@ -926,47 +1389,74 @@ jobs:
         shell: bash
 
         run: |
+
           set -euo pipefail
+
 
           echo "=================================================="
           echo "AWS DEPLOYMENT CONFIGURATION"
           echo "=================================================="
 
+
           echo ""
           echo "AWS Region:"
           echo "${AWS_REGION}"
+
+
+          echo ""
+          echo "AWS Account:"
+          echo "${AWS_ACCOUNT_ID}"
+
 
           echo ""
           echo "AWS IAM Role:"
           echo "${AWS_ROLE_ARN}"
 
+
+          echo ""
+          echo "Expected IAM Role Name:"
+          echo "${AWS_EXPECTED_ROLE_NAME}"
+
+
+          echo ""
+          echo "OIDC Audience:"
+          echo "${AWS_OIDC_AUDIENCE}"
+
+
           echo ""
           echo "Role Session:"
           echo "${AWS_ROLE_SESSION_NAME}"
+
 
           echo ""
           echo "GitHub Repository:"
           echo "${GITHUB_REPOSITORY}"
 
+
           echo ""
           echo "GitHub Ref:"
           echo "${GITHUB_REF}"
+
 
           echo ""
           echo "GitHub Branch:"
           echo "${GITHUB_REF_NAME}"
 
+
           echo ""
           echo "Terraform Directory:"
           echo "${TF_WORKING_DIRECTORY}"
+
 
           echo ""
           echo "Terraform State Bucket:"
           echo "${TF_STATE_BUCKET}"
 
+
           echo ""
           echo "Terraform State Key:"
           echo "${TF_STATE_KEY}"
+
 
           echo ""
           echo "=================================================="
@@ -976,24 +1466,27 @@ jobs:
 
       # ======================================================
       # STEP 5
-      # CONFIGURE AWS CREDENTIALS USING OIDC
+      # CONFIGURE AWS CREDENTIALS USING GITHUB OIDC
       # ======================================================
       #
       # GitHub:
       #
       #   1. Requests an OIDC JWT.
       #
-      #   2. Sends it to AWS STS.
+      #   2. Sends the JWT to AWS STS.
       #
       #   3. AWS validates:
       #
-      #        OIDC Provider
+      #        OIDC provider
       #        issuer
       #        audience
       #        subject
       #        IAM trust policy
       #
       #   4. AWS returns temporary credentials.
+      #
+      # The credentials are then exported for subsequent
+      # Terraform/AWS CLI steps.
       #
       # ======================================================
 
@@ -1003,11 +1496,27 @@ jobs:
 
         with:
 
+          # AWS deployment region.
           aws-region: ${{ env.AWS_REGION }}
 
+          # IAM role GitHub Actions will assume.
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
 
+          # CloudTrail/STS session name.
           role-session-name: ${{ env.AWS_ROLE_SESSION_NAME }}
+
+          # Explicit OIDC audience.
+          #
+          # Must match:
+          #
+          #   sts.amazonaws.com
+          #
+          audience: ${{ env.AWS_OIDC_AUDIENCE }}
+
+          # Extra safety:
+          #
+          # Only allow credentials from the expected AWS account.
+          allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
 
 
       # ======================================================
@@ -1022,8 +1531,8 @@ jobs:
       #
       #   arn:aws:sts::<ACCOUNT_ID>:assumed-role/...
       #
-      # If this step runs successfully, GitHub OIDC has
-      # successfully exchanged the token for AWS credentials.
+      # If this step succeeds, GitHub OIDC successfully
+      # exchanged the token for temporary AWS credentials.
       #
       # ======================================================
 
@@ -1032,33 +1541,51 @@ jobs:
         shell: bash
 
         run: |
+
           set -euo pipefail
+
 
           echo "=================================================="
           echo "AWS STS IDENTITY"
           echo "=================================================="
 
+
           IDENTITY_JSON="$(aws sts get-caller-identity)"
+
 
           echo "${IDENTITY_JSON}" | jq .
 
-          ACCOUNT_ID="$(echo "${IDENTITY_JSON}" | jq -r '.Account')"
 
-          ARN="$(echo "${IDENTITY_JSON}" | jq -r '.Arn')"
+          ACCOUNT_ID="$(
+            echo "${IDENTITY_JSON}" |
+              jq -r '.Account'
+          )"
+
+
+          ARN="$(
+            echo "${IDENTITY_JSON}" |
+              jq -r '.Arn'
+          )"
 
 
           # --------------------------------------------------
           # Verify expected AWS account.
           # --------------------------------------------------
 
-          EXPECTED_ACCOUNT_ID="537236558357"
+          EXPECTED_ACCOUNT_ID="${AWS_ACCOUNT_ID}"
+
 
           if [[ "${ACCOUNT_ID}" != "${EXPECTED_ACCOUNT_ID}" ]]; then
+
             echo ""
             echo "ERROR: Unexpected AWS account."
+
             echo "Expected: ${EXPECTED_ACCOUNT_ID}"
+
             echo "Actual:   ${ACCOUNT_ID}"
+
             exit 1
+
           fi
 
 
@@ -1066,25 +1593,34 @@ jobs:
           # Verify that the assumed role is the expected role.
           # --------------------------------------------------
 
-          EXPECTED_ROLE_NAME="aws-hybrid-iac-lab-GitHubActions"
+          EXPECTED_ROLE_NAME="${AWS_EXPECTED_ROLE_NAME}"
+
 
           if [[ "${ARN}" != *"${EXPECTED_ROLE_NAME}"* ]]; then
+
             echo ""
             echo "ERROR: Unexpected AWS IAM role."
+
             echo "Expected role: ${EXPECTED_ROLE_NAME}"
+
             echo "Actual ARN:    ${ARN}"
+
             exit 1
+
           fi
 
 
           echo ""
           echo "AWS account verification: PASSED"
 
+
           echo ""
           echo "AWS role verification: PASSED"
 
+
           echo ""
           echo "AWS OIDC authentication: PASSED"
+
 
           echo ""
           echo "=================================================="
@@ -1116,19 +1652,24 @@ jobs:
         shell: bash
 
         run: |
+
           set -euo pipefail
+
 
           echo "=================================================="
           echo "TERRAFORM STATE BACKEND BOOTSTRAP"
           echo "=================================================="
 
+
           echo ""
           echo "State bucket:"
           echo "${TF_STATE_BUCKET}"
 
+
           echo ""
           echo "State region:"
           echo "${TF_STATE_REGION}"
+
 
           echo ""
           echo "State key:"
@@ -1141,6 +1682,7 @@ jobs:
 
           echo ""
           echo "Checking Terraform state bucket..."
+
 
           if aws s3api head-bucket \
             --bucket "${TF_STATE_BUCKET}" \
@@ -1177,6 +1719,7 @@ jobs:
 
             fi
 
+
             echo "Terraform state bucket created."
 
           fi
@@ -1188,6 +1731,7 @@ jobs:
 
           echo ""
           echo "Enabling S3 versioning..."
+
 
           aws s3api put-bucket-versioning \
             --bucket "${TF_STATE_BUCKET}" \
@@ -1201,6 +1745,7 @@ jobs:
 
           echo ""
           echo "Enabling S3 encryption..."
+
 
           aws s3api put-bucket-encryption \
             --bucket "${TF_STATE_BUCKET}" \
@@ -1224,6 +1769,7 @@ jobs:
           echo ""
           echo "Blocking public access..."
 
+
           aws s3api put-public-access-block \
             --bucket "${TF_STATE_BUCKET}" \
             --region "${TF_STATE_REGION}" \
@@ -1237,6 +1783,7 @@ jobs:
 
           echo ""
           echo "Applying bucket tags..."
+
 
           aws s3api put-bucket-tagging \
             --bucket "${TF_STATE_BUCKET}" \
@@ -1280,6 +1827,7 @@ jobs:
           echo ""
           echo "Bucket:"
 
+
           aws s3api head-bucket \
             --bucket "${TF_STATE_BUCKET}" \
             --region "${TF_STATE_REGION}"
@@ -1287,6 +1835,7 @@ jobs:
 
           echo ""
           echo "Versioning:"
+
 
           aws s3api get-bucket-versioning \
             --bucket "${TF_STATE_BUCKET}" \
@@ -1296,6 +1845,7 @@ jobs:
           echo ""
           echo "Encryption:"
 
+
           aws s3api get-bucket-encryption \
             --bucket "${TF_STATE_BUCKET}" \
             --region "${TF_STATE_REGION}"
@@ -1303,6 +1853,7 @@ jobs:
 
           echo ""
           echo "Public Access Block:"
+
 
           aws s3api get-public-access-block \
             --bucket "${TF_STATE_BUCKET}" \
@@ -1387,6 +1938,7 @@ jobs:
           echo "TERRAFORM STATE"
           echo "=================================================="
 
+
           terraform state list || true
 
 
@@ -1418,6 +1970,9 @@ jobs:
       # ======================================================
       #
       # Applies the EXACT plan generated by Step 13.
+      #
+      # This prevents a different plan from being generated
+      # between the plan and apply stages.
       #
       # ======================================================
 
