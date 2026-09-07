@@ -3,63 +3,40 @@
 # ============================================================
 #
 # File:
-#
-#     infrastructure/terraform/terraform.tfvars
+#   infrastructure/terraform/terraform.tfvars.example
 #
 # Purpose:
+#   Example/template values for Terraform input variables.
 #
-#     Provides environment-specific input values to Terraform.
+# IMPORTANT:
 #
+#   This is an EXAMPLE file.
 #
-# ============================================================
-# HYBRID IaC ARCHITECTURE
-# ============================================================
+#   Do NOT put real passwords, secrets, private values,
+#   or sensitive environment-specific information here.
 #
-# Terraform
-#     |
-#     +--> CloudFormation Template S3 Bucket
-#     |
-#     +--> CloudFormation Root Stack
-#              |
-#              +--> VPC Nested Stack
-#              +--> S3 Nested Stack
-#              +--> DynamoDB Nested Stack
-#              +--> ECR Nested Stack
-#              +--> Lambda Nested Stack
-#              +--> API Gateway Nested Stack
-#              +--> CloudFront Nested Stack
-#              +--> EC2 Nested Stack
-#              +--> ECS Nested Stack
-#              +--> EKS Nested Stack
-#              +--> RDS Nested Stack
+#   Copy this file to:
 #
+#       terraform.tfvars
+#
+#   and then replace the placeholder values with your REAL
+#   AWS resource values.
 #
 # ============================================================
 # SECURITY
 # ============================================================
 #
-# IMPORTANT:
+# terraform.tfvars.example
+#     -> SAFE TO COMMIT
 #
-# This file can contain environment-specific and sensitive
-# values.
-#
-# Do NOT commit real secrets or passwords to GitHub.
-#
+# terraform.tfvars
+#     -> DO NOT COMMIT
 #
 # Recommended .gitignore entries:
 #
-#     terraform.tfvars
-#     *.tfvars
-#     *.tfvars.json
-#
-#
-# For GitHub Actions / CI/CD use:
-#
-#     GitHub Secrets
-#     GitHub Variables
-#     AWS Secrets Manager
-#     OIDC
-#     or another secure secret-management solution.
+#   terraform.tfvars
+#   *.tfvars
+#   *.tfvars.json
 #
 # ============================================================
 
@@ -68,12 +45,11 @@
 # 1. AWS REGION
 # ============================================================
 #
-# AWS region where this Terraform + CloudFormation lab will
-# operate.
+# AWS region used by this lab.
 #
-# Current lab region:
+# Current project region:
 #
-#     us-east-1
+#   us-east-1
 #
 # ============================================================
 
@@ -84,7 +60,14 @@ aws_region = "us-east-1"
 # 2. PROJECT NAME
 # ============================================================
 #
-# Common project name used by Terraform and CloudFormation.
+# Main project/lab name.
+#
+# Used by Terraform and CloudFormation for:
+#
+#   - Resource naming
+#   - Stack naming
+#   - Tags
+#   - Project identification
 #
 # ============================================================
 
@@ -99,14 +82,7 @@ project_name = "HybridIaCLab"
 #
 # Current environment:
 #
-#     dev
-#
-# Possible environments:
-#
-#     dev
-#     test
-#     staging
-#     prod
+#   dev
 #
 # ============================================================
 
@@ -117,22 +93,14 @@ environment = "dev"
 # 4. VPC ID
 # ============================================================
 #
-# Existing VPC that will be supplied to the CloudFormation
-# root stack.
-#
-# IMPORTANT:
-#
-# Replace the value below with the REAL VPC ID from AWS.
+# Existing VPC passed to the CloudFormation root stack.
 #
 # Expected format:
 #
-#     vpc-0123456789abcdef0
+#   vpc-0123456789abcdef0
 #
-# Example only:
-#
-#     vpc-0123456789abcdef0
-#
-# Do NOT use the example value.
+# Replace the placeholder with your REAL VPC ID in
+# terraform.tfvars.
 #
 # ============================================================
 
@@ -143,13 +111,13 @@ vpc_id = "REPLACE_WITH_REAL_VPC_ID"
 # 5. PRIMARY PUBLIC SUBNET ID
 # ============================================================
 #
-# Primary public subnet supplied to CloudFormation.
+# Public subnet used by the EC2-related infrastructure.
 #
 # Expected format:
 #
-#     subnet-0123456789abcdef0
+#   subnet-0123456789abcdef0
 #
-# Replace with the REAL subnet ID.
+# Replace with your REAL subnet ID.
 #
 # ============================================================
 
@@ -164,9 +132,9 @@ public_subnet_id = "REPLACE_WITH_REAL_PUBLIC_SUBNET_ID"
 #
 # Expected format:
 #
-#     subnet-0123456789abcdef0
+#   subnet-0123456789abcdef0
 #
-# This should normally be in one Availability Zone.
+# Ideally this subnet is in one Availability Zone.
 #
 # ============================================================
 
@@ -179,12 +147,12 @@ public_subnet_1_id = "REPLACE_WITH_REAL_PUBLIC_SUBNET_1_ID"
 #
 # Second public subnet used by the Multi-AZ architecture.
 #
+# Ideally this subnet is in a different Availability Zone
+# from public_subnet_1_id.
+#
 # Expected format:
 #
-#     subnet-0123456789abcdef0
-#
-# Ideally this subnet should be in a different Availability
-# Zone from public_subnet_1_id.
+#   subnet-0123456789abcdef0
 #
 # ============================================================
 
@@ -195,11 +163,11 @@ public_subnet_2_id = "REPLACE_WITH_REAL_PUBLIC_SUBNET_2_ID"
 # 8. PRIVATE SUBNET 1 ID
 # ============================================================
 #
-# First private subnet supplied to CloudFormation.
+# First private subnet used by RDS/private infrastructure.
 #
 # Expected format:
 #
-#     subnet-0123456789abcdef0
+#   subnet-0123456789abcdef0
 #
 # ============================================================
 
@@ -210,14 +178,14 @@ private_subnet_1_id = "REPLACE_WITH_REAL_PRIVATE_SUBNET_1_ID"
 # 9. PRIVATE SUBNET 2 ID
 # ============================================================
 #
-# Second private subnet supplied to CloudFormation.
+# Second private subnet used by RDS/private infrastructure.
+#
+# Ideally this subnet is in a different Availability Zone
+# from private_subnet_1_id.
 #
 # Expected format:
 #
-#     subnet-0123456789abcdef0
-#
-# Ideally this subnet should be in a different Availability
-# Zone from private_subnet_1_id.
+#   subnet-0123456789abcdef0
 #
 # ============================================================
 
@@ -232,24 +200,19 @@ private_subnet_2_id = "REPLACE_WITH_REAL_PRIVATE_SUBNET_2_ID"
 #
 # The AMI must exist in:
 #
-#     us-east-1
+#   us-east-1
 #
+# Recommended command:
 #
-# Recommended PowerShell command:
+#   aws ssm get-parameter `
+#     --name "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64" `
+#     --query "Parameter.Value" `
+#     --output text `
+#     --region us-east-1
 #
-#     aws ssm get-parameter `
-#       --name "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64" `
-#       --query "Parameter.Value" `
-#       --output text `
-#       --region us-east-1
+# Expected format:
 #
-#
-# AWS should return something similar to:
-#
-#     ami-0123456789abcdef0
-#
-#
-# Copy the REAL returned AMI ID into the variable below.
+#   ami-0123456789abcdef0
 #
 # ============================================================
 
@@ -260,25 +223,21 @@ ami_id = "REPLACE_WITH_REAL_AMAZON_LINUX_2023_AMI_ID"
 # 11. APPLICATION S3 BUCKET NAME
 # ============================================================
 #
-# Application S3 bucket used by the CloudFormation application
-# infrastructure.
+# Application S3 bucket used by the CloudFormation
+# application infrastructure.
 #
 # IMPORTANT:
 #
-# This is NOT necessarily the same bucket as the Terraform
+# This is NOT necessarily the same as the Terraform-managed
 # CloudFormation template bucket.
 #
+# CloudFormation template bucket:
 #
-# Terraform CloudFormation template bucket currently used by
-# the project:
+#   Stores main.yaml and nested CloudFormation templates.
 #
-#     hybridiaclab-dev-cfn-templates-a635abe09098d12756b031e2bb
+# Application bucket:
 #
-#
-# The value below must be the actual application bucket
-# expected by your CloudFormation main.yaml / nested stack
-# architecture.
-#
+#   Stores application/static website content.
 #
 # S3 bucket names must be globally unique.
 #
@@ -291,15 +250,12 @@ application_bucket_name = "REPLACE_WITH_REAL_APPLICATION_BUCKET_NAME"
 # 12. LAMBDA FUNCTION ARN
 # ============================================================
 #
-# ARN of the Lambda function expected by the CloudFormation
+# Lambda function ARN expected by the CloudFormation
 # infrastructure.
 #
 # Expected format:
 #
-#     arn:aws:lambda:us-east-1:537236558357:function:FunctionName
-#
-#
-# Replace with the REAL Lambda function ARN.
+#   arn:aws:lambda:us-east-1:537236558357:function:FunctionName
 #
 # ============================================================
 
@@ -310,19 +266,14 @@ lambda_function_arn = "REPLACE_WITH_REAL_LAMBDA_FUNCTION_ARN"
 # 13. ECR IMAGE URI
 # ============================================================
 #
-# URI of the container image used by CloudFormation/ECS.
+# Container image URI used by ECS/CloudFormation.
 #
 # Expected format:
 #
-#     537236558357.dkr.ecr.us-east-1.amazonaws.com/my-app:latest
+#   537236558357.dkr.ecr.us-east-1.amazonaws.com/my-app:latest
 #
-#
-# IMPORTANT:
-#
-# The ECR repository and image tag must exist before the
-# dependent ECS deployment attempts to use the image.
-#
-# Replace with the REAL image URI.
+# The repository and image tag should exist before a dependent
+# ECS deployment attempts to use the image.
 #
 # ============================================================
 
@@ -333,34 +284,16 @@ ecr_image_uri = "REPLACE_WITH_REAL_ECR_IMAGE_URI"
 # 14. DATABASE PASSWORD
 # ============================================================
 #
-# Password supplied to the CloudFormation RDS nested stack.
+# Database password supplied to the RDS CloudFormation stack.
 #
-# ============================================================
-# SECURITY WARNING
-# ============================================================
+# SECURITY:
 #
-# This value is sensitive.
+# NEVER put the real database password in this example file.
 #
-# Even when a CloudFormation parameter is configured with
-# NoEcho=true, the value may still exist in Terraform state
-# because Terraform passes the value to CloudFormation.
+# In terraform.tfvars, use your real password locally.
 #
-#
-# Therefore:
-#
-#     1. NEVER commit the real password to GitHub.
-#
-#     2. Keep terraform.tfvars in .gitignore.
-#
-#     3. Protect the Terraform state backend.
-#
-#     4. Do not put passwords directly inside .tf files.
-#
-#     5. Prefer AWS Secrets Manager for production systems.
-#
-#
-# The password must satisfy the password requirements defined
-# by your RDS CloudFormation template.
+# In GitHub Actions, use a GitHub Actions secret or another
+# secure secret-management mechanism.
 #
 # ============================================================
 
@@ -368,71 +301,27 @@ database_password = "REPLACE_WITH_STRONG_DATABASE_PASSWORD"
 
 
 # ============================================================
-# VALIDATION CHECKLIST
+# FINAL CHECKLIST
 # ============================================================
 #
-# Before running:
+# Before using this file as a real configuration:
 #
-#     terraform plan
+#   [ ] Replace VPC ID
+#   [ ] Replace primary public subnet ID
+#   [ ] Replace public subnet 1
+#   [ ] Replace public subnet 2
+#   [ ] Replace private subnet 1
+#   [ ] Replace private subnet 2
+#   [ ] Replace Amazon Linux 2023 AMI
+#   [ ] Replace application S3 bucket name
+#   [ ] Replace Lambda ARN
+#   [ ] Replace ECR image URI
+#   [ ] Provide database password securely
 #
-# make sure these placeholders have been replaced:
 #
-#     REPLACE_WITH_REAL_VPC_ID
-#
-#     REPLACE_WITH_REAL_PUBLIC_SUBNET_ID
-#
-#     REPLACE_WITH_REAL_PUBLIC_SUBNET_1_ID
-#
-#     REPLACE_WITH_REAL_PUBLIC_SUBNET_2_ID
-#
-#     REPLACE_WITH_REAL_PRIVATE_SUBNET_1_ID
-#
-#     REPLACE_WITH_REAL_PRIVATE_SUBNET_2_ID
-#
-#     REPLACE_WITH_REAL_AMAZON_LINUX_2023_AMI_ID
-#
-#     REPLACE_WITH_REAL_APPLICATION_BUCKET_NAME
-#
-#     REPLACE_WITH_REAL_LAMBDA_FUNCTION_ARN
-#
-#     REPLACE_WITH_REAL_ECR_IMAGE_URI
-#
-#     REPLACE_WITH_STRONG_DATABASE_PASSWORD
-#
+# DO NOT replace these values inside the example file with
+# real production/local secrets.
 #
 # ============================================================
-# IMPORTANT
-# ============================================================
-#
-# Do NOT weaken the validation rules in variables.tf just to
-# make these placeholder values pass validation.
-#
-# The validation is intentionally protecting the deployment
-# from invalid AWS identifiers.
-#
-#
-# ============================================================
-# TERRAFORM COMMANDS
-# ============================================================
-#
-# Format Terraform configuration:
-#
-#     terraform fmt
-#
-#
-# Validate configuration:
-#
-#     terraform validate
-#
-#
-# Review deployment plan:
-#
-#     terraform plan
-#
-#
-# Do NOT run terraform apply until the complete plan has been
-# reviewed.
-#
-# ============================================================
-# END OF terraform.tfvars
+# END OF terraform.tfvars.example
 # ============================================================
