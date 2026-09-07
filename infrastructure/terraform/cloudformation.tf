@@ -296,328 +296,328 @@
 
 resource "aws_cloudformation_stack" "main" {
 
-# ==========================================================
+  # ==========================================================
 
-# STACK NAME
+  # STACK NAME
 
-# ==========================================================
+  # ==========================================================
 
-#
+  #
 
-# Terraform creates a predictable root CloudFormation
+  # Terraform creates a predictable root CloudFormation
 
-# stack name.
+  # stack name.
 
-#
+  #
 
-# Example:
+  # Example:
 
-#
+  #
 
-# HybridIaCLab-dev-MainStack
+  # HybridIaCLab-dev-MainStack
 
-#
+  #
 
-# ==========================================================
+  # ==========================================================
 
-name = "${local.name_prefix}-MainStack"
+  name = "${local.name_prefix}-MainStack"
 
-# ==========================================================
+  # ==========================================================
 
-# ROOT CLOUDFORMATION TEMPLATE
+  # ROOT CLOUDFORMATION TEMPLATE
 
-# ==========================================================
+  # ==========================================================
 
-#
+  #
 
-# Terraform uploads main.yaml into the dedicated
+  # Terraform uploads main.yaml into the dedicated
 
-# CloudFormation template S3 bucket.
+  # CloudFormation template S3 bucket.
 
-#
+  #
 
-# CloudFormation then retrieves main.yaml from that bucket.
+  # CloudFormation then retrieves main.yaml from that bucket.
 
-#
+  #
 
-# The root template is responsible for creating and
+  # The root template is responsible for creating and
 
-# connecting the nested CloudFormation stacks.
+  # connecting the nested CloudFormation stacks.
 
-#
+  #
 
-# ==========================================================
+  # ==========================================================
 
-template_url = "https://${aws_s3_bucket.cloudformation_templates.bucket_regional_domain_name}/main.yaml"
+  template_url = "https://${aws_s3_bucket.cloudformation_templates.bucket_regional_domain_name}/main.yaml"
 
-# ==========================================================
+  # ==========================================================
 
-# CLOUDFORMATION CAPABILITIES
+  # CLOUDFORMATION CAPABILITIES
 
-# ==========================================================
+  # ==========================================================
 
-#
+  #
 
-# Some nested CloudFormation stacks create IAM resources.
+  # Some nested CloudFormation stacks create IAM resources.
 
-#
+  #
 
-# CAPABILITY_IAM:
+  # CAPABILITY_IAM:
 
-#
+  #
 
-# Allows CloudFormation to create IAM resources.
+  # Allows CloudFormation to create IAM resources.
 
-#
+  #
 
-#
+  #
 
-# CAPABILITY_NAMED_IAM:
+  # CAPABILITY_NAMED_IAM:
 
-#
+  #
 
-# Allows CloudFormation to create IAM resources with
+  # Allows CloudFormation to create IAM resources with
 
-# explicitly specified names.
+  # explicitly specified names.
 
-#
+  #
 
-# ==========================================================
+  # ==========================================================
 
-capabilities = [
-"CAPABILITY_IAM",
-"CAPABILITY_NAMED_IAM"
-]
+  capabilities = [
+    "CAPABILITY_IAM",
+    "CAPABILITY_NAMED_IAM"
+  ]
 
-# ==========================================================
+  # ==========================================================
 
-# ROOT STACK PARAMETERS
+  # ROOT STACK PARAMETERS
 
-# ==========================================================
+  # ==========================================================
 
-#
+  #
 
-# Only genuine external inputs are supplied here.
+  # Only genuine external inputs are supplied here.
 
-#
+  #
 
-#
+  #
 
-# Resources created inside nested CloudFormation stacks
+  # Resources created inside nested CloudFormation stacks
 
-# should NOT be passed through Terraform.
+  # should NOT be passed through Terraform.
 
-#
+  #
 
-#
+  #
 
-# For example, Terraform does NOT provide:
+  # For example, Terraform does NOT provide:
 
-#
+  #
 
-# VpcId
+  # VpcId
 
-# PublicSubnetId
+  # PublicSubnetId
 
-# PrivateSubnetId
+  # PrivateSubnetId
 
-# ApplicationBucketName
+  # ApplicationBucketName
 
-# LambdaFunctionArn
+  # LambdaFunctionArn
 
-# EcrImageUri
+  # EcrImageUri
 
-#
+  #
 
-#
+  #
 
-# Those values are handled by the CloudFormation hierarchy
+  # Those values are handled by the CloudFormation hierarchy
 
-# or by the later application deployment pipeline.
+  # or by the later application deployment pipeline.
 
-#
+  #
 
-# ==========================================================
+  # ==========================================================
 
-parameters = {
+  parameters = {
 
 
-# ========================================================
-# BASIC PROJECT CONFIGURATION
-# ========================================================
-#
-# These values are genuine configuration inputs.
-#
-# They are consumed by the root CloudFormation template
-# and passed to nested stacks.
-#
-# ========================================================
+    # ========================================================
+    # BASIC PROJECT CONFIGURATION
+    # ========================================================
+    #
+    # These values are genuine configuration inputs.
+    #
+    # They are consumed by the root CloudFormation template
+    # and passed to nested stacks.
+    #
+    # ========================================================
 
-ProjectName = var.project_name
-
-Environment = var.environment
+    ProjectName = var.project_name
+
+    Environment = var.environment
 
-
-# ========================================================
-# CLOUDFORMATION TEMPLATE LOCATION
-# ========================================================
-#
-# Terraform owns the CloudFormation template bucket.
-#
-# The root CloudFormation stack receives the bucket name
-# so that it can locate main.yaml and all nested templates.
-#
-# ========================================================
-
-TemplateBucket = aws_s3_bucket.cloudformation_templates.bucket
-
-TemplatePrefix = ""
-
-
-# ========================================================
-# EC2 AMI
-# ========================================================
-#
-# The AMI is not created by this CloudFormation hierarchy.
-#
-# Therefore the AMI ID remains a legitimate external input.
-#
-# Terraform supplies the AMI ID to the root CloudFormation
-# stack.
-#
-# main.yaml then passes the value to EC2Stack.
-#
-# ========================================================
+
+    # ========================================================
+    # CLOUDFORMATION TEMPLATE LOCATION
+    # ========================================================
+    #
+    # Terraform owns the CloudFormation template bucket.
+    #
+    # The root CloudFormation stack receives the bucket name
+    # so that it can locate main.yaml and all nested templates.
+    #
+    # ========================================================
+
+    TemplateBucket = aws_s3_bucket.cloudformation_templates.bucket
+
+    TemplatePrefix = ""
+
+
+    # ========================================================
+    # EC2 AMI
+    # ========================================================
+    #
+    # The AMI is not created by this CloudFormation hierarchy.
+    #
+    # Therefore the AMI ID remains a legitimate external input.
+    #
+    # Terraform supplies the AMI ID to the root CloudFormation
+    # stack.
+    #
+    # main.yaml then passes the value to EC2Stack.
+    #
+    # ========================================================
 
-AmiId = var.ami_id
+    AmiId = var.ami_id
 
 
-# ========================================================
-# EC2 INSTANCE TYPE
-# ========================================================
-#
-# The current main.yaml defines:
-#
-#   InstanceType:
-#     Default: t3.micro
-#
-# We intentionally do not pass InstanceType here.
-#
-# CloudFormation therefore uses its own default:
-#
-#   t3.micro
-#
-# If you later create a Terraform variable for the EC2
-# instance type, this parameter can be supplied here.
-#
-# ========================================================
+    # ========================================================
+    # EC2 INSTANCE TYPE
+    # ========================================================
+    #
+    # The current main.yaml defines:
+    #
+    #   InstanceType:
+    #     Default: t3.micro
+    #
+    # We intentionally do not pass InstanceType here.
+    #
+    # CloudFormation therefore uses its own default:
+    #
+    #   t3.micro
+    #
+    # If you later create a Terraform variable for the EC2
+    # instance type, this parameter can be supplied here.
+    #
+    # ========================================================
 
 
-# ========================================================
-# ECR DOCKER IMAGE
-# ========================================================
-#
-# IMPORTANT:
-#
-# There is intentionally NO:
-#
-#   EcrImageUri = var.ecr_image_uri
-#
-#
-# Reason:
-#
-# The ECR repository is created during the infrastructure
-# bootstrap phase.
-#
-# The Docker image does not exist yet at this point.
-#
-#
-# The Docker image lifecycle is handled later by GitHub
-# Actions:
-#
-#   1. Build Docker image.
-#   2. Login to ECR.
-#   3. Tag image with GITHUB_SHA.
-#   4. Push image to ECR.
-#   5. Deploy/update ECS.
-#
-#
-# Therefore Terraform does not need an ECR image URI during
-# infrastructure provisioning.
-#
-# ========================================================
+    # ========================================================
+    # ECR DOCKER IMAGE
+    # ========================================================
+    #
+    # IMPORTANT:
+    #
+    # There is intentionally NO:
+    #
+    #   EcrImageUri = var.ecr_image_uri
+    #
+    #
+    # Reason:
+    #
+    # The ECR repository is created during the infrastructure
+    # bootstrap phase.
+    #
+    # The Docker image does not exist yet at this point.
+    #
+    #
+    # The Docker image lifecycle is handled later by GitHub
+    # Actions:
+    #
+    #   1. Build Docker image.
+    #   2. Login to ECR.
+    #   3. Tag image with GITHUB_SHA.
+    #   4. Push image to ECR.
+    #   5. Deploy/update ECS.
+    #
+    #
+    # Therefore Terraform does not need an ECR image URI during
+    # infrastructure provisioning.
+    #
+    # ========================================================
 
 
-# ========================================================
-# DATABASE USERNAME
-# ========================================================
-#
-# Passed to the RDS nested stack through main.yaml.
-#
-# ========================================================
+    # ========================================================
+    # DATABASE USERNAME
+    # ========================================================
+    #
+    # Passed to the RDS nested stack through main.yaml.
+    #
+    # ========================================================
 
-DatabaseUsername = var.database_username
+    DatabaseUsername = var.database_username
 
 
-# ========================================================
-# DATABASE PASSWORD
-# ========================================================
-#
-# Sensitive database credential.
-#
-# Do NOT hard-code this value in GitHub workflow files.
-#
-# Ideally this should eventually be supplied through a
-# secure secret-management architecture such as AWS Secrets
-# Manager or GitHub encrypted secrets.
-#
-# ========================================================
+    # ========================================================
+    # DATABASE PASSWORD
+    # ========================================================
+    #
+    # Sensitive database credential.
+    #
+    # Do NOT hard-code this value in GitHub workflow files.
+    #
+    # Ideally this should eventually be supplied through a
+    # secure secret-management architecture such as AWS Secrets
+    # Manager or GitHub encrypted secrets.
+    #
+    # ========================================================
 
-DatabasePassword = var.database_password
+    DatabasePassword = var.database_password
 
 
-}
+  }
 
-# ==========================================================
+  # ==========================================================
 
-# DEPENDENCIES
+  # DEPENDENCIES
 
-# ==========================================================
+  # ==========================================================
 
-#
+  #
 
-# The root CloudFormation stack must only be created after:
+  # The root CloudFormation stack must only be created after:
 
-#
+  #
 
-# 1. All CloudFormation templates have been uploaded.
+  # 1. All CloudFormation templates have been uploaded.
 
-#
+  #
 
-# 2. The CloudFormation execution role permissions exist.
+  # 2. The CloudFormation execution role permissions exist.
 
-#
+  #
 
-#
+  #
 
-# This ensures CloudFormation can:
+  # This ensures CloudFormation can:
 
-#
+  #
 
-# - Download main.yaml
+  # - Download main.yaml
 
-# - Download nested templates
+  # - Download nested templates
 
-# - Create the required nested resources
+  # - Create the required nested resources
 
-#
+  #
 
-# ==========================================================
+  # ==========================================================
 
-depends_on = [
-aws_s3_object.cloudformation_templates,
-aws_iam_role_policy.cloudformation_lab_permissions
-]
+  depends_on = [
+    aws_s3_object.cloudformation_templates,
+    aws_iam_role_policy.cloudformation_lab_permissions
+  ]
 }
 
 # ============================================================
