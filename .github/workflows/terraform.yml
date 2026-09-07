@@ -1491,8 +1491,13 @@ jobs:
       # ======================================================
 
       - name: Configure AWS Credentials Using OIDC
+      # v5.1.1 is intentionally used here because this workflow
+      # is called as a reusable workflow from Main Deployment.
+      # v6 has a documented OIDC issue in some reusable-workflow
+      # configurations resulting in:
+      # Not authorized to perform sts:AssumeRoleWithWebIdentity
 
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@v5.1.1
 
         with:
 
