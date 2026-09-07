@@ -286,7 +286,39 @@ Parameters:
     Type: String
     Default: admin
     NoEcho: true    
-    Description: RDS database administrator username.  
+    Description: RDS database administrator username. 
+
+
+# ============================================================
+# CONDITIONS
+# ============================================================
+#
+# Determines whether TemplatePrefix contains a value.
+#
+# If TemplatePrefix is empty:
+#
+#   HasTemplatePrefix = false
+#
+# Result:
+#
+#   s3://bucket/nested/vpc.yaml
+#
+# If TemplatePrefix is "templates":
+#
+#   HasTemplatePrefix = true
+#
+# Result:
+#
+#   s3://bucket/templates/nested/vpc.yaml
+#
+# ============================================================
+
+Conditions:
+
+  HasTemplatePrefix: !Not
+    - !Equals
+        - !Ref TemplatePrefix
+        - ""
 
 # ============================================================
 # RESOURCES
