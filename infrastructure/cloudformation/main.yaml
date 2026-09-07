@@ -248,7 +248,7 @@ Parameters:
 
   AmiId:
     Type: AWS::EC2::Image::Id
-    Description: Amazon Linux 2023 AMI ID for the EC2 instance.
+    Description: Amazon Linux 2023 AMI ID discovered dynamically by Terraform.
 
   # ----------------------------------------------------------
   # EC2 instance type
@@ -546,8 +546,10 @@ Resources:
   #   VpcId
   #   PublicSubnetId
   #
-  # AmiId remains an external input because the AMI is not
-  # created by this CloudFormation architecture.
+  # Terraform dynamically discovers the AMI and passes it
+  # to this root stack.
+  # 
+  #  The root stack forwards it to the EC2 nested stack.
   #
   # ----------------------------------------------------------
 
@@ -671,6 +673,7 @@ Resources:
 
     DependsOn:
       - VPCStack
+      - EC2Stack
 
     Properties:
       TemplateURL: !Sub

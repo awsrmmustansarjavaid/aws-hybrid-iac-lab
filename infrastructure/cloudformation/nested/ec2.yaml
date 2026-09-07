@@ -422,17 +422,24 @@ Parameters:
   # AMI ID
   # ----------------------------------------------------------
   #
-  # Amazon Linux 2023 AMI IDs are different in different
-  # AWS regions.
+  # Terraform dynamically discovers the appropriate Amazon
+  # Linux 2023 AMI for the selected AWS region.
   #
-  # Use the AWS Systems Manager public parameter to retrieve
-  # the latest Amazon Linux 2023 AMI for your region.
+  # Terraform passes the discovered AMI ID to the root
+  # CloudFormation stack.
+  #
+  # main.yaml then passes AmiId into this nested stack.
+  #
+  # This nested stack uses AmiId as the EC2 ImageId.
+  #
+  # This keeps the EC2 template region-independent and avoids
+  # hard-coding an AMI ID.
   #
   # ----------------------------------------------------------
 
   AmiId:
     Type: AWS::EC2::Image::Id
-    Description: Amazon Linux 2023 AMI ID for the selected AWS region.
+    Description: Amazon Linux 2023 AMI ID supplied dynamically by Terraform.
 
   # ----------------------------------------------------------
   # EC2 Instance Type

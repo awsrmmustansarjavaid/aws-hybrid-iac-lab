@@ -279,7 +279,7 @@ resource "aws_cloudformation_stack" "main" {
     #
     # ========================================================
 
-    AmiId = var.ami_id
+    AmiId = data.aws_ami.amazon_linux_2023.id
 
 
     # ========================================================

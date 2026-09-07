@@ -1,0 +1,110 @@
+﻿=======================================================================
+AWS HYBRID IaC LAB - COMPLETE VERIFICATION REPORT
+=======================================================================
+
+Project Root: C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab
+Verification Started: 09/07/2026 18:41:33
+Verification Finished: 09/07/2026 18:42:48
+Duration: 00:01:15.1037494
+
+Repository: awsrmmustansarjavaid/aws-hybrid-iac-lab
+Branch: main
+AWS Region: us-east-1
+IAM Role: aws-hybrid-iac-lab-GitHubActions
+IAM Policy: aws-hybrid-iac-lab-GitHubActionsPolicy
+
+FINAL RESULT: FAIL - VERIFICATION FAILED
+
+Total Checks : 113
+PASS : 100
+FAIL : 8
+WARNING : 5
+
+=======================================================================
+DETAILED VERIFICATION RESULTS
+=======================================================================
+
+
+=======================================================================
+FAILED ITEMS
+=======================================================================
+
+[FAILED] [OIDC] OIDC provider URL
+         Found 'token.actions.githubusercontent.com' but expected 'https://token.actions.githubusercontent.com'
+[FAILED] [IAM TRUST] GitHub repository restriction
+         Repository 'awsrmmustansarjavaid/aws-hybrid-iac-lab' was not found.
+[FAILED] [TERRAFORM] Terraform must not pass EcrImageUri during bootstrap
+         Unexpected text was found: EcrImageUri = var.ecr_image_uri
+[FAILED] [TERRAFORM] DatabasePassword parameter
+         Expected text was not found: DatabasePassword = var.database_password
+[FAILED] [GITHUB OIDC] AWS_REGION workflow variable
+         terraform.yml does not use vars.AWS_REGION for aws-region.
+[FAILED] [GITHUB OIDC] AWS_ROLE_ARN workflow secret
+         terraform.yml does not use secrets.AWS_ROLE_ARN.
+[FAILED] [GITHUB OIDC] configure-aws-credentials@v4
+         configure-aws-credentials@v4 was not detected.
+[FAILED] [ARCHITECTURE] Bootstrap does not require Docker image
+         Bootstrap still contains an ECR image dependency or ECS resource.
+
+=======================================================================
+WARNING ITEMS
+=======================================================================
+
+[WARNING] [AWS] AWS_REGION environment variable
+          AWS_REGION is not set locally. Expected region: us-east-1
+[WARNING] [IAM TRUST] GitHub branch restriction
+          Could not confirm exact subject restriction: repo:awsrmmustansarjavaid/aws-hybrid-iac-lab:ref:refs/heads/main
+[WARNING] [TERRAFORM] No remaining ecr_image_uri references
+          References still exist: C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\infrastructure\terraform\cloudformation.tf:106: #   EcrImageUri = var.ecr_image_uri | C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\infrastructure\terraform\cloudformation.tf:314: #   EcrImageUri = var.ecr_image_uri | C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\infrastructure\terraform\terraform.tfvars:388: #   [x] ecr_image_uri
+[WARNING] [GITHUB ACTIONS] Docker runs after Terraform
+          Could not confirm explicit Docker -> Terraform dependency.
+[WARNING] [GITHUB ACTIONS] Kubernetes runs after Docker
+          Could not confirm explicit Kubernetes -> Docker dependency.
+
+=======================================================================
+EXPECTED GITHUB CONFIGURATION
+=======================================================================
+
+Repository: awsrmmustansarjavaid/aws-hybrid-iac-lab
+Branch: main
+AWS_REGION variable: us-east-1
+AWS_ROLE_ARN secret: arn:aws:iam::537236558357:role/aws-hybrid-iac-lab-GitHubActions
+
+=======================================================================
+EXPECTED DEPLOYMENT ARCHITECTURE
+=======================================================================
+
+PHASE 1 - INFRASTRUCTURE BOOTSTRAP
+GitHub Actions
+ -> Terraform
+ -> Root CloudFormation Stack
+ -> VPC
+ -> S3
+ -> DynamoDB
+ -> ECR Repository
+ -> Lambda
+ -> API Gateway
+ -> CloudFront
+ -> EC2
+ -> EKS
+ -> RDS
+
+PHASE 2 - APPLICATION DEPLOYMENT
+GitHub Actions
+ -> Docker Build
+ -> ECR Login
+ -> Push immutable image using Git commit SHA
+ -> ECS Deployment
+ -> ECS Service
+
+IMPORTANT:
+ECR repository creation must happen before Docker push.
+Docker image must exist before ECS application deployment.
+Immutable ECR tags should use commit SHA values.
+ECS should receive the image URI during application deployment.
+
+No infrastructure deployment was performed by this script.
+
+=======================================================================
+END OF VERIFICATION REPORT
+=======================================================================

@@ -246,64 +246,8 @@ variable "environment" {
 }
 
 
-
 # ============================================================
-# 4. AMAZON LINUX 2023 AMI ID
-# ============================================================
-#
-# The AMI is NOT created by the CloudFormation hierarchy.
-#
-# Therefore Terraform may still receive this as an external
-# input.
-#
-# Example:
-#
-#   ami-0123456789abcdef0
-#
-#
-# IMPORTANT:
-#
-# AMI IDs are region-specific.
-#
-# For this lab, the AMI must exist in:
-#
-#   us-east-1
-#
-# Recommended AWS CLI lookup:
-#
-# PowerShell:
-#
-#   aws ssm get-parameter `
-#     --name "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64" `
-#     --query "Parameter.Value" `
-#     --output text `
-#     --region us-east-1
-#
-# ============================================================
-
-variable "ami_id" {
-
-  description = "Amazon Linux 2023 AMI ID used by the EC2 CloudFormation stack."
-
-  type = string
-
-  validation {
-
-    condition = can(
-      regex(
-        "^ami-[0-9a-fA-F]{8,}$",
-        trimspace(var.ami_id)
-      )
-    )
-
-    error_message = "ami_id must be a valid AWS AMI ID such as ami-0123456789abcdef0."
-  }
-}
-
-
-
-# ============================================================
-# 6. DATABASE USERNAME
+# 5. DATABASE USERNAME
 # ============================================================
 #
 # Database administrator username.
@@ -341,7 +285,7 @@ variable "database_username" {
 
 
 # ============================================================
-# 7. GITHUB ACTIONS IAM ROLE NAME
+# 6. GITHUB ACTIONS IAM ROLE NAME
 # ============================================================
 #
 # Name of the IAM role assumed by GitHub Actions through
@@ -391,7 +335,7 @@ variable "github_actions_role_name" {
 
 
 # ============================================================
-# 8. GITHUB ACTIONS IAM POLICY NAME
+# 7. GITHUB ACTIONS IAM POLICY NAME
 # ============================================================
 #
 # Name of the customer-managed IAM policy used by the
@@ -435,7 +379,7 @@ variable "github_actions_policy_name" {
 
 
 # ============================================================
-# 9. TERRAFORM BACKEND IAM POLICY NAME
+# 8. TERRAFORM BACKEND IAM POLICY NAME
 # ============================================================
 #
 # Name of the customer-managed IAM policy used for the
@@ -475,7 +419,7 @@ variable "terraform_backend_policy_name" {
 
 
 # ============================================================
-# 10. GITHUB CI/CD COMBINED POLICY NAME
+# 9. GITHUB CI/CD COMBINED POLICY NAME
 # ============================================================
 #
 # Name of the customer-managed IAM policy containing the
@@ -518,7 +462,7 @@ variable "github_ci_cd_combined_policy_name" {
 
 
 # ============================================================
-# 11. IAM POLICY PATHS
+# 10. IAM POLICY PATHS
 # ============================================================
 #
 # NO IAM POLICY DIRECTORY VARIABLE IS REQUIRED.
@@ -552,7 +496,7 @@ variable "github_ci_cd_combined_policy_name" {
 
 
 # ============================================================
-# 12. IAM ROLE ARN / POLICY ARN
+# 11. IAM ROLE ARN / POLICY ARN
 # ============================================================
 #
 # NO IAM ROLE ARN VARIABLE IS REQUIRED.

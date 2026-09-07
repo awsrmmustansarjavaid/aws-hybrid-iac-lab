@@ -164,34 +164,7 @@ environment = "dev"
 
 
 # ============================================================
-# 4. AMAZON LINUX 2023 AMI ID
-# ============================================================
-#
-# Replace with the current Amazon Linux 2023 AMI ID for
-# your selected AWS region.
-#
-#
-# Recommended command for us-east-1:
-#
-#   aws ssm get-parameter `
-#     --name "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64" `
-#     --query "Parameter.Value" `
-#     --output text `
-#     --region us-east-1
-#
-#
-# Example:
-#
-#   ami-0123456789abcdef0
-#
-# ============================================================
-
-ami_id = "REPLACE_WITH_REAL_AMAZON_LINUX_2023_AMI_ID"
-
-
-
-# ============================================================
-# 5. DATABASE USERNAME
+# 4. DATABASE USERNAME
 # ============================================================
 #
 # RDS administrator username.
@@ -203,7 +176,7 @@ database_username = "admin"
 
 
 # ============================================================
-# 6. GITHUB ACTIONS IAM ROLE NAME
+# 5. GITHUB ACTIONS IAM ROLE NAME
 # ============================================================
 #
 # Name of the IAM role assumed by GitHub Actions through
@@ -218,7 +191,7 @@ github_actions_role_name = "github-actions-oidc-role"
 
 
 # ============================================================
-# 7. GITHUB ACTIONS IAM POLICY NAME
+# 6. GITHUB ACTIONS IAM POLICY NAME
 # ============================================================
 #
 # Name of the customer-managed IAM policy attached to the
@@ -235,7 +208,7 @@ github_actions_policy_name = "aws-hybrid-iac-lab-GitHubActionsPolicy"
 
 
 # ============================================================
-# 8. TERRAFORM BACKEND IAM POLICY NAME
+# 7. TERRAFORM BACKEND IAM POLICY NAME
 # ============================================================
 #
 # Name of the customer-managed IAM policy used by the
@@ -248,7 +221,7 @@ terraform_backend_policy_name = "github-actions-terraform-backend-policy"
 
 
 # ============================================================
-# 9. GITHUB CI/CD COMBINED IAM POLICY NAME
+# 8. GITHUB CI/CD COMBINED IAM POLICY NAME
 # ============================================================
 #
 # Name of the customer-managed IAM policy containing the
