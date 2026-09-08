@@ -1456,3 +1456,85 @@ Then investigate the specific AWS service involved.
 **Don't just run commands. Understand the infrastructure behind them.**
 
 ---
+Yes. Since the **MainStack still exists**, we can investigate API Gateway directly from AWS without deleting anything.
+
+Run this **single large PowerShell command**. It will:
+
+* inspect `MainStack`
+* find the API Gateway nested stack automatically
+* show its status
+* show its template URL
+* show all API Gateway resources
+* show failed/rollback events
+* show the **exact CloudFormation failure reason**
+* also inspect the root stack events related to API Gateway
+
+```powershell
+$region="us-east-1"; $main="aws-hybrid-iac-lab-dev-MainStack"; Write-Host "`n============================================================" -ForegroundColor Cyan; Write-Host "API GATEWAY NESTED STACK INVESTIGATION" -ForegroundColor Cyan; Write-Host "============================================================" -ForegroundColor Cyan; Write-Host "`n[1] MAIN STACK STATUS" -ForegroundColor Yellow; aws cloudformation describe-stacks --stack-name $main --region $region --query "Stacks[0].{StackName:StackName,Status:StackStatus,Reason:StackStatusReason,Created:CreationTime,Updated:LastUpdatedTime}" --output table; Write-Host "`n[2] SEARCHING FOR API GATEWAY NESTED STACK..." -ForegroundColor Yellow; $resources=aws cloudformation describe-stack-resources --stack-name $main --region $region --output json | ConvertFrom-Json; $api=$resources.StackResources | Where-Object { $_.LogicalResourceId -match "Api|API|Gateway|gateway" -or $_.ResourceType -eq "AWS::CloudFormation::Stack" -and $_.LogicalResourceId -match "Api|API|Gateway|gateway" }; if(-not $api){Write-Host "No API Gateway nested stack found by logical ID. Showing ALL nested stacks:" -ForegroundColor Red; $api=$resources.StackResources | Where-Object {$_.ResourceType -eq "AWS::CloudFormation::Stack"} }; $api | Select-Object LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason,PhysicalResourceId | Format-Table -AutoSize; Write-Host "`n[3] API GATEWAY NESTED STACK IDs" -ForegroundColor Yellow; $nestedIds=$api | Where-Object {$_.ResourceType -eq "AWS::CloudFormation::Stack"} | Select-Object -ExpandProperty PhysicalResourceId; if($nestedIds){foreach($nested in $nestedIds){Write-Host "`n------------------------------------------------------------" -ForegroundColor DarkCyan; Write-Host "NESTED STACK: $nested" -ForegroundColor Cyan; Write-Host "------------------------------------------------------------"; aws cloudformation describe-stacks --stack-name $nested --region $region --query "Stacks[0].{StackName:StackName,Status:StackStatus,Reason:StackStatusReason,TemplateURL:TemplateURL,Created:CreationTime,Updated:LastUpdatedTime}" --output table; Write-Host "`nRESOURCES:" -ForegroundColor Yellow; aws cloudformation describe-stack-resources --stack-name $nested --region $region --query "StackResources[].{LogicalId:LogicalResourceId,Type:ResourceType,Status:ResourceStatus,Reason:ResourceStatusReason,PhysicalId:PhysicalResourceId}" --output table; Write-Host "`nFAILURE / ROLLBACK EVENTS:" -ForegroundColor Red; aws cloudformation describe-stack-events --stack-name $nested --region $region --query "StackEvents[?contains(ResourceStatus,'FAILED') || contains(ResourceStatus,'ROLLBACK') || contains(ResourceStatus,'CANCELLED')] | [].{Time:Timestamp,LogicalId:LogicalResourceId,Type:ResourceType,Status:ResourceStatus,Reason:ResourceStatusReason,PhysicalId:PhysicalResourceId}" --output table; Write-Host "`nALL RECENT EVENTS:" -ForegroundColor Yellow; aws cloudformation describe-stack-events --stack-name $nested --region $region --max-items 30 --query "StackEvents[].{Time:Timestamp,LogicalId:LogicalResourceId,Type:ResourceType,Status:ResourceStatus,Reason:ResourceStatusReason,PhysicalId:PhysicalResourceId}" --output table }}; Write-Host "`n[4] ROOT MAINSTACK EVENTS RELATED TO API GATEWAY" -ForegroundColor Yellow; aws cloudformation describe-stack-events --stack-name $main --region $region --query "StackEvents[?contains(LogicalResourceId,'Api') || contains(LogicalResourceId,'API') || contains(LogicalResourceId,'Gateway') || contains(ResourceType,'ApiGateway') || contains(ResourceType,'CloudFormation::Stack') && contains(ResourceStatus,'FAILED')] | [].{Time:Timestamp,LogicalId:LogicalResourceId,Type:ResourceType,Status:ResourceStatus,Reason:ResourceStatusReason,PhysicalId:PhysicalResourceId}" --output table; Write-Host "`n============================================================" -ForegroundColor Green; Write-Host "INVESTIGATION COMPLETE" -ForegroundColor Green; Write-Host "============================================================" -ForegroundColor Green
+```
+
+### What we're looking for
+
+The most important output will look something like:
+
+```text
+NESTED STACK: arn:aws:cloudformation:...
+
+Status
+------
+CREATE_FAILED
+
+Reason
+------
+Template URL ... does not exist
+```
+
+or:
+
+```text
+AWS::ApiGateway::RestApi
+CREATE_FAILED
+AccessDenied...
+```
+
+or:
+
+```text
+AWS::CloudFormation::Stack
+UPDATE_FAILED
+Nested stack ... was not successfully created
+```
+
+**Paste the entire output here.** We can then determine whether API Gateway is the actual remaining failure and fix only that nested stack—without touching your working VPC, ECR, Lambda, S3, DynamoDB, EC2, CloudFront, or RDS stacks.
+
+### First, let's find **what CloudFormation stacks currently exist**, including failed/rollback stacks and possible different names.
+
+Run this **single PowerShell command**:
+
+```powershell id="3c7p1a"
+$region="us-east-1"; Write-Host "`n============================================================" -ForegroundColor Cyan; Write-Host "AWS CLOUDFORMATION STACK DISCOVERY" -ForegroundColor Cyan; Write-Host "============================================================" -ForegroundColor Cyan; Write-Host "`n[1] ALL CLOUDFORMATION STACKS" -ForegroundColor Yellow; aws cloudformation list-stacks --region $region --query "StackSummaries[].{Name:StackName,Status:StackStatus,Created:CreationTime,Updated:LastUpdatedTime}" --output table; Write-Host "`n[2] HYBRID IAC STACKS" -ForegroundColor Yellow; aws cloudformation list-stacks --region $region --query "StackSummaries[?contains(StackName,'hybrid') || contains(StackName,'Hybrid') || contains(StackName,'iac') || contains(StackName,'Iac')].{Name:StackName,Status:StackStatus,Created:CreationTime,Updated:LastUpdatedTime}" --output table; Write-Host "`n[3] FAILED / ROLLBACK / DELETE-FAILED STACKS" -ForegroundColor Red; aws cloudformation list-stacks --region $region --query "StackSummaries[?contains(StackStatus,'FAILED') || contains(StackStatus,'ROLLBACK') || contains(StackStatus,'DELETE_FAILED') || contains(StackStatus,'CANCEL')].{Name:StackName,Status:StackStatus,Reason:StackStatusReason,Created:CreationTime,Updated:LastUpdatedTime}" --output table; Write-Host "`n[4] API / ECS / EKS RELATED STACKS" -ForegroundColor Yellow; aws cloudformation list-stacks --region $region --query "StackSummaries[?contains(StackName,'Api') || contains(StackName,'API') || contains(StackName,'Gateway') || contains(StackName,'Ecs') || contains(StackName,'ECS') || contains(StackName,'Eks') || contains(StackName,'EKS')].{Name:StackName,Status:StackStatus,Created:CreationTime,Updated:LastUpdatedTime}" --output table; Write-Host "`n============================================================" -ForegroundColor Green; Write-Host "DISCOVERY COMPLETE" -ForegroundColor Green; Write-Host "============================================================" -ForegroundColor Green
+```
+
+### Why this is the correct next step
+
+We now need to establish **what CloudFormation actually created**, rather than assuming the root stack name.
+
+If the failed stack is still retained, this command should reveal something like:
+
+```text
+aws-hybrid-iac-lab-dev-xxxxx
+CREATE_FAILED
+```
+
+or:
+
+```text
+aws-hybrid-iac-lab-dev-MainStack
+ROLLBACK_COMPLETE
+```
+
+or potentially an API Gateway/ECS-specific stack.
+
+**Paste the complete output.** Then we'll trace the API Gateway stack and its exact failure reason without making another blind Terraform change.
+
+---

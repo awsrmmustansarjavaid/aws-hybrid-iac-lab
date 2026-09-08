@@ -1785,361 +1785,287 @@ jobs:
           echo "=================================================="
 
 
-      # ======================================================
-      # STEP 15
-      # TERRAFORM APPLY + LIVE CLOUDFORMATION MONITOR
-      # ======================================================
-      #
-      # PURPOSE
-      # ------------------------------------------------------
-      #
-      # Terraform Apply runs while a separate PowerShell
-      # CloudFormation monitor observes the CloudFormation
-      # root stack and nested stacks.
-      #
-      # Terraform remains authoritative.
-      #
-      # The monitor is READ-ONLY.
-      #
-      # The monitor:
-      #
-      #   - waits for the CloudFormation stack
-      #   - detects stack status changes
-      #   - detects nested stacks
-      #   - captures CloudFormation events
-      #   - detects failed resources
-      #   - captures failure reasons
-      #   - classifies common failures
-      #   - saves diagnostic JSON/log files
-      #
-      # ======================================================
-
+      # ==========================================================
+      # STEP 15 - TERRAFORM APPLY + LIVE CLOUDFORMATION MONITOR
+      # ==========================================================
       - name: Terraform Apply With Live CloudFormation Diagnostics
         if: ${{ env.TF_AUTO_APPROVE == 'true' }}
         working-directory: ${{ env.TF_WORKING_DIRECTORY }}
         shell: pwsh
         run: |
-
           $ErrorActionPreference = "Continue"
 
           Write-Host ""
           Write-Host "============================================================"
-          Write-Host "TERRAFORM APPLY + LIVE CLOUDFORMATION DIAGNOSTICS"
+          Write-Host "STEP 15 - TERRAFORM APPLY WITH LIVE CLOUDFORMATION MONITOR"
           Write-Host "============================================================"
+          Write-Host ""
 
-          # ----------------------------------------------------
-          # Build CloudFormation root stack name.
-          #
-          # Expected:
-          #
-          # aws-hybrid-iac-lab-dev-MainStack
-          # ----------------------------------------------------
+          # ------------------------------------------------------
+          # 1. Verify PowerShell 7 is available
+          # ------------------------------------------------------
+          Write-Host "[1/7] Checking PowerShell 7..."
+
+          $PwshCommand = Get-Command pwsh -ErrorAction SilentlyContinue
+
+          if ($null -eq $PwshCommand) {
+              Write-Host ""
+              Write-Host "ERROR: PowerShell 7 (pwsh) was not found."
+              Write-Host "The CloudFormation monitoring process cannot start."
+              Write-Host ""
+              exit 1
+          }
+
+          Write-Host "PowerShell 7 found:"
+          & pwsh --version
+
+          # ------------------------------------------------------
+          # 2. Define CloudFormation monitor configuration
+          # ------------------------------------------------------
+          Write-Host ""
+          Write-Host "[2/7] Preparing CloudFormation monitor..."
 
           $MainStackName = "${env:PROJECT_NAME}-${env:ENVIRONMENT}-MainStack"
-
-          Write-Host ""
-          Write-Host "CloudFormation Stack:"
-          Write-Host $MainStackName
-
-          Write-Host ""
-          Write-Host "AWS Region:"
-          Write-Host $env:AWS_REGION
-
-          # ----------------------------------------------------
-          # Verify monitor script exists.
-          #
-          # This prevents a confusing Start-Process failure.
-          # ----------------------------------------------------
 
           $MonitorScript = Join-Path `
             $env:GITHUB_WORKSPACE `
             "scripts/Monitor-CloudFormation.ps1"
 
-          Write-Host ""
-          Write-Host "CloudFormation monitor script:"
-          Write-Host $MonitorScript
-
-          if (-not (Test-Path -LiteralPath $MonitorScript)) {
-
-            Write-Host ""
-            Write-Host "ERROR: CloudFormation monitor script was not found."
-            Write-Host ""
-            Write-Host "Expected file:"
-            Write-Host $MonitorScript
-
-            exit 1
-          }
-
-          # ----------------------------------------------------
-          # Diagnostic directory.
-          #
-          # Use an absolute path so the monitor and artifact
-          # upload always refer to the same directory.
-          # ----------------------------------------------------
-
           $DiagnosticDirectory = Join-Path `
             $env:GITHUB_WORKSPACE `
             "cloudformation-live-diagnostics"
 
-          Write-Host ""
-          Write-Host "Diagnostic directory:"
-          Write-Host $DiagnosticDirectory
+          Write-Host "Main Stack:"
+          Write-Host "  $MainStackName"
 
-          # ----------------------------------------------------
-          # Create diagnostic directory before starting monitor.
-          # ----------------------------------------------------
+          Write-Host "Region:"
+          Write-Host "  $env:AWS_REGION"
+
+          Write-Host "Monitor Script:"
+          Write-Host "  $MonitorScript"
+
+          Write-Host "Diagnostic Directory:"
+          Write-Host "  $DiagnosticDirectory"
+
+          # ------------------------------------------------------
+          # 3. Verify monitor script exists
+          # ------------------------------------------------------
+          Write-Host ""
+          Write-Host "[3/7] Checking monitor script..."
+
+          if (-not (Test-Path -LiteralPath $MonitorScript)) {
+              Write-Host ""
+              Write-Host "ERROR: CloudFormation monitor script was not found."
+              Write-Host "Expected:"
+              Write-Host "  $MonitorScript"
+              Write-Host ""
+              exit 1
+          }
+
+          Write-Host "Monitor script found."
+
+          # ------------------------------------------------------
+          # 4. Prepare diagnostic directory
+          # ------------------------------------------------------
+          Write-Host ""
+          Write-Host "[4/7] Preparing diagnostic directory..."
 
           New-Item `
             -ItemType Directory `
             -Path $DiagnosticDirectory `
-            -Force |
-            Out-Null
+            -Force | Out-Null
 
-          # ====================================================
-          # START CLOUDFORMATION MONITOR
-          # ====================================================
+          Write-Host "Diagnostic directory ready."
 
+          # ------------------------------------------------------
+          # 5. Start CloudFormation monitor
+          # ------------------------------------------------------
           Write-Host ""
-          Write-Host "============================================================"
-          Write-Host "STARTING CLOUDFORMATION LIVE MONITOR"
-          Write-Host "============================================================"
+          Write-Host "[5/7] Starting CloudFormation monitor..."
 
-          # ----------------------------------------------------
-          # Start the PowerShell monitor as a background process.
-          #
-          # The monitor inherits the AWS credentials configured
-          # earlier by aws-actions/configure-aws-credentials.
-          #
-          # The monitor itself does not modify AWS resources.
-          # ----------------------------------------------------
+          $MonitorProcess = $null
+          $TerraformExitCode = 1
 
-          $MonitorProcess = Start-Process `
-            -FilePath "pwsh" `
-            -WorkingDirectory $env:GITHUB_WORKSPACE `
-            -ArgumentList @(
-              "-NoProfile"
-              "-NonInteractive"
-              "-File"
-              $MonitorScript
-              "-StackName"
-              $MainStackName
-              "-Region"
-              $env:AWS_REGION
-              "-PollingIntervalSeconds"
-              "3"
-              "-LogDirectory"
-              $DiagnosticDirectory
-            ) `
-            -PassThru `
-            -NoNewWindow
+          try {
 
-          if ($null -eq $MonitorProcess) {
+              $MonitorArguments = @(
+                  "-NoProfile"
+                  "-NonInteractive"
+                  "-File"
+                  $MonitorScript
+                  "-StackName"
+                  $MainStackName
+                  "-Region"
+                  $env:AWS_REGION
+                  "-PollingIntervalSeconds"
+                  "3"
+                  "-LogDirectory"
+                  $DiagnosticDirectory
+              )
 
-            Write-Host ""
-            Write-Host "ERROR: Failed to start CloudFormation monitor."
+              $MonitorProcess = Start-Process `
+                -FilePath $PwshCommand.Source `
+                -WorkingDirectory $env:GITHUB_WORKSPACE `
+                -ArgumentList $MonitorArguments `
+                -PassThru `
+                -NoNewWindow
 
-            exit 1
-          }
+              if ($null -eq $MonitorProcess) {
+                  Write-Host ""
+                  Write-Host "ERROR: Failed to start CloudFormation monitor."
+                  exit 1
+              }
 
-          Write-Host ""
-          Write-Host "CloudFormation monitor PID:"
-          Write-Host $MonitorProcess.Id
+              Write-Host "CloudFormation monitor started."
+              Write-Host "Monitor PID: $($MonitorProcess.Id)"
 
-          # ----------------------------------------------------
-          # Give the monitor a short amount of time to initialize.
-          # ----------------------------------------------------
+              # Give monitor a moment to initialize before Terraform starts.
+              Start-Sleep -Seconds 2
 
-          Start-Sleep -Seconds 2
+              # --------------------------------------------------
+              # 6. Run Terraform Apply
+              # --------------------------------------------------
+              Write-Host ""
+              Write-Host "============================================================"
+              Write-Host "RUNNING TERRAFORM APPLY"
+              Write-Host "============================================================"
+              Write-Host ""
 
-          # ====================================================
-          # TERRAFORM APPLY
-          # ====================================================
+              terraform apply `
+                -input=false `
+                -auto-approve `
+                $env:TF_PLAN_FILE
 
-          Write-Host ""
-          Write-Host "============================================================"
-          Write-Host "STARTING TERRAFORM APPLY"
-          Write-Host "============================================================"
-
-          Write-Host ""
-          Write-Host "Terraform working directory:"
-          Write-Host $env:GITHUB_WORKSPACE
-
-          Write-Host ""
-          Write-Host "Terraform plan:"
-          Write-Host $env:TF_PLAN_FILE
-
-          # ----------------------------------------------------
-          # Apply the exact plan generated by Step 14.
-          # ----------------------------------------------------
-
-          terraform apply `
-            -input=false `
-            -auto-approve `
-            $env:TF_PLAN_FILE
-
-          # ----------------------------------------------------
-          # IMPORTANT:
-          #
-          # Capture Terraform's exit code immediately.
-          # Do not execute another external command before this.
-          # ----------------------------------------------------
-
-          $TerraformExitCode = $LASTEXITCODE
-
-          # ====================================================
-          # TERRAFORM FINISHED
-          # ====================================================
-
-          Write-Host ""
-          Write-Host "============================================================"
-          Write-Host "TERRAFORM APPLY FINISHED"
-          Write-Host "============================================================"
-
-          Write-Host ""
-          Write-Host "Terraform exit code:"
-          Write-Host $TerraformExitCode
-
-          # ====================================================
-          # ALLOW FINAL CLOUDFORMATION EVENTS
-          # ====================================================
-
-          Write-Host ""
-          Write-Host "Allowing CloudFormation monitor to capture final events..."
-
-          Start-Sleep -Seconds 5
-
-          # ====================================================
-          # STOP CLOUDFORMATION MONITOR
-          # ====================================================
-
-          if (
-            $null -ne $MonitorProcess -and
-            -not $MonitorProcess.HasExited
-          ) {
-
-            Write-Host ""
-            Write-Host "Stopping CloudFormation live monitor..."
-
-            Stop-Process `
-              -Id $MonitorProcess.Id `
-              -Force `
-              -ErrorAction SilentlyContinue
-
-            # --------------------------------------------------
-            # Give the operating system a moment to release the
-            # monitor process and finish writing the log.
-            # --------------------------------------------------
-
-            Start-Sleep -Seconds 1
-          }
-
-          # ====================================================
-          # DISPLAY CLOUDFORMATION DIAGNOSTICS
-          # ====================================================
-
-          Write-Host ""
-          Write-Host "################################################################"
-          Write-Host "# COMPLETE CLOUDFORMATION LIVE DIAGNOSTIC"
-          Write-Host "################################################################"
-
-          if (Test-Path -LiteralPath $DiagnosticDirectory) {
-
-            $DiagnosticFiles = Get-ChildItem `
-              -Path $DiagnosticDirectory `
-              -File `
-              -Recurse `
-              -ErrorAction SilentlyContinue
-
-            if ($DiagnosticFiles.Count -eq 0) {
+              # IMPORTANT:
+              # Capture Terraform's native exit code immediately.
+              $TerraformExitCode = $LASTEXITCODE
 
               Write-Host ""
-              Write-Host "WARNING: Diagnostic directory contains no files."
+              Write-Host "============================================================"
+              Write-Host "TERRAFORM APPLY FINISHED"
+              Write-Host "============================================================"
+              Write-Host ""
 
-            }
-            else {
+              Write-Host "Terraform exit code: $TerraformExitCode"
 
-              foreach ($File in $DiagnosticFiles) {
-
-                Write-Host ""
-                Write-Host "------------------------------------------------------------"
-                Write-Host "Diagnostic file:"
-                Write-Host $File.FullName
-                Write-Host "------------------------------------------------------------"
-
-                Get-Content `
-                  -LiteralPath $File.FullName `
-                  -ErrorAction SilentlyContinue |
-                  Write-Host
+              if ($TerraformExitCode -eq 0) {
+                  Write-Host "Terraform apply completed successfully."
               }
-            }
+              else {
+                  Write-Host "Terraform apply FAILED."
+                  Write-Host "CloudFormation diagnostics will now be collected."
+              }
+
+              # --------------------------------------------------
+              # Give CloudFormation monitor time to capture the
+              # final events after Terraform exits.
+              # --------------------------------------------------
+              Write-Host ""
+              Write-Host "Waiting 5 seconds for final CloudFormation events..."
+
+              Start-Sleep -Seconds 5
 
           }
-          else {
+          finally {
 
-            Write-Host ""
-            Write-Host "WARNING: Diagnostic directory was not created."
+              # --------------------------------------------------
+              # 7. Always stop monitor and display diagnostics
+              # --------------------------------------------------
+              Write-Host ""
+              Write-Host "============================================================"
+              Write-Host "CLEANING UP CLOUDFORMATION MONITOR"
+              Write-Host "============================================================"
+              Write-Host ""
+
+              if ($null -ne $MonitorProcess) {
+
+                  try {
+                      $MonitorProcess.Refresh()
+                  }
+                  catch {
+                      # Ignore refresh errors during cleanup.
+                  }
+
+                  if (-not $MonitorProcess.HasExited) {
+
+                      Write-Host "Stopping monitor PID $($MonitorProcess.Id)..."
+
+                      Stop-Process `
+                        -Id $MonitorProcess.Id `
+                        -Force `
+                        -ErrorAction SilentlyContinue
+
+                      Start-Sleep -Seconds 1
+
+                      Write-Host "CloudFormation monitor stopped."
+                  }
+                  else {
+                      Write-Host "CloudFormation monitor already exited."
+                  }
+              }
+              else {
+                  Write-Host "No monitor process was running."
+              }
+
+              # --------------------------------------------------
+              # Display diagnostic files
+              # --------------------------------------------------
+              Write-Host ""
+              Write-Host "============================================================"
+              Write-Host "CLOUDFORMATION DIAGNOSTIC FILES"
+              Write-Host "============================================================"
+              Write-Host ""
+
+              if (Test-Path -LiteralPath $DiagnosticDirectory) {
+
+                  $DiagnosticFiles = Get-ChildItem `
+                    -Path $DiagnosticDirectory `
+                    -File `
+                    -ErrorAction SilentlyContinue
+
+                  if (@($DiagnosticFiles).Count -gt 0) {
+
+                      foreach ($File in $DiagnosticFiles) {
+
+                          Write-Host ""
+                          Write-Host "------------------------------------------------------------"
+                          Write-Host "FILE: $($File.Name)"
+                          Write-Host "------------------------------------------------------------"
+
+                          try {
+                              Get-Content `
+                                -LiteralPath $File.FullName `
+                                -ErrorAction SilentlyContinue
+                          }
+                          catch {
+                              Write-Host "Unable to display file contents."
+                          }
+                      }
+
+                  }
+                  else {
+                      Write-Host "No diagnostic files were generated."
+                  }
+
+              }
+              else {
+                  Write-Host "Diagnostic directory does not exist."
+              }
+
+              Write-Host ""
+              Write-Host "============================================================"
+              Write-Host "TERRAFORM EXIT CODE: $TerraformExitCode"
+              Write-Host "============================================================"
+              Write-Host ""
           }
 
-          # ====================================================
-          # FINAL TERRAFORM RESULT
-          # ====================================================
-
-          Write-Host ""
-          Write-Host "################################################################"
-          Write-Host "# TERRAFORM APPLY RESULT"
-          Write-Host "################################################################"
-
-          Write-Host ""
-          Write-Host "Terraform exit code:"
-          Write-Host $TerraformExitCode
-
-          if ($TerraformExitCode -eq 0) {
-
-            Write-Host ""
-            Write-Host "============================================================"
-            Write-Host "TERRAFORM APPLY SUCCEEDED"
-            Write-Host "============================================================"
-
-          }
-          else {
-
-            Write-Host ""
-            Write-Host "============================================================"
-            Write-Host "TERRAFORM APPLY FAILED"
-            Write-Host "============================================================"
-
-            Write-Host ""
-            Write-Host "CloudFormation diagnostics were captured."
-
-          }
-
-          # ====================================================
-          # CRITICAL
-          # ====================================================
+          # ------------------------------------------------------
+          # IMPORTANT:
+          # Return the ORIGINAL Terraform exit code.
           #
-          # Terraform remains authoritative.
-          #
-          # The CloudFormation monitor MUST NOT change the
-          # Terraform result.
-          #
-          # Return Terraform's original exit code.
-          #
-          # ====================================================
-
+          # 0 = success
+          # non-zero = Terraform failure
+          # ------------------------------------------------------
           exit $TerraformExitCode
-
-
-      # ======================================================
-      # STEP 16
-      # UPLOAD CLOUDFORMATION LIVE DIAGNOSTICS
-      # ======================================================
-
-      - name: Upload CloudFormation Live Diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cloudformation-live-diagnostics
-          path: ${{ github.workspace }}/cloudformation-live-diagnostics/
-          if-no-files-found: warn
 
 
