@@ -916,6 +916,24 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
         ]
 
         Resource = "*"
+      },
+
+      # ====================================================
+      # CloudFormation
+      #
+      # Required because the root CloudFormation stack
+      # creates and manages nested CloudFormation stacks.
+      #
+      # ====================================================
+
+      {
+        Effect = "Allow"
+
+        Action = [
+          "cloudformation:*"
+        ]
+
+        Resource = "*"
       }
     ]
   })
