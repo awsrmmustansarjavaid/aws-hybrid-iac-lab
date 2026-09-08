@@ -87,7 +87,7 @@
 #
 # Example:
 #
-#   arn:aws:iam::537236558357:role/aws-hybrid-iac-lab-GitHubActions
+#   arn:aws:iam::1234567889:role/aws-hybrid-iac-lab-GitHubActions
 #
 #
 # TERRAFORM DIRECTORY
@@ -361,7 +361,7 @@ jobs:
           #
           # Example:
           #
-          #   arn:aws:iam::537236558357:role/aws-hybrid-iac-lab-GitHubActions
+          #   arn:aws:iam::123456789:role/aws-hybrid-iac-lab-GitHubActions
           #
           # ------------------------------------------------
 
@@ -382,7 +382,7 @@ jobs:
       #
       # Expected output will identify the assumed role:
       #
-      #   arn:aws:sts::537236558357:assumed-role/
+      #   arn:aws:sts::123456789:assumed-role/
       #   aws-hybrid-iac-lab-GitHubActions/...
       #
       #

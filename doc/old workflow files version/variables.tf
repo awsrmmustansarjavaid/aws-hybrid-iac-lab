@@ -156,7 +156,7 @@ variable "ami_id" {
 #
 # Example:
 #
-#   537236558357.dkr.ecr.us-east-1.amazonaws.com/
+#   your-aws-id.dkr.ecr.us-east-1.amazonaws.com/
 #   HybridIaCLab-dev-app:latest
 #
 # ============================================================
