@@ -1534,39 +1534,91 @@ Write-Host ""
 #
 # PURPOSE
 # ------------------------------------------------------------
-# This section creates a dedicated report-log folder and
-# separates the audit output into three easy-to-read files:
+# Generate a complete, structured audit report from the results
+# already collected by the audit script.
 #
-#   1. PASS    -> Successful checks
-#   2. ERROR   -> Failed / critical checks
-#   3. WARNING -> Checks that require review
+# FOUR REPORT FILES ARE CREATED:
 #
-# This prevents the console from becoming difficult to read
-# when the audit produces a large amount of output.
+#   1. PASS
+#      AWS-Hybrid-IaC-Audit-PASS.txt
+#
+#      Contains every successful test individually.
+#
+#   2. ERROR
+#      AWS-Hybrid-IaC-Audit-ERROR.txt
+#
+#      Contains every failed / critical test individually.
+#
+#   3. WARNING
+#      AWS-Hybrid-IaC-Audit-WARNING.txt
+#
+#      Contains every warning individually.
+#
+#   4. SUMMARY
+#      AWS-Hybrid-IaC-Audit-SUMMARY.txt
+#
+#      Contains a compact overall audit report with:
+#
+#        - Audit date/time
+#        - Project root
+#        - AWS region
+#        - CloudFormation role
+#        - PASS count
+#        - WARNING count
+#        - FAIL count
+#        - INFO count
+#        - Overall decision
+#        - Short list of PASS results
+#        - Short list of WARNING results
+#        - Short list of ERROR results
+#
+# REPORT FORMAT
+# ------------------------------------------------------------
+# Every individual result is separated by a visual breakline.
+#
+# Example:
+#
+# ============================================================
+# TEST 001
+# ============================================================
+#
+# RESULT:
+# PASS
+#
+# TEST:
+# AWS CLI detected.
+#
+# ============================================================
+#
+# This makes the files easy to read manually and useful for
+# portfolio documentation, troubleshooting, and CI/CD logs.
 #
 # IMPORTANT
 # ------------------------------------------------------------
 # This section is READ-ONLY with respect to AWS resources.
-# It only creates local report files on the computer.
 #
-# Folder:
-#   report-log
+# It does NOT:
 #
-# Files:
-#   AWS-Hybrid-IaC-Audit-PASS.txt
-#   AWS-Hybrid-IaC-Audit-ERROR.txt
-#   AWS-Hybrid-IaC-Audit-WARNING.txt
+#   - Create AWS resources
+#   - Modify AWS resources
+#   - Delete AWS resources
+#   - Run Terraform apply
+#   - Run CloudFormation deployment
+#
+# It only creates local TXT report files.
 #
 # ============================================================
 
 
 # ------------------------------------------------------------
-# 01 - Define report folder
+# 01 - Define Report Folder
 # ------------------------------------------------------------
-# The report folder will be created in the project root,
-# assuming this script is executed from the project root.
+#
+# The report folder is created inside the current project
+# directory.
 #
 # Example:
+#
 # C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\
 #     report-log\
 #
@@ -1576,7 +1628,7 @@ $ReportFolder = Join-Path (Get-Location) "report-log"
 
 
 # ------------------------------------------------------------
-# 02 - Create report folder if it does not exist
+# 02 - Create Report Folder
 # ------------------------------------------------------------
 
 if (-not (Test-Path -LiteralPath $ReportFolder)) {
@@ -1591,10 +1643,7 @@ if (-not (Test-Path -LiteralPath $ReportFolder)) {
 
 
 # ------------------------------------------------------------
-# 03 - Define report file names
-# ------------------------------------------------------------
-# Clear file names make it immediately obvious what each
-# report contains.
+# 03 - Define Report File Paths
 # ------------------------------------------------------------
 
 $PassReport = Join-Path `
@@ -1609,107 +1658,345 @@ $WarningReport = Join-Path `
     $ReportFolder `
     "AWS-Hybrid-IaC-Audit-WARNING.txt"
 
+$SummaryReport = Join-Path `
+    $ReportFolder `
+    "AWS-Hybrid-IaC-Audit-SUMMARY.txt"
+
 
 # ------------------------------------------------------------
-# 04 - Create report headers
+# 04 - Generate Audit Metadata
 # ------------------------------------------------------------
-# These headers make each file understandable when opened
-# independently.
+
+$AuditDateTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+
+$AuditDate = Get-Date -Format "yyyy-MM-dd"
+
+$AuditTime = Get-Date -Format "HH:mm:ss"
+
+
 # ------------------------------------------------------------
+# 05 - Determine Overall Audit Result
+# ------------------------------------------------------------
+
+if ($FailCount -eq 0 -and $WarnCount -eq 0) {
+
+    $OverallResult = "READY FOR NEXT DEPLOYMENT TEST"
+
+}
+elseif ($FailCount -eq 0) {
+
+    $OverallResult = "REVIEW WARNINGS BEFORE DEPLOYMENT"
+
+}
+else {
+
+    $OverallResult = "DO NOT DEPLOY YET - FIX FAILURES FIRST"
+
+}
+
+
+# ============================================================
+# 06 - PASS REPORT HEADER
+# ============================================================
 
 $PassHeader = @"
 ============================================================
 AWS HYBRID IaC LAB
+CLOUDFORMATION + TERRAFORM
 PASS AUDIT REPORT
 ============================================================
 
-Audit Title:
-AWS Hybrid IaC Lab - Automated CloudFormation & Terraform Preflight Audit
+AUDIT TITLE
+------------------------------------------------------------
+AWS Hybrid IaC Lab - Automated CloudFormation & Terraform
+Preflight Audit
 
-Purpose:
-Successful checks detected by the automated preflight audit.
+REPORT TYPE
+------------------------------------------------------------
+PASS / SUCCESSFUL TEST RESULTS
 
-This report is READ-ONLY.
-No AWS resources are modified by this reporting section.
+AUDIT DATE
+------------------------------------------------------------
+$AuditDate
 
-Generated:
-$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+AUDIT TIME
+------------------------------------------------------------
+$AuditTime
+
+AUDIT TIMESTAMP
+------------------------------------------------------------
+$AuditDateTime
+
+PROJECT ROOT
+------------------------------------------------------------
+$ProjectRoot
+
+AWS REGION
+------------------------------------------------------------
+$Region
+
+CLOUDFORMATION EXECUTION ROLE
+------------------------------------------------------------
+$CloudFormationRoleName
+
+PASS COUNT
+------------------------------------------------------------
+$PassCount
+
+WARNING COUNT
+------------------------------------------------------------
+$WarnCount
+
+FAIL COUNT
+------------------------------------------------------------
+$FailCount
+
+INFO COUNT
+------------------------------------------------------------
+$InfoCount
+
+OVERALL RESULT
+------------------------------------------------------------
+$OverallResult
+
+IMPORTANT
+------------------------------------------------------------
+This report contains successful checks recorded by the
+CloudFormation and Terraform preflight audit.
+
+This report is READ-ONLY with respect to AWS resources.
 
 ============================================================
 
 "@
+
+
+# ============================================================
+# 07 - ERROR REPORT HEADER
+# ============================================================
 
 $ErrorHeader = @"
 ============================================================
 AWS HYBRID IaC LAB
+CLOUDFORMATION + TERRAFORM
 ERROR / FAILURE AUDIT REPORT
 ============================================================
 
-Audit Title:
-AWS Hybrid IaC Lab - Automated CloudFormation & Terraform Preflight Audit
+AUDIT TITLE
+------------------------------------------------------------
+AWS Hybrid IaC Lab - Automated CloudFormation & Terraform
+Preflight Audit
 
-Purpose:
-Failed or critical checks detected by the automated preflight audit.
+REPORT TYPE
+------------------------------------------------------------
+ERROR / CRITICAL FAILURE RESULTS
 
-ACTION REQUIRED:
-Review these errors before deployment.
+AUDIT DATE
+------------------------------------------------------------
+$AuditDate
 
-This report is READ-ONLY.
-No AWS resources are modified by this reporting section.
+AUDIT TIME
+------------------------------------------------------------
+$AuditTime
 
-Generated:
-$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+AUDIT TIMESTAMP
+------------------------------------------------------------
+$AuditDateTime
+
+PROJECT ROOT
+------------------------------------------------------------
+$ProjectRoot
+
+AWS REGION
+------------------------------------------------------------
+$Region
+
+CLOUDFORMATION EXECUTION ROLE
+------------------------------------------------------------
+$CloudFormationRoleName
+
+FAIL COUNT
+------------------------------------------------------------
+$FailCount
+
+WARNING COUNT
+------------------------------------------------------------
+$WarnCount
+
+PASS COUNT
+------------------------------------------------------------
+$PassCount
+
+INFO COUNT
+------------------------------------------------------------
+$InfoCount
+
+OVERALL RESULT
+------------------------------------------------------------
+$OverallResult
+
+ACTION REQUIRED
+------------------------------------------------------------
+Fix all critical failures before attempting deployment.
+
+This report is READ-ONLY with respect to AWS resources.
 
 ============================================================
 
 "@
+
+
+# ============================================================
+# 08 - WARNING REPORT HEADER
+# ============================================================
 
 $WarningHeader = @"
 ============================================================
 AWS HYBRID IaC LAB
+CLOUDFORMATION + TERRAFORM
 WARNING AUDIT REPORT
 ============================================================
 
-Audit Title:
-AWS Hybrid IaC Lab - Automated CloudFormation & Terraform Preflight Audit
+AUDIT TITLE
+------------------------------------------------------------
+AWS Hybrid IaC Lab - Automated CloudFormation & Terraform
+Preflight Audit
 
-Purpose:
-Warnings that may require review before deployment.
+REPORT TYPE
+------------------------------------------------------------
+WARNING / REVIEW REQUIRED RESULTS
 
-WARNING:
-A warning does not always mean deployment will fail.
+AUDIT DATE
+------------------------------------------------------------
+$AuditDate
 
-This report is READ-ONLY.
-No AWS resources are modified by this reporting section.
+AUDIT TIME
+------------------------------------------------------------
+$AuditTime
 
-Generated:
-$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+AUDIT TIMESTAMP
+------------------------------------------------------------
+$AuditDateTime
+
+PROJECT ROOT
+------------------------------------------------------------
+$ProjectRoot
+
+AWS REGION
+------------------------------------------------------------
+$Region
+
+CLOUDFORMATION EXECUTION ROLE
+------------------------------------------------------------
+$CloudFormationRoleName
+
+WARNING COUNT
+------------------------------------------------------------
+$WarnCount
+
+FAIL COUNT
+------------------------------------------------------------
+$FailCount
+
+PASS COUNT
+------------------------------------------------------------
+$PassCount
+
+INFO COUNT
+------------------------------------------------------------
+$InfoCount
+
+OVERALL RESULT
+------------------------------------------------------------
+$OverallResult
+
+IMPORTANT
+------------------------------------------------------------
+Warnings do not necessarily mean deployment will fail.
+
+Review warnings before deployment.
+
+This report is READ-ONLY with respect to AWS resources.
 
 ============================================================
 
 "@
 
 
-# ------------------------------------------------------------
-# 05 - Read the current PowerShell transcript/output buffer
-# ------------------------------------------------------------
-# IMPORTANT:
-#
-# This method works best when the audit script stores its
-# messages in variables.
-#
-# If your existing audit script uses Write-Host directly,
-# the complete console history cannot reliably be retrieved
-# from inside the script after the fact.
-#
-# Therefore this section also prepares the three files with
-# clear headers even if no matching messages are detected.
-# ------------------------------------------------------------
+# ============================================================
+# 09 - SUMMARY REPORT HEADER
+# ============================================================
+
+$SummaryHeader = @"
+============================================================
+AWS HYBRID IaC LAB
+CLOUDFORMATION + TERRAFORM
+OVERALL AUDIT SUMMARY
+============================================================
+
+AUDIT TITLE
+------------------------------------------------------------
+AWS Hybrid IaC Lab - Automated CloudFormation & Terraform
+Preflight Audit
+
+AUDIT DATE
+------------------------------------------------------------
+$AuditDate
+
+AUDIT TIME
+------------------------------------------------------------
+$AuditTime
+
+AUDIT TIMESTAMP
+------------------------------------------------------------
+$AuditDateTime
+
+PROJECT ROOT
+------------------------------------------------------------
+$ProjectRoot
+
+AWS REGION
+------------------------------------------------------------
+$Region
+
+CLOUDFORMATION EXECUTION ROLE
+------------------------------------------------------------
+$CloudFormationRoleName
+
+============================================================
+AUDIT RESULT SUMMARY
+============================================================
+
+PASS
+------------------------------------------------------------
+$PassCount
+
+WARNING
+------------------------------------------------------------
+$WarnCount
+
+FAIL
+------------------------------------------------------------
+$FailCount
+
+INFO
+------------------------------------------------------------
+$InfoCount
+
+============================================================
+OVERALL DECISION
+============================================================
+
+$OverallResult
+
+============================================================
+
+"@
 
 
-# ------------------------------------------------------------
-# 06 - Initialize report files
-# ------------------------------------------------------------
+# ============================================================
+# 10 - Initialize All Report Files
+# ============================================================
 
 Set-Content `
     -Path $PassReport `
@@ -1726,140 +2013,534 @@ Set-Content `
     -Value $WarningHeader `
     -Encoding UTF8
 
+Set-Content `
+    -Path $SummaryReport `
+    -Value $SummaryHeader `
+    -Encoding UTF8
 
-# ------------------------------------------------------------
-# 07 - Export audit result collections
-# ------------------------------------------------------------
-#
-# If your audit script already maintains collections named:
-#
-#   $Passes
-#   $Failures
-#   $Warnings
-#
-# they will be written to the corresponding files.
-#
-# The @() syntax safely handles an empty collection.
-# ------------------------------------------------------------
 
-if ($null -ne $Passes) {
+# ============================================================
+# 11 - PASS REPORT
+# ============================================================
+#
+# Every PASS result is written as an individual test block.
+#
+# Each test receives:
+#
+#   - Test number
+#   - Result
+#   - Test message
+#   - Breakline
+#
+# ============================================================
 
-    @($Passes) |
-        ForEach-Object {
-            Add-Content `
-                -Path $PassReport `
-                -Value "[PASS] $_" `
-                -Encoding UTF8
-        }
+if ($Passes.Count -gt 0) {
+
+    $PassIndex = 1
+
+    foreach ($Pass in $Passes) {
+
+        $PassBlock = @"
+
+============================================================
+TEST $($PassIndex.ToString("000"))
+============================================================
+
+RESULT
+------------------------------------------------------------
+PASS
+
+TEST
+------------------------------------------------------------
+$Pass
+
+STATUS
+------------------------------------------------------------
+SUCCESSFUL
+
+============================================================
+
+"@
+
+        Add-Content `
+            -Path $PassReport `
+            -Value $PassBlock `
+            -Encoding UTF8
+
+        $PassIndex++
+
+    }
+
+}
+else {
+
+    Add-Content `
+        -Path $PassReport `
+        -Value @"
+
+============================================================
+NO PASS RESULTS
+============================================================
+
+No successful test results were recorded.
+
+============================================================
+
+"@ `
+        -Encoding UTF8
 
 }
 
-if ($null -ne $Failures) {
 
-    @($Failures) |
-        ForEach-Object {
-            Add-Content `
-                -Path $ErrorReport `
-                -Value "[FAIL] $_" `
-                -Encoding UTF8
-        }
+# ============================================================
+# 12 - ERROR REPORT
+# ============================================================
+#
+# Every FAIL result is written as an individual test block.
+#
+# ============================================================
+
+if ($Failures.Count -gt 0) {
+
+    $ErrorIndex = 1
+
+    foreach ($Failure in $Failures) {
+
+        $ErrorBlock = @"
+
+============================================================
+TEST $($ErrorIndex.ToString("000"))
+============================================================
+
+RESULT
+------------------------------------------------------------
+FAIL
+
+TEST
+------------------------------------------------------------
+$Failure
+
+STATUS
+------------------------------------------------------------
+CRITICAL FAILURE - ACTION REQUIRED
+
+============================================================
+
+"@
+
+        Add-Content `
+            -Path $ErrorReport `
+            -Value $ErrorBlock `
+            -Encoding UTF8
+
+        $ErrorIndex++
+
+    }
+
+}
+else {
+
+    Add-Content `
+        -Path $ErrorReport `
+        -Value @"
+
+============================================================
+NO ERROR RESULTS
+============================================================
+
+No critical failures were recorded by the audit.
+
+============================================================
+
+"@ `
+        -Encoding UTF8
 
 }
 
-if ($null -ne $Warnings) {
 
-    @($Warnings) |
-        ForEach-Object {
-            Add-Content `
-                -Path $WarningReport `
-                -Value "[WARN] $_" `
-                -Encoding UTF8
-        }
+# ============================================================
+# 13 - WARNING REPORT
+# ============================================================
+#
+# Every WARNING result is written as an individual test block.
+#
+# Duplicate warning messages are removed from the report while
+# preserving the original order as much as possible.
+#
+# ============================================================
+
+if ($Warnings.Count -gt 0) {
+
+    $WarningIndex = 1
+
+    foreach ($Warning in ($Warnings | Select-Object -Unique)) {
+
+        $WarningBlock = @"
+
+============================================================
+TEST $($WarningIndex.ToString("000"))
+============================================================
+
+RESULT
+------------------------------------------------------------
+WARNING
+
+TEST
+------------------------------------------------------------
+$Warning
+
+STATUS
+------------------------------------------------------------
+REVIEW REQUIRED
+
+============================================================
+
+"@
+
+        Add-Content `
+            -Path $WarningReport `
+            -Value $WarningBlock `
+            -Encoding UTF8
+
+        $WarningIndex++
+
+    }
+
+}
+else {
+
+    Add-Content `
+        -Path $WarningReport `
+        -Value @"
+
+============================================================
+NO WARNING RESULTS
+============================================================
+
+No warnings were recorded by the audit.
+
+============================================================
+
+"@ `
+        -Encoding UTF8
 
 }
 
 
-# ------------------------------------------------------------
-# 08 - Add report summary
-# ------------------------------------------------------------
+# ============================================================
+# 14 - SUMMARY: PASS RESULTS
+# ============================================================
+#
+# The summary contains a SHORT version of every recorded
+# result instead of the detailed blocks used by the individual
+# reports.
+#
+# ============================================================
+
+Add-Content `
+    -Path $SummaryReport `
+    -Value @"
+
+============================================================
+PASS TESTS - SHORT SUMMARY
+============================================================
+
+"@ `
+    -Encoding UTF8
+
+
+if ($Passes.Count -gt 0) {
+
+    $SummaryPassIndex = 1
+
+    foreach ($Pass in $Passes) {
+
+        Add-Content `
+            -Path $SummaryReport `
+            -Value "[PASS $($SummaryPassIndex.ToString("000"))] $Pass" `
+            -Encoding UTF8
+
+        $SummaryPassIndex++
+
+    }
+
+}
+else {
+
+    Add-Content `
+        -Path $SummaryReport `
+        -Value "[PASS] No successful tests recorded." `
+        -Encoding UTF8
+
+}
+
+
+# ============================================================
+# 15 - SUMMARY: WARNING RESULTS
+# ============================================================
+
+Add-Content `
+    -Path $SummaryReport `
+    -Value @"
+
+============================================================
+WARNING TESTS - SHORT SUMMARY
+============================================================
+
+"@ `
+    -Encoding UTF8
+
+
+if ($Warnings.Count -gt 0) {
+
+    $SummaryWarningIndex = 1
+
+    foreach ($Warning in ($Warnings | Select-Object -Unique)) {
+
+        Add-Content `
+            -Path $SummaryReport `
+            -Value "[WARN $($SummaryWarningIndex.ToString("000"))] $Warning" `
+            -Encoding UTF8
+
+        $SummaryWarningIndex++
+
+    }
+
+}
+else {
+
+    Add-Content `
+        -Path $SummaryReport `
+        -Value "[WARN] No warnings recorded." `
+        -Encoding UTF8
+
+}
+
+
+# ============================================================
+# 16 - SUMMARY: ERROR RESULTS
+# ============================================================
+
+Add-Content `
+    -Path $SummaryReport `
+    -Value @"
+
+============================================================
+ERROR TESTS - SHORT SUMMARY
+============================================================
+
+"@ `
+    -Encoding UTF8
+
+
+if ($Failures.Count -gt 0) {
+
+    $SummaryErrorIndex = 1
+
+    foreach ($Failure in $Failures) {
+
+        Add-Content `
+            -Path $SummaryReport `
+            -Value "[FAIL $($SummaryErrorIndex.ToString("000"))] $Failure" `
+            -Encoding UTF8
+
+        $SummaryErrorIndex++
+
+    }
+
+}
+else {
+
+    Add-Content `
+        -Path $SummaryReport `
+        -Value "[FAIL] No critical failures recorded." `
+        -Encoding UTF8
+
+}
+
+
+# ============================================================
+# 17 - FINAL SUMMARY STATISTICS
+# ============================================================
+
+Add-Content `
+    -Path $SummaryReport `
+    -Value @"
+
+============================================================
+FINAL AUDIT STATISTICS
+============================================================
+
+PASS
+------------------------------------------------------------
+$PassCount
+
+WARNING
+------------------------------------------------------------
+$WarnCount
+
+FAIL
+------------------------------------------------------------
+$FailCount
+
+INFO
+------------------------------------------------------------
+$InfoCount
+
+TOTAL RECORDED RESULTS
+------------------------------------------------------------
+$($PassCount + $WarnCount + $FailCount)
+
+============================================================
+FINAL DECISION
+============================================================
+
+$OverallResult
+
+============================================================
+
+"@ `
+    -Encoding UTF8
+
+
+# ============================================================
+# 18 - Add Completion Footer to PASS Report
+# ============================================================
 
 Add-Content `
     -Path $PassReport `
-    -Value "`r`n============================================================"
+    -Value @"
 
-Add-Content `
-    -Path $PassReport `
-    -Value "PASS REPORT COMPLETE"
+============================================================
+PASS REPORT COMPLETE
+============================================================
 
-Add-Content `
-    -Path $PassReport `
-    -Value "============================================================"
+Generated:
+$AuditDateTime
 
+Total PASS Results:
+$PassCount
+
+============================================================
+
+"@ `
+    -Encoding UTF8
+
+
+# ============================================================
+# 19 - Add Completion Footer to ERROR Report
+# ============================================================
 
 Add-Content `
     -Path $ErrorReport `
-    -Value "`r`n============================================================"
+    -Value @"
 
-Add-Content `
-    -Path $ErrorReport `
-    -Value "ERROR REPORT COMPLETE"
+============================================================
+ERROR REPORT COMPLETE
+============================================================
 
-Add-Content `
-    -Path $ErrorReport `
-    -Value "============================================================"
+Generated:
+$AuditDateTime
 
+Total FAIL Results:
+$FailCount
+
+============================================================
+
+"@ `
+    -Encoding UTF8
+
+
+# ============================================================
+# 20 - Add Completion Footer to WARNING Report
+# ============================================================
 
 Add-Content `
     -Path $WarningReport `
-    -Value "`r`n============================================================"
+    -Value @"
+
+============================================================
+WARNING REPORT COMPLETE
+============================================================
+
+Generated:
+$AuditDateTime
+
+Total WARNING Results:
+$WarnCount
+
+============================================================
+
+"@ `
+    -Encoding UTF8
+
+
+# ============================================================
+# 21 - Add Completion Footer to SUMMARY Report
+# ============================================================
 
 Add-Content `
-    -Path $WarningReport `
-    -Value "WARNING REPORT COMPLETE"
+    -Path $SummaryReport `
+    -Value @"
 
-Add-Content `
-    -Path $WarningReport `
-    -Value "============================================================"
+============================================================
+OVERALL SUMMARY REPORT COMPLETE
+============================================================
+
+Generated:
+$AuditDateTime
+
+Report Files:
+------------------------------------------------------------
+PASS    : AWS-Hybrid-IaC-Audit-PASS.txt
+ERROR   : AWS-Hybrid-IaC-Audit-ERROR.txt
+WARNING : AWS-Hybrid-IaC-Audit-WARNING.txt
+SUMMARY : AWS-Hybrid-IaC-Audit-SUMMARY.txt
+
+Final Decision:
+------------------------------------------------------------
+$OverallResult
+
+============================================================
+
+"@ `
+    -Encoding UTF8
 
 
-# ------------------------------------------------------------
-# 09 - Display report locations in PowerShell
-# ------------------------------------------------------------
+# ============================================================
+# 22 - Display Report Locations in PowerShell
+# ============================================================
 
 Write-Host ""
-Write-Host "============================================================"
-Write-Host "AUDIT REPORT FILES CREATED"
-Write-Host "============================================================"
+Write-Host "============================================================" -ForegroundColor Cyan
+Write-Host "AUDIT REPORT FILES CREATED" -ForegroundColor Cyan
+Write-Host "============================================================" -ForegroundColor Cyan
 
 Write-Host ""
-Write-Host "[PASS]   $PassReport"
-Write-Host "[ERROR]  $ErrorReport"
-Write-Host "[WARN]   $WarningReport"
+Write-Host "[PASS]    $PassReport" -ForegroundColor Green
+Write-Host "[ERROR]   $ErrorReport" -ForegroundColor Red
+Write-Host "[WARNING] $WarningReport" -ForegroundColor Yellow
+Write-Host "[SUMMARY] $SummaryReport" -ForegroundColor Cyan
+
+Write-Host ""
+Write-Host "------------------------------------------------------------"
+Write-Host "AUDIT STATISTICS"
+Write-Host "------------------------------------------------------------"
+
+Write-Host ""
+Write-Host "PASS    : $PassCount" -ForegroundColor Green
+Write-Host "WARNING : $WarnCount" -ForegroundColor Yellow
+Write-Host "FAIL    : $FailCount" -ForegroundColor Red
+Write-Host "INFO    : $InfoCount" -ForegroundColor Gray
+
+Write-Host ""
+Write-Host "FINAL RESULT:" -ForegroundColor Cyan
+Write-Host "$OverallResult"
 
 Write-Host ""
 Write-Host "Report folder:"
-Write-Host "           $ReportFolder"
+Write-Host "$ReportFolder"
 
 Write-Host ""
 Write-Host "============================================================"
-
-
-
-# ============================================================
-# 35 - Exit Code
-# ============================================================
-
-if ($FailCount -gt 0) {
-
-    exit 2
-
-}
-
-if ($Strict -and $WarnCount -gt 0) {
-
-    exit 1
-
-}
-
-exit 0
-
+Write-Host ""
