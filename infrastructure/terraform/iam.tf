@@ -1003,6 +1003,43 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
         Resource = [
           "arn:aws:iam::537236558357:role/${local.name_prefix}-LambdaRole"
         ]
+      },
+
+      # ====================================================
+      # IAM PASSROLE FOR CLOUDFORMATION EXECUTION ROLE
+      # ====================================================
+      #
+      # CloudFormation is running under:
+      #
+      #     ${local.name_prefix}-CloudFormationExecutionRole
+      #
+      # The root/nested CloudFormation architecture passes
+      # this execution role to nested CloudFormation stacks.
+      #
+      # Therefore the CloudFormation execution role itself
+      # must have permission to pass this role.
+      #
+      # Without this permission CloudFormation fails with:
+      #
+      #     iam:PassRole
+      #
+      # on:
+      #
+      #     ${local.name_prefix}-CloudFormationExecutionRole
+      #
+      # ====================================================
+
+      {
+        Sid    = "PassCloudFormationExecutionRole"
+        Effect = "Allow"
+
+        Action = [
+          "iam:PassRole"
+        ]
+
+        Resource = [
+          "arn:aws:iam::537236558357:role/${local.name_prefix}-CloudFormationExecutionRole"
+        ]
       }
     ]
   })
