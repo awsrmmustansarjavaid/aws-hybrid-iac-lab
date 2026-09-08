@@ -974,7 +974,9 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
           "iam:AttachRolePolicy",
           "iam:DetachRolePolicy",
           "iam:CreateRole",
-          "iam:DeleteRole"
+          "iam:DeleteRole",
+          "iam:TagRole",
+          "iam:UntagRole"
         ]
 
         Resource = [

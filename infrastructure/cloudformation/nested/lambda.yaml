@@ -321,17 +321,166 @@ Resources:
 
     Properties:
 
+  # ==========================================================
+  # LAMBDA EXECUTION ROLE
+  # ==========================================================
+  #
+  # AWS Lambda needs an IAM execution role.
+  #
+  # The execution role defines what AWS services the Lambda
+  # function is allowed to access.
+  #
+  # This role allows Lambda to:
+  #
+  #   1. Write logs to Amazon CloudWatch Logs
+  #   2. Read data from DynamoDB
+  #   3. Write data to DynamoDB
+  #   4. Update DynamoDB items
+  #   5. Query DynamoDB
+  #   6. Scan DynamoDB
+  #
+  # IMPORTANT:
+  #
+  # We intentionally do NOT specify RoleName.
+  #
+  # CloudFormation will automatically generate the physical
+  # IAM role name.
+  #
+  # This avoids IAM role-name conflicts when the stack is
+  # recreated or deployed multiple times.
+  #
+  # ==========================================================
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+
+    Properties:
+
       # ------------------------------------------------------
-      # IAM Role Name
+      # TRUST POLICY
       # ------------------------------------------------------
       #
-      # Example:
+      # This policy defines WHO is allowed to assume this role.
       #
-      #   HybridIaCLab-dev-LambdaRole
+      # The AWS Lambda service is allowed to assume the role.
+      #
+      # In other words:
+      #
+      #   Lambda Service
+      #        |
+      #        | sts:AssumeRole
+      #        v
+      #   LambdaExecutionRole
       #
       # ------------------------------------------------------
 
-      RoleName: !Sub "${ProjectName}-${Environment}-LambdaRole"
+      AssumeRolePolicyDocument:
+
+        Version: "2012-10-17"
+
+        Statement:
+
+          - Effect: Allow
+
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+
+            Action:
+              - sts:AssumeRole
+
+      # ------------------------------------------------------
+      # AWS MANAGED POLICY
+      # ------------------------------------------------------
+      #
+      # AWSLambdaBasicExecutionRole provides the standard
+      # permissions required for Lambda to write logs to
+      # Amazon CloudWatch Logs.
+      #
+      # Typical permissions include:
+      #
+      #   logs:CreateLogGroup
+      #   logs:CreateLogStream
+      #   logs:PutLogEvents
+      #
+      # ------------------------------------------------------
+
+      ManagedPolicyArns:
+
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+      # ======================================================
+      # INLINE IAM POLICY
+      # ======================================================
+      #
+      # This policy gives Lambda access to DynamoDB.
+      #
+      # The Lambda function can:
+      #
+      #   PutItem
+      #   GetItem
+      #   UpdateItem
+      #   Query
+      #   Scan
+      #
+      # IMPORTANT:
+      #
+      # Resource: "*"
+      #
+      # is intentionally broad for this learning lab.
+      #
+      # In a production environment, permissions should be
+      # restricted to the specific DynamoDB table ARNs required
+      # by the Lambda function.
+      #
+      # ======================================================
+
+      Policies:
+
+        - PolicyName: DynamoDBAccess
+
+          PolicyDocument:
+
+            Version: "2012-10-17"
+
+            Statement:
+
+              - Effect: Allow
+
+                Action:
+
+                  # Insert a new item into DynamoDB.
+                  - dynamodb:PutItem
+
+                  # Read a specific DynamoDB item.
+                  - dynamodb:GetItem
+
+                  # Update an existing DynamoDB item.
+                  - dynamodb:UpdateItem
+
+                  # Query DynamoDB table/index data.
+                  - dynamodb:Query
+
+                  # Scan DynamoDB table data.
+                  - dynamodb:Scan
+
+                # ------------------------------------------------
+                # LAB-LEVEL PERMISSION
+                # ------------------------------------------------
+                #
+                # "*" means all DynamoDB resources.
+                #
+                # This is acceptable for this learning lab but
+                # should NOT normally be used in production.
+                #
+                # Production example:
+                #
+                # Resource:
+                #   - arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/MyTable
+                #
+                # ------------------------------------------------
+
+                Resource: "*"
 
       # ------------------------------------------------------
       # TRUST POLICY
