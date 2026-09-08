@@ -100,7 +100,7 @@
         "iam:ListRolePolicies",
         "iam:DeleteRolePolicy"
       ],
-      "Resource": "arn:aws:iam::537236558357:role/HybridIaCLab-dev-CloudFormationExecutionRole"
+      "Resource": "arn:aws:iam::537236558357:role/hybridiaclab-dev-CloudFormationExecutionRole"
     },
     {
       "Sid": "AmazonEC2FullAccess",

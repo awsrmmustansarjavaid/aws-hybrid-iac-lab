@@ -180,7 +180,7 @@ variable "aws_region" {
 #
 # Example:
 #
-#   HybridIaCLab
+#   hybridiaclab
 #
 # ============================================================
 
@@ -190,18 +190,18 @@ variable "project_name" {
 
   type = string
 
-  default = "HybridIaCLab"
+  default = "hybridiaclab"
 
   validation {
 
     condition = can(
       regex(
-        "^[A-Za-z0-9-]+$",
+        "^[a-z0-9-]+$",
         trimspace(var.project_name)
       )
     )
 
-    error_message = "project_name may contain only letters, numbers, and hyphens."
+    error_message = "project_name must contain only lowercase letters, numbers, and hyphens."
   }
 }
 

@@ -65,9 +65,9 @@
 # Amazon S3 with appropriate locking and access control.
 # -------------------------------------------------------
 
-*.tfstate
-*.tfstate.*
-terraform.tfstate
+#*.tfstate
+#*.tfstate.*
+#terraform.tfstate
 terraform.tfstate.backup
 
 

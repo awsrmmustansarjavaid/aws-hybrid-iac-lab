@@ -162,13 +162,13 @@ Parameters:
   #
   # Example:
   #
-  #   HybridIaCLab
+  #   hybridiaclab
   #
   # ----------------------------------------------------------
 
   ProjectName:
     Type: String
-    Default: HybridIaCLab
+    Default: hybridiaclab
     Description: Project/lab name used for resource naming and tags.
 
   # ----------------------------------------------------------

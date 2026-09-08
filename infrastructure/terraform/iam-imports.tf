@@ -162,7 +162,7 @@ import {
 #
 # Existing AWS role:
 #
-#   HybridIaCLab-dev-CloudFormationExecutionRole
+#   hybridiaclab-dev-CloudFormationExecutionRole
 #
 # Terraform resource address:
 #
@@ -173,7 +173,7 @@ import {
 import {
   to = aws_iam_role.cloudformation_execution
 
-  id = "HybridIaCLab-dev-CloudFormationExecutionRole"
+  id = "hybridiaclab-dev-CloudFormationExecutionRole"
 }
 
 
@@ -183,11 +183,11 @@ import {
 #
 # Existing AWS inline policy:
 #
-#   HybridIaCLab-dev-CloudFormationPermissions
+#   hybridiaclab-dev-CloudFormationPermissions
 #
 # Attached to:
 #
-#   HybridIaCLab-dev-CloudFormationExecutionRole
+#   hybridiaclab-dev-CloudFormationExecutionRole
 #
 # Terraform resource address:
 #
@@ -198,7 +198,7 @@ import {
 import {
   to = aws_iam_role_policy.cloudformation_lab_permissions
 
-  id = "HybridIaCLab-dev-CloudFormationExecutionRole:HybridIaCLab-dev-CloudFormationPermissions"
+  id = "hybridiaclab-dev-CloudFormationExecutionRole:hybridiaclab-dev-CloudFormationPermissions"
 }
 
 

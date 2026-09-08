@@ -73,12 +73,14 @@ Parameters:
   #
   # Example:
   #
-  #   HybridIaCLab
+  #   hybridiaclab
   #
   # Used to construct the ECR repository name.
   #
   ProjectName:
     Type: String
+    Default: hybridiaclab        
+
 
     Description: >
       Name of the project used for ECR repository naming
@@ -147,7 +149,7 @@ Resources:
       #
       # Example:
       #
-      #   HybridIaCLab-dev-app
+      #   hybridiaclab-dev-app
       #
       RepositoryName: !Sub "${ProjectName}-${Environment}-app"
 
