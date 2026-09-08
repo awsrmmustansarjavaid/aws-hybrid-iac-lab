@@ -4,7 +4,7 @@
 # ============================================================
 #
 # File:
-#   infrastructure/cloudformation/ecs.yaml
+#   infrastructure/cloudformation/nested/ecs.yaml
 #
 # Purpose:
 #   Creates an Amazon ECS Fargate platform that runs a Docker

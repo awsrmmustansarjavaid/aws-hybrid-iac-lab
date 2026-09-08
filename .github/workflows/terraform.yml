@@ -1822,3 +1822,668 @@ jobs:
           echo "TERRAFORM APPLY COMPLETED"
           echo "=================================================="
 
+      # ======================================================
+      # STEP 16
+      # CLOUDFORMATION NESTED STACK DIAGNOSTIC
+      # ======================================================
+      #
+      # PURPOSE
+      # ------------------------------------------------------
+      #
+      # This diagnostic runs AFTER Terraform Apply.
+      #
+      # IMPORTANT:
+      #
+      # "if: always()" is intentional.
+      #
+      # Terraform Apply may fail because a CloudFormation
+      # stack failed.
+      #
+      # We still want this diagnostic to execute so that
+      # GitHub Actions shows:
+      #
+      #   1. Main CloudFormation stack status
+      #   2. Successful nested stacks
+      #   3. Failed nested stacks
+      #   4. Cancelled nested stacks
+      #   5. Exact CloudFormation failure reason
+      #   6. CloudFormation resource logical ID
+      #   7. Physical resource ID
+      #   8. Nested stack events
+      #   9. S3 template errors such as NoSuchKey
+      #  10. The likely CloudFormation template file
+      #
+      # IMPORTANT:
+      #
+      # This step NEVER hides Terraform failure.
+      #
+      # If Terraform Apply failed, this diagnostic only
+      # investigates and reports the failure.
+      #
+      # ======================================================
+
+      - name: Diagnose CloudFormation Nested Stacks
+        if: ${{ always() }}
+        working-directory: ${{ env.TF_WORKING_DIRECTORY }}
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          echo ""
+          echo "============================================================"
+          echo "CLOUDFORMATION NESTED STACK DIAGNOSTIC"
+          echo "============================================================"
+
+          echo ""
+          echo "Project:"
+          echo "${PROJECT_NAME}"
+
+          echo ""
+          echo "Environment:"
+          echo "${ENVIRONMENT}"
+
+          echo ""
+          echo "AWS Region:"
+          echo "${AWS_REGION}"
+
+          echo ""
+          echo "Expected Main Stack:"
+          echo "${PROJECT_NAME}-${ENVIRONMENT}-MainStack"
+
+          # ----------------------------------------------------
+          # Main CloudFormation stack name.
+          #
+          # Change this variable if your actual Terraform
+          # CloudFormation stack naming convention changes.
+          # ----------------------------------------------------
+
+          MAIN_STACK_NAME="${PROJECT_NAME}-${ENVIRONMENT}-MainStack"
+
+          echo ""
+          echo "============================================================"
+          echo "1. CHECK MAIN CLOUDFORMATION STACK"
+          echo "============================================================"
+
+          # ----------------------------------------------------
+          # Check whether the MainStack exists.
+          # ----------------------------------------------------
+
+          if ! aws cloudformation describe-stacks \
+            --stack-name "${MAIN_STACK_NAME}" \
+            --region "${AWS_REGION}" \
+            >/tmp/main-stack.json \
+            2>/tmp/main-stack-error.txt
+          then
+
+            echo ""
+            echo "WARNING: Main CloudFormation stack could not be queried."
+
+            echo ""
+            echo "AWS diagnostic:"
+            cat /tmp/main-stack-error.txt
+
+            echo ""
+            echo "CloudFormation diagnostic cannot continue because"
+            echo "the MainStack could not be located."
+
+            exit 0
+          fi
+
+          # ----------------------------------------------------
+          # Display MainStack status.
+          # ----------------------------------------------------
+
+          MAIN_STATUS="$(
+            jq -r \
+              '.Stacks[0].StackStatus // "UNKNOWN"' \
+              /tmp/main-stack.json
+          )"
+
+          MAIN_STATUS_REASON="$(
+            jq -r \
+              '.Stacks[0].StackStatusReason // "No status reason"' \
+              /tmp/main-stack.json
+          )"
+
+          MAIN_STACK_ID="$(
+            jq -r \
+              '.Stacks[0].StackId // "UNKNOWN"' \
+              /tmp/main-stack.json
+          )"
+
+          echo ""
+          echo "Main Stack:"
+          echo "${MAIN_STACK_NAME}"
+
+          echo ""
+          echo "Stack ID:"
+          echo "${MAIN_STACK_ID}"
+
+          echo ""
+          echo "Stack Status:"
+          echo "${MAIN_STATUS}"
+
+          echo ""
+          echo "Stack Status Reason:"
+          echo "${MAIN_STATUS_REASON}"
+
+
+          # ====================================================
+          # 2. MAIN STACK RESOURCE SUMMARY
+          # ====================================================
+
+          echo ""
+          echo "============================================================"
+          echo "2. MAIN STACK RESOURCE SUMMARY"
+          echo "============================================================"
+
+          if aws cloudformation describe-stack-resources \
+            --stack-name "${MAIN_STACK_NAME}" \
+            --region "${AWS_REGION}" \
+            >/tmp/main-resources.json \
+            2>/tmp/main-resources-error.txt
+          then
+
+            echo ""
+            echo "Logical Resource | Type | Status | Physical Resource"
+            echo "------------------------------------------------------------"
+
+            jq -r '
+              .StackResources[] |
+              [
+                .LogicalResourceId,
+                .ResourceType,
+                .ResourceStatus,
+                (.PhysicalResourceId // "N/A")
+              ] |
+              @tsv
+            ' /tmp/main-resources.json |
+            while IFS=$'\t' read -r logical type status physical
+            do
+              printf '%-24s | %-45s | %-30s | %s\n' \
+                "${logical}" \
+                "${type}" \
+                "${status}" \
+                "${physical}"
+            done
+
+          else
+
+            echo ""
+            echo "WARNING: Could not retrieve MainStack resources."
+
+            cat /tmp/main-resources-error.txt
+
+          fi
+
+
+          # ====================================================
+          # 3. NESTED STACK SUMMARY
+          # ====================================================
+
+          echo ""
+          echo "============================================================"
+          echo "3. NESTED STACK SUMMARY"
+          echo "============================================================"
+
+          # ----------------------------------------------------
+          # Extract CloudFormation nested stack resources.
+          #
+          # A nested stack appears as:
+          #
+          # AWS::CloudFormation::Stack
+          #
+          # ----------------------------------------------------
+
+          NESTED_STACK_COUNT="$(
+            jq '
+              [
+                .StackResources[]
+                | select(.ResourceType == "AWS::CloudFormation::Stack")
+              ]
+              | length
+            ' /tmp/main-resources.json
+          )"
+
+          echo ""
+          echo "Nested stacks discovered:"
+          echo "${NESTED_STACK_COUNT}"
+
+          if [[ "${NESTED_STACK_COUNT}" -eq 0 ]]; then
+
+            echo ""
+            echo "No nested CloudFormation stacks were discovered."
+
+          else
+
+            echo ""
+            echo "Nested Stack Status:"
+            echo "------------------------------------------------------------"
+
+            jq -r '
+              .StackResources[]
+              | select(.ResourceType == "AWS::CloudFormation::Stack")
+              | [
+                  .LogicalResourceId,
+                  .ResourceStatus,
+                  (.ResourceStatusReason // "No reason"),
+                  (.PhysicalResourceId // "N/A")
+                ]
+              | @tsv
+            ' /tmp/main-resources.json |
+            while IFS=$'\t' read -r logical status reason physical
+            do
+
+              echo ""
+              echo "------------------------------------------------------------"
+              echo "Nested Stack:"
+              echo "${logical}"
+
+              echo ""
+              echo "Status:"
+              echo "${status}"
+
+              echo ""
+              echo "Status Reason:"
+              echo "${reason}"
+
+              echo ""
+              echo "Physical Stack:"
+              echo "${physical}"
+
+              # ------------------------------------------------
+              # Translate logical stack names into expected
+              # CloudFormation template locations.
+              #
+              # Example:
+              #
+              # APIGatewayStack
+              #       |
+              #       v
+              # nested/api-gateway.yaml
+              #
+              # This is a diagnostic hint, not an assertion.
+              # ------------------------------------------------
+
+              TEMPLATE_HINT=""
+
+              case "${logical}" in
+
+                ECRStack)
+                  TEMPLATE_HINT="nested/ecr.yaml"
+                  ;;
+
+                S3Stack)
+                  TEMPLATE_HINT="nested/s3.yaml"
+                  ;;
+
+                DynamoDBStack)
+                  TEMPLATE_HINT="nested/dynamodb.yaml"
+                  ;;
+
+                EC2Stack)
+                  TEMPLATE_HINT="nested/ec2.yaml"
+                  ;;
+
+                VPCStack)
+                  TEMPLATE_HINT="nested/vpc.yaml"
+                  ;;
+
+                RDSStack)
+                  TEMPLATE_HINT="nested/rds.yaml"
+                  ;;
+
+                CloudFrontStack)
+                  TEMPLATE_HINT="nested/cloudfront.yaml"
+                  ;;
+
+                APIGatewayStack)
+                  TEMPLATE_HINT="nested/api-gateway.yaml"
+                  ;;
+
+                EKSStack)
+                  TEMPLATE_HINT="nested/eks.yaml"
+                  ;;
+
+                *)
+                  TEMPLATE_HINT="Not mapped automatically"
+                  ;;
+
+              esac
+
+              echo ""
+              echo "Likely template:"
+              echo "${TEMPLATE_HINT}"
+
+              # ------------------------------------------------
+              # If this is a real nested stack, inspect it.
+              # ------------------------------------------------
+
+              if [[ "${physical}" != "N/A" && -n "${physical}" ]]; then
+
+                echo ""
+                echo "Inspecting nested stack events..."
+
+                SAFE_STACK_NAME="${logical//[^a-zA-Z0-9_.-]/_}"
+
+                if aws cloudformation describe-stack-events \
+                  --stack-name "${physical}" \
+                  --region "${AWS_REGION}" \
+                  >/tmp/"${SAFE_STACK_NAME}"-events.json \
+                  2>/tmp/"${SAFE_STACK_NAME}"-events-error.txt
+                then
+
+                  echo ""
+                  echo "Nested stack events:"
+                  echo "------------------------------------------------------------"
+
+                  jq -r '
+                    .StackEvents[]
+                    | select(
+                        (.ResourceStatus | test(
+                          "FAILED|ROLLBACK|DELETE_FAILED|UPDATE_ROLLBACK";
+                          "i"
+                        ))
+                      )
+                    | [
+                        .Timestamp,
+                        .LogicalResourceId,
+                        .ResourceType,
+                        .ResourceStatus,
+                        (.ResourceStatusReason // "No reason"),
+                        (.PhysicalResourceId // "N/A")
+                      ]
+                    | @tsv
+                  ' /tmp/"${SAFE_STACK_NAME}"-events.json |
+                  while IFS=$'\t' read -r timestamp resource type status reason physical_resource
+                  do
+
+                    echo ""
+                    echo "Timestamp:"
+                    echo "${timestamp}"
+
+                    echo "Logical Resource:"
+                    echo "${resource}"
+
+                    echo "Resource Type:"
+                    echo "${type}"
+
+                    echo "Status:"
+                    echo "${status}"
+
+                    echo "Reason:"
+                    echo "${reason}"
+
+                    echo "Physical Resource:"
+                    echo "${physical_resource}"
+
+                  done
+
+                else
+
+                  echo ""
+                  echo "WARNING: Could not retrieve nested stack events."
+
+                  cat /tmp/"${SAFE_STACK_NAME}"-events-error.txt
+
+                fi
+
+              fi
+
+            done
+
+          fi
+
+
+          # ====================================================
+          # 4. MAIN STACK FAILURE EVENTS
+          # ====================================================
+
+          echo ""
+          echo "============================================================"
+          echo "4. MAIN STACK FAILURE EVENTS"
+          echo "============================================================"
+
+          if aws cloudformation describe-stack-events \
+            --stack-name "${MAIN_STACK_NAME}" \
+            --region "${AWS_REGION}" \
+            >/tmp/main-events.json \
+            2>/tmp/main-events-error.txt
+          then
+
+            echo ""
+            echo "FAILED / ROLLBACK / CANCELLED EVENTS:"
+            echo "------------------------------------------------------------"
+
+            jq -r '
+              .StackEvents[]
+              | select(
+                  (.ResourceStatus | test(
+                    "FAILED|ROLLBACK|DELETE_FAILED|CANCELLED";
+                    "i"
+                  ))
+                )
+              | [
+                  .Timestamp,
+                  .LogicalResourceId,
+                  .ResourceType,
+                  .ResourceStatus,
+                  (.ResourceStatusReason // "No reason"),
+                  (.PhysicalResourceId // "N/A")
+                ]
+              | @tsv
+            ' /tmp/main-events.json |
+            while IFS=$'\t' read -r timestamp resource type status reason physical
+            do
+
+              echo ""
+              echo "============================================================"
+              echo "FAILURE EVENT"
+              echo "============================================================"
+
+              echo ""
+              echo "Timestamp:"
+              echo "${timestamp}"
+
+              echo ""
+              echo "Logical Resource:"
+              echo "${resource}"
+
+              echo ""
+              echo "Resource Type:"
+              echo "${type}"
+
+              echo ""
+              echo "Status:"
+              echo "${status}"
+
+              echo ""
+              echo "Reason:"
+              echo "${reason}"
+
+              echo ""
+              echo "Physical Resource:"
+              echo "${physical}"
+
+            done
+
+          else
+
+            echo ""
+            echo "WARNING: Could not retrieve MainStack events."
+
+            cat /tmp/main-events-error.txt
+
+          fi
+
+
+          # ====================================================
+          # 5. DETECT COMMON S3 TEMPLATE ERRORS
+          # ====================================================
+
+          echo ""
+          echo "============================================================"
+          echo "5. CLOUDFORMATION TEMPLATE ERROR ANALYSIS"
+          echo "============================================================"
+
+          ALL_FAILURE_TEXT="$(
+            {
+              cat /tmp/main-events.json 2>/dev/null || true
+
+              for file in /tmp/*-events.json
+              do
+                [[ -f "${file}" ]] || continue
+                cat "${file}"
+              done
+
+              cat /tmp/main-stack.json 2>/dev/null || true
+            } | tr '\n' ' '
+          )"
+
+          if echo "${ALL_FAILURE_TEXT}" |
+            grep -qiE "NoSuchKey|S3 object does not exist|does not exist.*yaml"
+          then
+
+            echo ""
+            echo "============================================================"
+            echo "DETECTED: MISSING CLOUDFORMATION TEMPLATE"
+            echo "============================================================"
+
+            echo ""
+            echo "CloudFormation appears to be unable to locate"
+            echo "one of the nested template files in S3."
+
+            echo ""
+            echo "Typical causes:"
+            echo ""
+            echo "1. Template was not uploaded to S3."
+            echo "2. S3 object key does not match template path."
+            echo "3. Filename capitalization differs."
+            echo "4. Terraform uploaded a different filename."
+            echo "5. MainStack references an incorrect S3 key."
+            echo "6. Template upload resource has an incorrect dependency."
+            echo "7. The S3 template bucket contains an incomplete set"
+            echo "   of nested templates."
+
+          fi
+
+
+          # ====================================================
+          # 6. CHECK EXPECTED LOCAL NESTED TEMPLATES
+          # ====================================================
+
+          echo ""
+          echo "============================================================"
+          echo "6. LOCAL CLOUDFORMATION TEMPLATE CHECK"
+          echo "============================================================"
+
+          TEMPLATE_DIRECTORY="../cloudformation/nested"
+
+          if [[ -d "${TEMPLATE_DIRECTORY}" ]]; then
+
+            echo ""
+            echo "CloudFormation nested template directory:"
+            echo "${TEMPLATE_DIRECTORY}"
+
+            echo ""
+            echo "Available local nested templates:"
+            echo "------------------------------------------------------------"
+
+            find "${TEMPLATE_DIRECTORY}" \
+              -maxdepth 1 \
+              -type f \
+              -name "*.yaml" \
+              -o \
+              -type f \
+              -name "*.yml" |
+              sort
+
+          else
+
+            echo ""
+            echo "WARNING:"
+            echo "Expected local CloudFormation template directory was not found:"
+            echo "${TEMPLATE_DIRECTORY}"
+
+            echo ""
+            echo "This diagnostic assumes the Terraform directory is:"
+            echo "${TF_WORKING_DIRECTORY}"
+
+            echo ""
+            echo "Adjust TEMPLATE_DIRECTORY if your project structure differs."
+
+          fi
+
+
+          # ====================================================
+          # 7. CHECK API GATEWAY TEMPLATE SPECIFICALLY
+          # ====================================================
+
+          echo ""
+          echo "============================================================"
+          echo "7. API GATEWAY TEMPLATE CHECK"
+          echo "============================================================"
+
+          API_TEMPLATE="${TEMPLATE_DIRECTORY}/api-gateway.yaml"
+
+          if [[ -f "${API_TEMPLATE}" ]]; then
+
+            echo ""
+            echo "PASS: Local API Gateway template exists."
+
+            echo ""
+            echo "File:"
+            echo "${API_TEMPLATE}"
+
+            echo ""
+            echo "File size:"
+            wc -c "${API_TEMPLATE}"
+
+          else
+
+            echo ""
+            echo "WARNING: Local API Gateway template was NOT found."
+
+            echo ""
+            echo "Expected:"
+            echo "${API_TEMPLATE}"
+
+          fi
+
+
+          # ====================================================
+          # 8. FINAL DIAGNOSTIC SUMMARY
+          # ====================================================
+
+          echo ""
+          echo "============================================================"
+          echo "CLOUDFORMATION DIAGNOSTIC SUMMARY"
+          echo "============================================================"
+
+          echo ""
+          echo "Main Stack:"
+          echo "${MAIN_STACK_NAME}"
+
+          echo ""
+          echo "Main Stack Status:"
+          echo "${MAIN_STATUS}"
+
+          echo ""
+          echo "Nested Stack Count:"
+          echo "${NESTED_STACK_COUNT}"
+
+          echo ""
+          echo "The diagnostic step completed."
+
+          echo ""
+          echo "IMPORTANT:"
+          echo "This diagnostic does NOT change or repair AWS resources."
+
+          echo ""
+          echo "Terraform Apply remains responsible for determining"
+          echo "whether the GitHub Actions deployment succeeds."
+
+          echo ""
+          echo "============================================================"
+          echo "CLOUDFORMATION NESTED STACK DIAGNOSTIC COMPLETED"
+          echo "============================================================"  

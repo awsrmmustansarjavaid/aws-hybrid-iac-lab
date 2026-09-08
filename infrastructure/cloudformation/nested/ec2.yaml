@@ -5,7 +5,7 @@
 #
 # File:
 #
-#   infrastructure/cloudformation/ec2.yaml
+#   infrastructure/cloudformation/nested/ec2.yaml
 #
 # Purpose:
 #

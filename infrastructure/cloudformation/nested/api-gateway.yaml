@@ -5,7 +5,7 @@
 #
 # File:
 #
-#   infrastructure/cloudformation/api-gateway.yaml
+#   infrastructure/cloudformation/nested/api-gateway.yaml
 #
 # Purpose:
 #
