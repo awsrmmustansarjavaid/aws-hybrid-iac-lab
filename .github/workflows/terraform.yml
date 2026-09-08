@@ -1793,918 +1793,353 @@ jobs:
       # PURPOSE
       # ------------------------------------------------------
       #
-      # Terraform Apply and CloudFormation diagnostics run
-      # at the SAME TIME.
+      # Terraform Apply runs while a separate PowerShell
+      # CloudFormation monitor observes the CloudFormation
+      # root stack and nested stacks.
       #
-      # The CloudFormation monitor starts BEFORE Terraform
-      # Apply so it can detect the root stack as soon as
-      # Terraform creates it.
+      # Terraform remains authoritative.
       #
-      # The monitor continuously captures:
+      # The monitor is READ-ONLY.
       #
-      #   1. Main CloudFormation stack
-      #   2. Main stack status
-      #   3. Main stack status reason
-      #   4. Nested stack status
-      #   5. Nested stack failure reason
-      #   6. Failed CloudFormation resources
-      #   7. CloudFormation events
-      #   8. Physical resource IDs
-      #   9. Template-related failures
+      # The monitor:
       #
-      # IMPORTANT
-      # ------------------------------------------------------
-      #
-      # The monitor does NOT modify AWS resources.
-      #
-      # It only observes and records CloudFormation state.
-      #
-      # Terraform Apply remains the authoritative process.
+      #   - waits for the CloudFormation stack
+      #   - detects stack status changes
+      #   - detects nested stacks
+      #   - captures CloudFormation events
+      #   - detects failed resources
+      #   - captures failure reasons
+      #   - classifies common failures
+      #   - saves diagnostic JSON/log files
       #
       # ======================================================
 
       - name: Terraform Apply With Live CloudFormation Diagnostics
         if: ${{ env.TF_AUTO_APPROVE == 'true' }}
         working-directory: ${{ env.TF_WORKING_DIRECTORY }}
-        shell: bash
+        shell: pwsh
         run: |
-          set -uo pipefail
 
-          echo ""
-          echo "============================================================"
-          echo "TERRAFORM APPLY + LIVE CLOUDFORMATION DIAGNOSTIC"
-          echo "============================================================"
+          $ErrorActionPreference = "Continue"
 
-          MAIN_STACK_NAME="${PROJECT_NAME}-${ENVIRONMENT}-MainStack"
-
-          MONITOR_LOG="/tmp/cloudformation-live-monitor.log"
-          MONITOR_PID=""
+          Write-Host ""
+          Write-Host "============================================================"
+          Write-Host "TERRAFORM APPLY + LIVE CLOUDFORMATION DIAGNOSTICS"
+          Write-Host "============================================================"
 
           # ----------------------------------------------------
-          # Cleanup function
+          # Build CloudFormation root stack name.
+          #
+          # Expected:
+          #
+          # aws-hybrid-iac-lab-dev-MainStack
           # ----------------------------------------------------
 
-          cleanup_monitor() {
+          $MainStackName = "${env:PROJECT_NAME}-${env:ENVIRONMENT}-MainStack"
 
-            if [[ -n "${MONITOR_PID}" ]] &&
-               kill -0 "${MONITOR_PID}" 2>/dev/null
-            then
+          Write-Host ""
+          Write-Host "CloudFormation Stack:"
+          Write-Host $MainStackName
 
-              echo ""
-              echo "Stopping CloudFormation live monitor..."
+          Write-Host ""
+          Write-Host "AWS Region:"
+          Write-Host $env:AWS_REGION
 
-              kill "${MONITOR_PID}" 2>/dev/null || true
+          # ----------------------------------------------------
+          # Verify monitor script exists.
+          #
+          # This prevents a confusing Start-Process failure.
+          # ----------------------------------------------------
 
-              wait "${MONITOR_PID}" 2>/dev/null || true
+          $MonitorScript = Join-Path `
+            $env:GITHUB_WORKSPACE `
+            "scripts/Monitor-CloudFormation.ps1"
 
-            fi
+          Write-Host ""
+          Write-Host "CloudFormation monitor script:"
+          Write-Host $MonitorScript
+
+          if (-not (Test-Path -LiteralPath $MonitorScript)) {
+
+            Write-Host ""
+            Write-Host "ERROR: CloudFormation monitor script was not found."
+            Write-Host ""
+            Write-Host "Expected file:"
+            Write-Host $MonitorScript
+
+            exit 1
+          }
+
+          # ----------------------------------------------------
+          # Diagnostic directory.
+          #
+          # Use an absolute path so the monitor and artifact
+          # upload always refer to the same directory.
+          # ----------------------------------------------------
+
+          $DiagnosticDirectory = Join-Path `
+            $env:GITHUB_WORKSPACE `
+            "cloudformation-live-diagnostics"
+
+          Write-Host ""
+          Write-Host "Diagnostic directory:"
+          Write-Host $DiagnosticDirectory
+
+          # ----------------------------------------------------
+          # Create diagnostic directory before starting monitor.
+          # ----------------------------------------------------
+
+          New-Item `
+            -ItemType Directory `
+            -Path $DiagnosticDirectory `
+            -Force |
+            Out-Null
+
+          # ====================================================
+          # START CLOUDFORMATION MONITOR
+          # ====================================================
+
+          Write-Host ""
+          Write-Host "============================================================"
+          Write-Host "STARTING CLOUDFORMATION LIVE MONITOR"
+          Write-Host "============================================================"
+
+          # ----------------------------------------------------
+          # Start the PowerShell monitor as a background process.
+          #
+          # The monitor inherits the AWS credentials configured
+          # earlier by aws-actions/configure-aws-credentials.
+          #
+          # The monitor itself does not modify AWS resources.
+          # ----------------------------------------------------
+
+          $MonitorProcess = Start-Process `
+            -FilePath "pwsh" `
+            -WorkingDirectory $env:GITHUB_WORKSPACE `
+            -ArgumentList @(
+              "-NoProfile"
+              "-NonInteractive"
+              "-File"
+              $MonitorScript
+              "-StackName"
+              $MainStackName
+              "-Region"
+              $env:AWS_REGION
+              "-PollingIntervalSeconds"
+              "3"
+              "-LogDirectory"
+              $DiagnosticDirectory
+            ) `
+            -PassThru `
+            -NoNewWindow
+
+          if ($null -eq $MonitorProcess) {
+
+            Write-Host ""
+            Write-Host "ERROR: Failed to start CloudFormation monitor."
+
+            exit 1
+          }
+
+          Write-Host ""
+          Write-Host "CloudFormation monitor PID:"
+          Write-Host $MonitorProcess.Id
+
+          # ----------------------------------------------------
+          # Give the monitor a short amount of time to initialize.
+          # ----------------------------------------------------
+
+          Start-Sleep -Seconds 2
+
+          # ====================================================
+          # TERRAFORM APPLY
+          # ====================================================
+
+          Write-Host ""
+          Write-Host "============================================================"
+          Write-Host "STARTING TERRAFORM APPLY"
+          Write-Host "============================================================"
+
+          Write-Host ""
+          Write-Host "Terraform working directory:"
+          Write-Host $env:GITHUB_WORKSPACE
+
+          Write-Host ""
+          Write-Host "Terraform plan:"
+          Write-Host $env:TF_PLAN_FILE
+
+          # ----------------------------------------------------
+          # Apply the exact plan generated by Step 14.
+          # ----------------------------------------------------
+
+          terraform apply `
+            -input=false `
+            -auto-approve `
+            $env:TF_PLAN_FILE
+
+          # ----------------------------------------------------
+          # IMPORTANT:
+          #
+          # Capture Terraform's exit code immediately.
+          # Do not execute another external command before this.
+          # ----------------------------------------------------
+
+          $TerraformExitCode = $LASTEXITCODE
+
+          # ====================================================
+          # TERRAFORM FINISHED
+          # ====================================================
+
+          Write-Host ""
+          Write-Host "============================================================"
+          Write-Host "TERRAFORM APPLY FINISHED"
+          Write-Host "============================================================"
+
+          Write-Host ""
+          Write-Host "Terraform exit code:"
+          Write-Host $TerraformExitCode
+
+          # ====================================================
+          # ALLOW FINAL CLOUDFORMATION EVENTS
+          # ====================================================
+
+          Write-Host ""
+          Write-Host "Allowing CloudFormation monitor to capture final events..."
+
+          Start-Sleep -Seconds 5
+
+          # ====================================================
+          # STOP CLOUDFORMATION MONITOR
+          # ====================================================
+
+          if (
+            $null -ne $MonitorProcess -and
+            -not $MonitorProcess.HasExited
+          ) {
+
+            Write-Host ""
+            Write-Host "Stopping CloudFormation live monitor..."
+
+            Stop-Process `
+              -Id $MonitorProcess.Id `
+              -Force `
+              -ErrorAction SilentlyContinue
+
+            # --------------------------------------------------
+            # Give the operating system a moment to release the
+            # monitor process and finish writing the log.
+            # --------------------------------------------------
+
+            Start-Sleep -Seconds 1
+          }
+
+          # ====================================================
+          # DISPLAY CLOUDFORMATION DIAGNOSTICS
+          # ====================================================
+
+          Write-Host ""
+          Write-Host "################################################################"
+          Write-Host "# COMPLETE CLOUDFORMATION LIVE DIAGNOSTIC"
+          Write-Host "################################################################"
+
+          if (Test-Path -LiteralPath $DiagnosticDirectory) {
+
+            $DiagnosticFiles = Get-ChildItem `
+              -Path $DiagnosticDirectory `
+              -File `
+              -Recurse `
+              -ErrorAction SilentlyContinue
+
+            if ($DiagnosticFiles.Count -eq 0) {
+
+              Write-Host ""
+              Write-Host "WARNING: Diagnostic directory contains no files."
+
+            }
+            else {
+
+              foreach ($File in $DiagnosticFiles) {
+
+                Write-Host ""
+                Write-Host "------------------------------------------------------------"
+                Write-Host "Diagnostic file:"
+                Write-Host $File.FullName
+                Write-Host "------------------------------------------------------------"
+
+                Get-Content `
+                  -LiteralPath $File.FullName `
+                  -ErrorAction SilentlyContinue |
+                  Write-Host
+              }
+            }
+
+          }
+          else {
+
+            Write-Host ""
+            Write-Host "WARNING: Diagnostic directory was not created."
+          }
+
+          # ====================================================
+          # FINAL TERRAFORM RESULT
+          # ====================================================
+
+          Write-Host ""
+          Write-Host "################################################################"
+          Write-Host "# TERRAFORM APPLY RESULT"
+          Write-Host "################################################################"
+
+          Write-Host ""
+          Write-Host "Terraform exit code:"
+          Write-Host $TerraformExitCode
+
+          if ($TerraformExitCode -eq 0) {
+
+            Write-Host ""
+            Write-Host "============================================================"
+            Write-Host "TERRAFORM APPLY SUCCEEDED"
+            Write-Host "============================================================"
+
+          }
+          else {
+
+            Write-Host ""
+            Write-Host "============================================================"
+            Write-Host "TERRAFORM APPLY FAILED"
+            Write-Host "============================================================"
+
+            Write-Host ""
+            Write-Host "CloudFormation diagnostics were captured."
 
           }
 
-          trap cleanup_monitor EXIT
-
-
           # ====================================================
-          # CLOUDFORMATION LIVE MONITOR
+          # CRITICAL
           # ====================================================
-
-          monitor_cloudformation() {
-
-            set +e
-
-            # Send monitor output to both GitHub Actions console
-            # and the diagnostic log file.
-            exec > >(tee -a "${MONITOR_LOG}") 2>&1
-
-            echo ""
-            echo "============================================================"
-            echo "LIVE CLOUDFORMATION MONITOR STARTED"
-            echo "============================================================"
-
-            echo ""
-            echo "Main Stack:"
-            echo "${MAIN_STACK_NAME}"
-
-            echo ""
-            echo "Region:"
-            echo "${AWS_REGION}"
-
-            echo ""
-            echo "Polling interval:"
-            echo "3 seconds"
-
-            echo ""
-
-            declare -A SEEN_EVENTS
-
-            STACK_DISCOVERED="false"
-            LAST_MAIN_STATUS=""
-
-            while true
-            do
-
-              CURRENT_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-
-
-              # =================================================
-              # 1. DISCOVER MAIN STACK
-              # =================================================
-
-              MAIN_JSON="$(
-                aws cloudformation describe-stacks \
-                  --stack-name "${MAIN_STACK_NAME}" \
-                  --region "${AWS_REGION}" \
-                  --output json \
-                  2>/dev/null
-              )"
-
-              MAIN_RC=$?
-
-
-              # -------------------------------------------------
-              # Stack does not exist yet.
-              #
-              # This is EXPECTED because Terraform may not have
-              # created the CloudFormation stack yet.
-              # -------------------------------------------------
-
-              if [[ "${MAIN_RC}" -ne 0 ]]
-              then
-
-                if [[ "${STACK_DISCOVERED}" == "true" ]]
-                then
-
-                  echo ""
-                  echo "[${CURRENT_TIME}] MainStack is no longer queryable."
-                  echo "CloudFormation may have entered deletion/cleanup."
-
-                  break
-
-                fi
-
-                echo "[${CURRENT_TIME}] Waiting for MainStack..."
-
-                sleep 3
-
-                continue
-
-              fi
-
-
-              # =================================================
-              # 2. MAIN STACK DISCOVERED
-              # =================================================
-
-              if [[ "${STACK_DISCOVERED}" == "false" ]]
-              then
-
-                STACK_DISCOVERED="true"
-
-                echo ""
-                echo "============================================================"
-                echo "MAIN CLOUDFORMATION STACK DETECTED"
-                echo "============================================================"
-
-                echo ""
-                echo "Stack:"
-                echo "${MAIN_STACK_NAME}"
-
-              fi
-
-
-              # =================================================
-              # 3. READ MAIN STACK STATUS
-              # =================================================
-
-              MAIN_STATUS="$(
-                echo "${MAIN_JSON}" |
-                  jq -r '.Stacks[0].StackStatus // "UNKNOWN"'
-              )"
-
-              MAIN_REASON="$(
-                echo "${MAIN_JSON}" |
-                  jq -r '.Stacks[0].StackStatusReason // "No status reason"'
-              )"
-
-              MAIN_STACK_ID="$(
-                echo "${MAIN_JSON}" |
-                  jq -r '.Stacks[0].StackId // "UNKNOWN"'
-              )"
-
-
-              # -------------------------------------------------
-              # Print status only when it changes.
-              # -------------------------------------------------
-
-              if [[ "${MAIN_STATUS}" != "${LAST_MAIN_STATUS}" ]]
-              then
-
-                echo ""
-                echo "------------------------------------------------------------"
-                echo "CLOUDFORMATION STATUS CHANGE"
-                echo "------------------------------------------------------------"
-
-                echo "Time:"
-                echo "${CURRENT_TIME}"
-
-                echo "Stack:"
-                echo "${MAIN_STACK_NAME}"
-
-                echo "Stack ID:"
-                echo "${MAIN_STACK_ID}"
-
-                echo "Status:"
-                echo "${MAIN_STATUS}"
-
-                echo "Reason:"
-                echo "${MAIN_REASON}"
-
-                echo "------------------------------------------------------------"
-
-                LAST_MAIN_STATUS="${MAIN_STATUS}"
-
-              fi
-
-
-              # =================================================
-              # 4. SAVE MAIN STACK SNAPSHOT
-              # =================================================
-
-              echo "${MAIN_JSON}" > /tmp/cfn-live-main-stack.json
-
-
-              # =================================================
-              # 5. GET MAIN STACK RESOURCES
-              # =================================================
-
-              RESOURCES_JSON="$(
-                aws cloudformation describe-stack-resources \
-                  --stack-name "${MAIN_STACK_NAME}" \
-                  --region "${AWS_REGION}" \
-                  --output json \
-                  2>/dev/null
-              )"
-
-              RESOURCES_RC=$?
-
-
-              if [[ "${RESOURCES_RC}" -eq 0 ]]
-              then
-
-                echo "${RESOURCES_JSON}" \
-                  > /tmp/cfn-live-main-resources.json
-
-
-                # =================================================
-                # 6. DETECT FAILED MAIN/NESTED RESOURCES
-                # =================================================
-
-                echo "${RESOURCES_JSON}" |
-                jq -r '
-                  .StackResources[]
-                  |
-                  select(
-                    (.ResourceStatus // "")
-                    | test(
-                        "FAILED|ROLLBACK|DELETE_FAILED|CANCELLED";
-                        "i"
-                      )
-                  )
-                  |
-                  [
-                    .LogicalResourceId,
-                    .ResourceType,
-                    .ResourceStatus,
-                    (.ResourceStatusReason // "No reason"),
-                    (.PhysicalResourceId // "N/A")
-                  ]
-                  |
-                  @tsv
-                ' |
-                while IFS=$'\t' read -r logical type status reason physical
-                do
-
-                  echo ""
-                  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-                  echo "CLOUDFORMATION RESOURCE FAILURE DETECTED"
-                  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-
-                  echo ""
-                  echo "Time:"
-                  echo "${CURRENT_TIME}"
-
-                  echo ""
-                  echo "Logical Resource:"
-                  echo "${logical}"
-
-                  echo ""
-                  echo "Resource Type:"
-                  echo "${type}"
-
-                  echo ""
-                  echo "Status:"
-                  echo "${status}"
-
-                  echo ""
-                  echo "Reason:"
-                  echo "${reason}"
-
-                  echo ""
-                  echo "Physical Resource:"
-                  echo "${physical}"
-
-                  echo ""
-                  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-
-                done
-
-
-                # =================================================
-                # 7. DISCOVER NESTED STACKS
-                # =================================================
-
-                echo "${RESOURCES_JSON}" |
-                jq -r '
-                  .StackResources[]
-                  |
-                  select(
-                    .ResourceType == "AWS::CloudFormation::Stack"
-                  )
-                  |
-                  [
-                    .LogicalResourceId,
-                    .ResourceStatus,
-                    (.ResourceStatusReason // "No reason"),
-                    (.PhysicalResourceId // "N/A")
-                  ]
-                  |
-                  @tsv
-                ' |
-                while IFS=$'\t' read -r logical status reason physical
-                do
-
-                  echo ""
-                  echo "------------------------------------------------------------"
-                  echo "NESTED STACK STATUS"
-                  echo "------------------------------------------------------------"
-
-                  echo "Logical ID:"
-                  echo "${logical}"
-
-                  echo "Status:"
-                  echo "${status}"
-
-                  echo "Reason:"
-                  echo "${reason}"
-
-                  echo "Physical Stack:"
-                  echo "${physical}"
-
-
-                  # ------------------------------------------------
-                  # Nested stack may not yet have a physical ID.
-                  # ------------------------------------------------
-
-                  if [[ "${physical}" == "N/A" ||
-                        -z "${physical}" ]]
-                  then
-
-                    continue
-
-                  fi
-
-
-                  # =================================================
-                  # 8. QUERY NESTED STACK EVENTS
-                  # =================================================
-
-                  NESTED_EVENTS_JSON="$(
-                    aws cloudformation describe-stack-events \
-                      --stack-name "${physical}" \
-                      --region "${AWS_REGION}" \
-                      --output json \
-                      2>/dev/null
-                  )"
-
-                  NESTED_EVENTS_RC=$?
-
-
-                  if [[ "${NESTED_EVENTS_RC}" -ne 0 ]]
-                  then
-
-                    echo ""
-                    echo "WARNING: Nested stack events unavailable."
-                    echo "Nested stack may already be deleting."
-
-                    continue
-
-                  fi
-
-
-                  # =================================================
-                  # 9. CAPTURE NEW NESTED STACK FAILURE EVENTS
-                  # =================================================
-
-                  echo "${NESTED_EVENTS_JSON}" |
-                  jq -c '
-                    .StackEvents[]
-                    |
-                    select(
-                      (.ResourceStatus // "")
-                      | test(
-                          "FAILED|ROLLBACK|DELETE_FAILED|CANCELLED";
-                          "i"
-                        )
-                    )
-                  ' |
-                  while IFS= read -r event
-                  do
-
-                    EVENT_ID="$(
-                      echo "${event}" |
-                        jq -r '.EventId // empty'
-                    )"
-
-                    if [[ -z "${EVENT_ID}" ]]
-                    then
-                      continue
-                    fi
-
-
-                    # ------------------------------------------------
-                    # Prevent printing the same event repeatedly.
-                    # ------------------------------------------------
-
-                    if [[ -n "${SEEN_EVENTS[$EVENT_ID]:-}" ]]
-                    then
-                      continue
-                    fi
-
-                    SEEN_EVENTS["${EVENT_ID}"]="true"
-
-
-                    EVENT_TIME="$(
-                      echo "${event}" |
-                        jq -r '.Timestamp // "UNKNOWN"'
-                    )"
-
-                    EVENT_RESOURCE="$(
-                      echo "${event}" |
-                        jq -r '.LogicalResourceId // "UNKNOWN"'
-                    )"
-
-                    EVENT_TYPE="$(
-                      echo "${event}" |
-                        jq -r '.ResourceType // "UNKNOWN"'
-                    )"
-
-                    EVENT_STATUS="$(
-                      echo "${event}" |
-                        jq -r '.ResourceStatus // "UNKNOWN"'
-                    )"
-
-                    EVENT_REASON="$(
-                      echo "${event}" |
-                        jq -r '.ResourceStatusReason // "No reason"'
-                    )"
-
-                    EVENT_PHYSICAL="$(
-                      echo "${event}" |
-                        jq -r '.PhysicalResourceId // "N/A"'
-                    )"
-
-
-                    echo ""
-                    echo ""
-                    echo "============================================================"
-                    echo "LIVE CLOUDFORMATION FAILURE DETECTED"
-                    echo "============================================================"
-
-                    echo ""
-                    echo "Detected:"
-                    echo "${CURRENT_TIME}"
-
-                    echo ""
-                    echo "Nested Stack:"
-                    echo "${logical}"
-
-                    echo ""
-                    echo "Event Time:"
-                    echo "${EVENT_TIME}"
-
-                    echo ""
-                    echo "Logical Resource:"
-                    echo "${EVENT_RESOURCE}"
-
-                    echo ""
-                    echo "Resource Type:"
-                    echo "${EVENT_TYPE}"
-
-                    echo ""
-                    echo "Status:"
-                    echo "${EVENT_STATUS}"
-
-                    echo ""
-                    echo "Physical Resource:"
-                    echo "${EVENT_PHYSICAL}"
-
-                    echo ""
-                    echo "EXACT CLOUDFORMATION REASON:"
-                    echo "------------------------------------------------------------"
-                    echo "${EVENT_REASON}"
-                    echo "------------------------------------------------------------"
-
-
-                    # =================================================
-                    # 10. CLASSIFY COMMON FAILURE TYPES
-                    # =================================================
-
-                    if echo "${EVENT_REASON}" |
-                      grep -qiE "NoSuchKey|does not exist.*yaml|S3 object"
-                    then
-
-                      echo ""
-                      echo "ROOT CAUSE CLASSIFICATION:"
-                      echo "MISSING S3 CLOUDFORMATION TEMPLATE"
-
-                    elif echo "${EVENT_REASON}" |
-                      grep -qiE "AccessDenied|not authorized|Unauthorized"
-                    then
-
-                      echo ""
-                      echo "ROOT CAUSE CLASSIFICATION:"
-                      echo "IAM / ACCESS DENIED"
-
-                    elif echo "${EVENT_REASON}" |
-                      grep -qiE "PassRole|iam:PassRole"
-                    then
-
-                      echo ""
-                      echo "ROOT CAUSE CLASSIFICATION:"
-                      echo "IAM PassRole PERMISSION FAILURE"
-
-                    elif echo "${EVENT_REASON}" |
-                      grep -qiE "TemplateURL|template.*invalid|invalid.*template"
-                    then
-
-                      echo ""
-                      echo "ROOT CAUSE CLASSIFICATION:"
-                      echo "CLOUDFORMATION TEMPLATE ERROR"
-
-                    elif echo "${EVENT_REASON}" |
-                      grep -qiE "API Gateway|apigateway"
-                    then
-
-                      echo ""
-                      echo "ROOT CAUSE CLASSIFICATION:"
-                      echo "API GATEWAY FAILURE"
-
-                    elif echo "${EVENT_REASON}" |
-                      grep -qiE "Lambda|lambda"
-                    then
-
-                      echo ""
-                      echo "ROOT CAUSE CLASSIFICATION:"
-                      echo "LAMBDA FAILURE"
-
-                    else
-
-                      echo ""
-                      echo "ROOT CAUSE CLASSIFICATION:"
-                      echo "CLOUDFORMATION RESOURCE FAILURE"
-
-                    fi
-
-
-                    echo ""
-                    echo "============================================================"
-
-                  done
-
-                done
-
-              fi
-
-
-              # =================================================
-              # 11. MAIN STACK EVENTS
-              # =================================================
-
-              MAIN_EVENTS_JSON="$(
-                aws cloudformation describe-stack-events \
-                  --stack-name "${MAIN_STACK_NAME}" \
-                  --region "${AWS_REGION}" \
-                  --output json \
-                  2>/dev/null
-              )"
-
-              MAIN_EVENTS_RC=$?
-
-
-              if [[ "${MAIN_EVENTS_RC}" -eq 0 ]]
-              then
-
-                echo "${MAIN_EVENTS_JSON}" |
-                jq -c '
-                  .StackEvents[]
-                  |
-                  select(
-                    (.ResourceStatus // "")
-                    | test(
-                        "FAILED|ROLLBACK|DELETE_FAILED|CANCELLED";
-                        "i"
-                      )
-                  )
-                ' |
-                while IFS= read -r event
-                do
-
-                  EVENT_ID="$(
-                    echo "${event}" |
-                      jq -r '.EventId // empty'
-                  )"
-
-                  if [[ -z "${EVENT_ID}" ]]
-                  then
-                    continue
-                  fi
-
-                  if [[ -n "${SEEN_EVENTS[$EVENT_ID]:-}" ]]
-                  then
-                    continue
-                  fi
-
-                  SEEN_EVENTS["${EVENT_ID}"]="true"
-
-
-                  echo ""
-                  echo ""
-                  echo "============================================================"
-                  echo "LIVE MAIN STACK FAILURE EVENT"
-                  echo "============================================================"
-
-                  echo ""
-                  echo "Timestamp:"
-                  echo "${event}" |
-                    jq -r '.Timestamp // "UNKNOWN"'
-
-                  echo ""
-                  echo "Logical Resource:"
-                  echo "${event}" |
-                    jq -r '.LogicalResourceId // "UNKNOWN"'
-
-                  echo ""
-                  echo "Resource Type:"
-                  echo "${event}" |
-                    jq -r '.ResourceType // "UNKNOWN"'
-
-                  echo ""
-                  echo "Status:"
-                  echo "${event}" |
-                    jq -r '.ResourceStatus // "UNKNOWN"'
-
-                  echo ""
-                  echo "Reason:"
-                  echo "${event}" |
-                    jq -r '.ResourceStatusReason // "No reason"'
-
-                  echo ""
-                  echo "Physical Resource:"
-                  echo "${event}" |
-                    jq -r '.PhysicalResourceId // "N/A"'
-
-                  echo ""
-                  echo "============================================================"
-
-                done
-
-              fi
-
-
-              # =================================================
-              # 12. STOP MONITOR AFTER TERMINAL STACK STATE
-              # =================================================
-
-              case "${MAIN_STATUS}" in
-
-                CREATE_COMPLETE)
-                  echo ""
-                  echo "[${CURRENT_TIME}] MainStack CREATE_COMPLETE."
-                  ;;
-
-                UPDATE_COMPLETE)
-                  echo ""
-                  echo "[${CURRENT_TIME}] MainStack UPDATE_COMPLETE."
-                  ;;
-
-                CREATE_FAILED|UPDATE_FAILED|ROLLBACK_FAILED|DELETE_FAILED)
-                  echo ""
-                  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-                  echo "TERMINAL CLOUDFORMATION FAILURE STATE"
-                  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-
-                  echo ""
-                  echo "Stack:"
-                  echo "${MAIN_STACK_NAME}"
-
-                  echo ""
-                  echo "Status:"
-                  echo "${MAIN_STATUS}"
-
-                  echo ""
-                  echo "Reason:"
-                  echo "${MAIN_REASON}"
-
-                  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-
-                  # Keep monitor alive briefly so the final events
-                  # can be captured before Terraform finishes.
-
-                  sleep 5
-
-                  break
-                  ;;
-
-                ROLLBACK_COMPLETE)
-                  echo ""
-                  echo "MainStack reached ROLLBACK_COMPLETE."
-
-                  sleep 3
-
-                  break
-                  ;;
-
-                DELETE_COMPLETE)
-                  echo ""
-                  echo "MainStack reached DELETE_COMPLETE."
-
-                  break
-                  ;;
-
-              esac
-
-
-              sleep 3
-
-            done
-
-
-            echo ""
-            echo "============================================================"
-            echo "LIVE CLOUDFORMATION MONITOR STOPPED"
-            echo "============================================================"
-
-          }
-
-
-          # ====================================================
-          # START LIVE CLOUDFORMATION MONITOR
-          # ====================================================
-
-          echo ""
-          echo "Starting CloudFormation monitor BEFORE Terraform Apply..."
-
-          monitor_cloudformation &
-
-          MONITOR_PID=$!
-
-          echo ""
-          echo "CloudFormation monitor PID:"
-          echo "${MONITOR_PID}"
-
-          echo ""
-          echo "CloudFormation monitor log:"
-          echo "${MONITOR_LOG}"
-
-
-          # ====================================================
-          # GIVE MONITOR A MOMENT TO INITIALIZE
-          # ====================================================
-
-          sleep 2
-
-
-          # ====================================================
-          # RUN TERRAFORM APPLY
-          # ====================================================
-
-          echo ""
-          echo "============================================================"
-          echo "STARTING TERRAFORM APPLY"
-          echo "============================================================"
-
-          echo ""
-          echo "Applying exact generated plan:"
-          echo "${TF_PLAN_FILE}"
-
-          set +e
-
-          terraform apply \
-            -input=false \
-            -auto-approve \
-            "${TF_PLAN_FILE}"
-
-          TERRAFORM_EXIT_CODE=$?
-
-          set -e
-
-
-          # ====================================================
-          # TERRAFORM APPLY FINISHED
-          # ====================================================
-
-          echo ""
-          echo "============================================================"
-          echo "TERRAFORM APPLY FINISHED"
-          echo "============================================================"
-
-          echo ""
-          echo "Terraform exit code:"
-          echo "${TERRAFORM_EXIT_CODE}"
-
-
-          # ====================================================
-          # ALLOW MONITOR TO CAPTURE FINAL CLOUDFORMATION STATE
-          # ====================================================
-
-          echo ""
-          echo "Allowing CloudFormation monitor to capture final state..."
-
-          sleep 5
-
-
-          # ====================================================
-          # STOP MONITOR
-          # ====================================================
-
-          cleanup_monitor
-
-
-          # ====================================================
-          # PRINT COMPLETE LIVE DIAGNOSTIC LOG
-          # ====================================================
-
-          echo ""
-          echo ""
-          echo "################################################################"
-          echo "# COMPLETE CLOUDFORMATION LIVE DIAGNOSTIC"
-          echo "################################################################"
-
-          if [[ -f "${MONITOR_LOG}" ]]
-          then
-
-            tail -n 100 "${MONITOR_LOG}"
-
-          else
-
-            echo ""
-            echo "WARNING: CloudFormation monitor log was not created."
-
-          fi
-
-
-          echo ""
-          echo "################################################################"
-          echo "# TERRAFORM APPLY RESULT"
-          echo "################################################################"
-
-          echo ""
-          echo "Terraform exit code:"
-          echo "${TERRAFORM_EXIT_CODE}"
-
-
-          # ====================================================
-          # FINAL RESULT
-          # ====================================================
-
-          if [[ "${TERRAFORM_EXIT_CODE}" -eq 0 ]]
-          then
-
-            echo ""
-            echo "============================================================"
-            echo "TERRAFORM APPLY SUCCEEDED"
-            echo "============================================================"
-
-          else
-
-            echo ""
-            echo "============================================================"
-            echo "TERRAFORM APPLY FAILED"
-            echo "============================================================"
-
-            echo ""
-            echo "CloudFormation live diagnostic was captured above."
-
-          fi
-
-
-          # ----------------------------------------------------
-          # CRITICAL:
+          #
+          # Terraform remains authoritative.
+          #
+          # The CloudFormation monitor MUST NOT change the
+          # Terraform result.
           #
           # Return Terraform's original exit code.
           #
-          # The diagnostic must NEVER convert a failed Terraform
-          # deployment into a successful GitHub Actions job.
-          # ----------------------------------------------------
+          # ====================================================
 
-          exit "${TERRAFORM_EXIT_CODE}"
+          exit $TerraformExitCode
+
+
+      # ======================================================
+      # STEP 16
+      # UPLOAD CLOUDFORMATION LIVE DIAGNOSTICS
+      # ======================================================
+
+      - name: Upload CloudFormation Live Diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudformation-live-diagnostics
+          path: ${{ github.workspace }}/cloudformation-live-diagnostics/
+          if-no-files-found: warn
+
+
