@@ -1,0 +1,7 @@
+{
+  "Name": "hybridiaclab-dev-OAC-TEST",
+  "Description": "Temporary OAC test for Hybrid IaC Lab",
+  "OriginAccessControlOriginType": "s3",
+  "SigningBehavior": "always",
+  "SigningProtocol": "sigv4"
+}

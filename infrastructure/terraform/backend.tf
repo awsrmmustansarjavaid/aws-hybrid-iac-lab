@@ -38,7 +38,7 @@ terraform {
     # --------------------------------------------------------
     # Location of the Terraform state file.
     # --------------------------------------------------------
-    key = "aws-hybrid-iac-lab/dev/terraform.tfstate"
+    key = "aws-hybrid-iac-lab/terraform.tfstate"
 
 
     # --------------------------------------------------------

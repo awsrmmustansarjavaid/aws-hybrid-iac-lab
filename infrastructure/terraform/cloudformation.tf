@@ -181,10 +181,28 @@ resource "aws_cloudformation_stack" "main" {
 
   template_url = "https://${aws_s3_bucket.cloudformation_templates.bucket_regional_domain_name}/main.yaml"
 
+  # ==========================================================
+  # CLOUDFORMATION EXECUTION ROLE
+  # ==========================================================
+  #
+  # CloudFormation assumes this IAM role when creating and
+  # managing the resources defined by the root and nested
+  # CloudFormation templates.
+  #
+  # This is especially important for services such as
+  # CloudFront where the GitHub CI/CD identity does not
+  # necessarily have direct service permissions.
+  #
+  # ==========================================================
+
+  role_arn = aws_iam_role.cloudformation_execution.arn
+
 
   # ==========================================================
   # CLOUDFORMATION CAPABILITIES
   # ==========================================================
+  # 
+  # IAM CAPABILITIES
   #
   # Some nested CloudFormation stacks create IAM resources.
   #
