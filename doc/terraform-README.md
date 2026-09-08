@@ -1048,7 +1048,7 @@ S3: <terraform-generated-bucket>
     ├── ec2.yaml
     ├── s3.yaml
     ├── cloudfront.yaml
-    ├── api_gateway.yaml
+    ├── api-gateway.yaml
     ├── lambda.yaml
     ├── rds.yaml
     ├── dynamodb.yaml

@@ -1538,3 +1538,50 @@ or potentially an API Gateway/ECS-specific stack.
 **Paste the complete output.** Then we'll trace the API Gateway stack and its exact failure reason without making another blind Terraform change.
 
 ---
+Run this exact command
+
+```
+Write-Host "`n============================================================" -ForegroundColor Cyan
+Write-Host "TERRAFORM S3 TEMPLATE UPLOAD CONFIGURATION" -ForegroundColor Cyan
+Write-Host "============================================================" -ForegroundColor Cyan
+
+Write-Host "`n[1] locals.tf" -ForegroundColor Yellow
+
+Get-Content ".\infrastructure\terraform\locals.tf" |
+    Select-Object -Skip 100 -First 45
+
+Write-Host "`n[2] template_objects.tf" -ForegroundColor Yellow
+
+Get-Content ".\infrastructure\terraform\template_objects.tf"
+
+Write-Host "`n[3] ALL TERRAFORM API GATEWAY REFERENCES" -ForegroundColor Yellow
+
+Get-ChildItem ".\infrastructure\terraform" -Recurse -File -Include "*.tf" |
+    Select-String -Pattern "api_gateway|api-gateway|TemplateURL|aws_s3_object|aws_s3" |
+    Select-Object Path,LineNumber,Line
+
+Write-Host "`n============================================================" -ForegroundColor Green
+Write-Host "TERRAFORM UPLOAD AUDIT COMPLETE" -ForegroundColor Green
+Write-Host "============================================================" -ForegroundColor Green
+```
+
+Next step — inspect the complete cloudformation_templates map
+
+Run only this:
+
+```
+Write-Host "`n============================================================" -ForegroundColor Cyan
+Write-Host "CLOUDFORMATION TEMPLATES MAP" -ForegroundColor Cyan
+Write-Host "============================================================" -ForegroundColor Cyan
+
+Get-Content ".\infrastructure\terraform\locals.tf" |
+    Select-Object -Skip 35 -First 100
+
+Write-Host "`n============================================================" -ForegroundColor Green
+Write-Host "MAP INSPECTION COMPLETE" -ForegroundColor Green
+Write-Host "============================================================" -ForegroundColor Green
+```
+
+
+
+----

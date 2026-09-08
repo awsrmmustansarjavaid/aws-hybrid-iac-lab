@@ -75,7 +75,7 @@ variable "aws_region" {
 variable "state_bucket_name" {
   description = "Globally unique S3 bucket name used for Terraform remote state."
   type        = string
-  default     = "aws-hybrid-iac-lab-terraform-state-537236558357"
+  default     = "aws-hybrid-iac-lab-terraform-state-123456789"
 }
 
 variable "project_name" {
@@ -141,7 +141,7 @@ Use:
 
 terraform {
   backend "s3" {
-    bucket       = "aws-hybrid-iac-lab-terraform-state-537236558357"
+    bucket       = "aws-hybrid-iac-lab-terraform-state-123456789"
     key          = "aws-hybrid-iac-lab/dev/terraform.tfstate"
     region       = "us-east-1"
     encrypt      = true
@@ -395,7 +395,7 @@ This is the design I recommend you keep permanently:
        │                            │
        │ aws-hybrid-iac-lab-        │
        │ terraform-state-           │
-       │ 537236558357               │
+       │ 123456789               │
        │                            │
        │ Versioning: ON             │
        │ Encryption: ON             │

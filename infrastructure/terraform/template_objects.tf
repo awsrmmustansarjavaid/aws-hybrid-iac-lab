@@ -114,7 +114,7 @@ resource "aws_s3_object" "cloudformation_templates" {
   # is used here.
   # --------------------------------------------------------
 
-  key = each.key == "main" ? "main.yaml" : "nested/${each.key}.yaml"
+  key = each.key == "main" ? "main.yaml" : "nested/${basename(each.value)}"
 
   # --------------------------------------------------------
   # Source File

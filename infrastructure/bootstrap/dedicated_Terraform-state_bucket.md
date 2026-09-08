@@ -13,7 +13,7 @@ Use a separate bucket.
 Run this in PowerShell:
 
 ```
-$ACCOUNT_ID = "537236558357"
+$ACCOUNT_ID = "123456789"
 $REGION = "us-east-1"
 $STATE_BUCKET = "aws-hybrid-iac-lab-terraform-state-$ACCOUNT_ID"
 ```
@@ -31,7 +31,7 @@ You should get something similar to:
 ```
 Location
 --------
-/aws-hybrid-iac-lab-terraform-state-537236558357
+/aws-hybrid-iac-lab-terraform-state-123456789
 ```
 
 Step 2 — Enable versioning
@@ -115,7 +115,7 @@ Put this inside:
 ```
 terraform {
   backend "s3" {
-    bucket       = "aws-hybrid-iac-lab-terraform-state-537236558357"
+    bucket       = "aws-hybrid-iac-lab-terraform-state-123456789"
     key          = "aws-hybrid-iac-lab/dev/terraform.tfstate"
     region       = "us-east-1"
     encrypt      = true
@@ -300,7 +300,7 @@ nested/ecs.yaml
 nested/eks.yaml
 nested/rds.yaml
 nested/lambda.yaml
-nested/api_gateway.yaml
+nested/api-gateway.yaml
 nested/cloudfront.yaml
 ```
 
