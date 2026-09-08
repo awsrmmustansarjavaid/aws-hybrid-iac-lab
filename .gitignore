@@ -395,6 +395,11 @@ report-log/
 
 cloudformation-audit-report.txt
 
+CloudFormation-Validation-Diagnostic.txt
+
+# Ignore generated CloudFormation validation errors
+infrastructure/cloudformation/cloudformation-validation-errors.txt
+
 # =======================================================
 
 # END OF .gitignore
