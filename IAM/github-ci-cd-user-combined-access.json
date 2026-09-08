@@ -240,6 +240,18 @@
         "ssm:List*"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "CloudFrontCleanupPermissions",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:ListDistributions",
+        "cloudfront:GetDistribution",
+        "cloudfront:GetDistributionConfig",
+        "cloudfront:UpdateDistribution",
+        "cloudfront:DeleteDistribution"
+      ],
+      "Resource": "*"
     }
   ]
 }

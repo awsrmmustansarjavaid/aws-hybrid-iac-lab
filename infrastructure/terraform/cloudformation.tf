@@ -195,7 +195,7 @@ resource "aws_cloudformation_stack" "main" {
   #
   # ==========================================================
 
-  role_arn = aws_iam_role.cloudformation_execution.arn
+  iam_role_arn = aws_iam_role.cloudformation_execution.arn
 
 
   # ==========================================================
