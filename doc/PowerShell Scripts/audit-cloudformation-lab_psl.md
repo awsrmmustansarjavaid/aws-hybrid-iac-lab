@@ -1860,3 +1860,1488 @@ Get-Content .\cloudformation-audit-report.txt -Tail 60
 ```
 
 **Best option:** upload `cloudformation-audit-report.txt`. I don't need the 11 YAML files.
+---
+That is expected. `False` means the audit report file was **never created**—most likely because the script execution was blocked before `Tee-Object` could capture the output.
+
+Let's fix it in the safest way.
+
+### 1. Enable scripts only for this PowerShell session
+
+Run:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+```
+
+Verify:
+
+```powershell
+Get-ExecutionPolicy -List
+```
+
+You should see:
+
+```text
+Process    Bypass
+```
+
+### 2. Run the audit again and create the report
+
+From:
+
+```text
+C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab
+```
+
+run:
+
+```powershell
+.\scripts\audit-cloudformation-lab.ps1 2>&1 |
+    Tee-Object -FilePath ".\cloudformation-audit-report.txt"
+```
+
+**Let it finish completely.** Don't stop it even if you see warnings.
+
+### 3. Confirm the report exists
+
+```powershell
+Test-Path .\cloudformation-audit-report.txt
+```
+
+This time it should return:
+
+```text
+True
+```
+
+Then:
+
+```powershell
+Get-Item .\cloudformation-audit-report.txt |
+    Select-Object FullName,Length,LastWriteTime
+```
+
+### 4. Show me only the important failures
+
+Instead of sending the entire huge report, run:
+
+```powershell
+Select-String `
+    -Path .\cloudformation-audit-report.txt `
+    -Pattern "\[FAIL\]|\[WARN\]|RESULT:" `
+    -Context 0,2
+```
+
+### 5. Most important: get the actual Lambda failure
+
+Your latest CloudFormation event already narrowed the problem down to:
+
+```text
+LambdaStack
+└── LambdaExecutionRole
+```
+
+So **before changing anything else**, run:
+
+```powershell
+aws cloudformation describe-stack-events `
+    --stack-name hybridiaclab-dev-MainStack-LambdaStack-X947JVBH5AWO `
+    --region us-east-1 `
+    --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].[LogicalResourceId,ResourceType,ResourceStatusReason]" `
+    --output table
+```
+
+If that stack name is no longer valid, first run:
+
+```powershell
+aws cloudformation describe-stack-resources `
+    --stack-name hybridiaclab-dev-MainStack `
+    --region us-east-1 `
+    --query "StackResources[?LogicalResourceId=='LambdaStack'].[PhysicalResourceId,ResourceStatus]" `
+    --output table
+```
+
+Then use the returned **PhysicalResourceId** with `describe-stack-events`.
+
+**Send me the output of Step 5 first.** That should give us the exact reason `LambdaExecutionRole` failed, rather than guessing at IAM permissions.
+
+---
+Yes — the problem is likely **not `Tee-Object`**. The script itself is being blocked or the path is not being resolved correctly.
+
+Let's avoid the pipeline completely and troubleshoot it with simple commands.
+
+### 1. First check that the script actually exists
+
+Run:
+
+```powershell
+Test-Path ".\scripts\audit-cloudformation-lab.ps1"
+```
+
+It should return:
+
+```text
+True
+```
+
+If it returns `False`, run:
+
+```powershell
+Get-ChildItem ".\scripts" -Filter "*.ps1" | Select-Object Name
+```
+
+and send me the output.
+
+### 2. Temporarily allow scripts
+
+Run:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+```
+
+Then verify:
+
+```powershell
+Get-ExecutionPolicy -Scope Process
+```
+
+It should say:
+
+```text
+Bypass
+```
+
+### 3. Run the audit WITHOUT `Tee-Object`
+
+This is the important test:
+
+```powershell
+& ".\scripts\audit-cloudformation-lab.ps1"
+```
+
+The `&` is the PowerShell **call operator**. It explicitly tells PowerShell to execute the script.
+
+### 4. If that works, create the report separately
+
+Run:
+
+```powershell
+& ".\scripts\audit-cloudformation-lab.ps1" > ".\cloudformation-audit-report.txt" 2>&1
+```
+
+Then check:
+
+```powershell
+Test-Path ".\cloudformation-audit-report.txt"
+```
+
+It should return:
+
+```text
+True
+```
+
+Then:
+
+```powershell
+Get-Item ".\cloudformation-audit-report.txt" |
+    Select-Object FullName, Length, LastWriteTime
+```
+
+### 5. If Step 3 still gives an error
+
+Run this:
+
+```powershell
+Get-ChildItem ".\scripts\audit-cloudformation-lab.ps1" |
+    Format-List FullName,Length,LastWriteTime
+```
+
+And also:
+
+```powershell
+Get-ExecutionPolicy -List
+```
+
+**Send me the exact output from Step 3**, especially the red error message. Don't change the audit script yet. We first need to determine whether this is a **PowerShell execution-policy problem, file/path problem, or an error inside the audit script itself**.
+---
+Perfect. Everything up to this point is correct:
+
+* Script exists: `True`
+* Execution policy for this session: `Bypass`
+* You are in the correct project root.
+
+Now **do not use `Tee-Object` yet**. First we need to see whether the audit script itself runs.
+
+### Step 3 — Run the script directly
+
+Copy/paste exactly:
+
+```powershell
+& ".\scripts\audit-cloudformation-lab.ps1"
+```
+
+Let it run until it completely finishes.
+
+### If it runs successfully
+
+After it finishes, create the report with:
+
+```powershell
+& ".\scripts\audit-cloudformation-lab.ps1" > ".\cloudformation-audit-report.txt" 2>&1
+```
+
+Then:
+
+```powershell
+Test-Path ".\cloudformation-audit-report.txt"
+```
+
+You should get:
+
+```text
+True
+```
+
+### Important
+
+For now, **only run this command**:
+
+```powershell
+& ".\scripts\audit-cloudformation-lab.ps1"
+```
+
+Send me the **complete output/error from that command**.
+
+We already know the execution-policy issue is fixed. The next output will tell us whether the problem is inside `audit-cloudformation-lab.ps1`.
+---
+Yes. This is a much better approach for your lab.
+
+Instead of creating one huge report, we can make your **existing audit script automatically create a `report-log` folder** and produce **three separate files**:
+
+```text
+report-log\
+├── AWS-Hybrid-IaC-Audit-PASS.txt
+├── AWS-Hybrid-IaC-Audit-ERROR.txt
+└── AWS-Hybrid-IaC-Audit-WARNING.txt
+```
+
+The important point is: **do not rewrite your existing audit logic**. We will only add a reporting section at the **very end** of your existing `audit-cloudformation-lab.ps1`.
+
+---
+
+# 1. Add this at the VERY END of your existing script
+
+Open:
+
+```text
+scripts\audit-cloudformation-lab.ps1
+```
+
+Go all the way to the **bottom of the file**.
+
+You probably already have something near the end like:
+
+```powershell
+Write-Host ""
+Write-Host "RESULT: ..."
+```
+
+Leave your existing audit code intact.
+
+Then add the following **after all existing audit commands**.
+
+```powershell
+# ============================================================
+# AUDIT REPORT FILE GENERATION
+# ============================================================
+#
+# PURPOSE
+# ------------------------------------------------------------
+# This section creates a dedicated report-log folder and
+# separates the audit output into three easy-to-read files:
+#
+#   1. PASS    -> Successful checks
+#   2. ERROR   -> Failed / critical checks
+#   3. WARNING -> Checks that require review
+#
+# This prevents the console from becoming difficult to read
+# when the audit produces a large amount of output.
+#
+# IMPORTANT
+# ------------------------------------------------------------
+# This section is READ-ONLY with respect to AWS resources.
+# It only creates local report files on the computer.
+#
+# Folder:
+#   report-log
+#
+# Files:
+#   AWS-Hybrid-IaC-Audit-PASS.txt
+#   AWS-Hybrid-IaC-Audit-ERROR.txt
+#   AWS-Hybrid-IaC-Audit-WARNING.txt
+#
+# ============================================================
+
+
+# ------------------------------------------------------------
+# 01 - Define report folder
+# ------------------------------------------------------------
+# The report folder will be created in the project root,
+# assuming this script is executed from the project root.
+#
+# Example:
+# C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\
+#     report-log\
+#
+# ------------------------------------------------------------
+
+$ReportFolder = Join-Path (Get-Location) "report-log"
+
+
+# ------------------------------------------------------------
+# 02 - Create report folder if it does not exist
+# ------------------------------------------------------------
+
+if (-not (Test-Path -LiteralPath $ReportFolder)) {
+
+    New-Item `
+        -ItemType Directory `
+        -Path $ReportFolder `
+        -Force |
+        Out-Null
+
+}
+
+
+# ------------------------------------------------------------
+# 03 - Define report file names
+# ------------------------------------------------------------
+# Clear file names make it immediately obvious what each
+# report contains.
+# ------------------------------------------------------------
+
+$PassReport = Join-Path `
+    $ReportFolder `
+    "AWS-Hybrid-IaC-Audit-PASS.txt"
+
+$ErrorReport = Join-Path `
+    $ReportFolder `
+    "AWS-Hybrid-IaC-Audit-ERROR.txt"
+
+$WarningReport = Join-Path `
+    $ReportFolder `
+    "AWS-Hybrid-IaC-Audit-WARNING.txt"
+
+
+# ------------------------------------------------------------
+# 04 - Create report headers
+# ------------------------------------------------------------
+# These headers make each file understandable when opened
+# independently.
+# ------------------------------------------------------------
+
+$PassHeader = @"
+============================================================
+AWS HYBRID IaC LAB
+PASS AUDIT REPORT
+============================================================
+
+Audit Title:
+AWS Hybrid IaC Lab - Automated CloudFormation & Terraform Preflight Audit
+
+Purpose:
+Successful checks detected by the automated preflight audit.
+
+This report is READ-ONLY.
+No AWS resources are modified by this reporting section.
+
+Generated:
+$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+
+============================================================
+
+"@
+
+$ErrorHeader = @"
+============================================================
+AWS HYBRID IaC LAB
+ERROR / FAILURE AUDIT REPORT
+============================================================
+
+Audit Title:
+AWS Hybrid IaC Lab - Automated CloudFormation & Terraform Preflight Audit
+
+Purpose:
+Failed or critical checks detected by the automated preflight audit.
+
+ACTION REQUIRED:
+Review these errors before deployment.
+
+This report is READ-ONLY.
+No AWS resources are modified by this reporting section.
+
+Generated:
+$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+
+============================================================
+
+"@
+
+$WarningHeader = @"
+============================================================
+AWS HYBRID IaC LAB
+WARNING AUDIT REPORT
+============================================================
+
+Audit Title:
+AWS Hybrid IaC Lab - Automated CloudFormation & Terraform Preflight Audit
+
+Purpose:
+Warnings that may require review before deployment.
+
+WARNING:
+A warning does not always mean deployment will fail.
+
+This report is READ-ONLY.
+No AWS resources are modified by this reporting section.
+
+Generated:
+$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+
+============================================================
+
+"@
+
+
+# ------------------------------------------------------------
+# 05 - Read the current PowerShell transcript/output buffer
+# ------------------------------------------------------------
+# IMPORTANT:
+#
+# This method works best when the audit script stores its
+# messages in variables.
+#
+# If your existing audit script uses Write-Host directly,
+# the complete console history cannot reliably be retrieved
+# from inside the script after the fact.
+#
+# Therefore this section also prepares the three files with
+# clear headers even if no matching messages are detected.
+# ------------------------------------------------------------
+
+
+# ------------------------------------------------------------
+# 06 - Initialize report files
+# ------------------------------------------------------------
+
+Set-Content `
+    -Path $PassReport `
+    -Value $PassHeader `
+    -Encoding UTF8
+
+Set-Content `
+    -Path $ErrorReport `
+    -Value $ErrorHeader `
+    -Encoding UTF8
+
+Set-Content `
+    -Path $WarningReport `
+    -Value $WarningHeader `
+    -Encoding UTF8
+
+
+# ------------------------------------------------------------
+# 07 - Export audit result collections
+# ------------------------------------------------------------
+#
+# If your audit script already maintains collections named:
+#
+#   $Passes
+#   $Failures
+#   $Warnings
+#
+# they will be written to the corresponding files.
+#
+# The @() syntax safely handles an empty collection.
+# ------------------------------------------------------------
+
+if ($null -ne $Passes) {
+
+    @($Passes) |
+        ForEach-Object {
+            Add-Content `
+                -Path $PassReport `
+                -Value "[PASS] $_" `
+                -Encoding UTF8
+        }
+
+}
+
+if ($null -ne $Failures) {
+
+    @($Failures) |
+        ForEach-Object {
+            Add-Content `
+                -Path $ErrorReport `
+                -Value "[FAIL] $_" `
+                -Encoding UTF8
+        }
+
+}
+
+if ($null -ne $Warnings) {
+
+    @($Warnings) |
+        ForEach-Object {
+            Add-Content `
+                -Path $WarningReport `
+                -Value "[WARN] $_" `
+                -Encoding UTF8
+        }
+
+}
+
+
+# ------------------------------------------------------------
+# 08 - Add report summary
+# ------------------------------------------------------------
+
+Add-Content `
+    -Path $PassReport `
+    -Value "`r`n============================================================"
+
+Add-Content `
+    -Path $PassReport `
+    -Value "PASS REPORT COMPLETE"
+
+Add-Content `
+    -Path $PassReport `
+    -Value "============================================================"
+
+
+Add-Content `
+    -Path $ErrorReport `
+    -Value "`r`n============================================================"
+
+Add-Content `
+    -Path $ErrorReport `
+    -Value "ERROR REPORT COMPLETE"
+
+Add-Content `
+    -Path $ErrorReport `
+    -Value "============================================================"
+
+
+Add-Content `
+    -Path $WarningReport `
+    -Value "`r`n============================================================"
+
+Add-Content `
+    -Path $WarningReport `
+    -Value "WARNING REPORT COMPLETE"
+
+Add-Content `
+    -Path $WarningReport `
+    -Value "============================================================"
+
+
+# ------------------------------------------------------------
+# 09 - Display report locations in PowerShell
+# ------------------------------------------------------------
+
+Write-Host ""
+Write-Host "============================================================"
+Write-Host "AUDIT REPORT FILES CREATED"
+Write-Host "============================================================"
+
+Write-Host ""
+Write-Host "[PASS]   $PassReport"
+Write-Host "[ERROR]  $ErrorReport"
+Write-Host "[WARN]   $WarningReport"
+
+Write-Host ""
+Write-Host "Report folder:"
+Write-Host "           $ReportFolder"
+
+Write-Host ""
+Write-Host "============================================================"
+```
+
+---
+
+# 2. But there is one important issue
+
+I don't want you to blindly paste that section and expect it to magically capture your existing `Write-Host` output.
+
+Your current audit script apparently produces messages like:
+
+```text
+[PASS] ...
+[WARN] ...
+[FAIL] ...
+```
+
+If those messages are generated directly with:
+
+```powershell
+Write-Host "[PASS] ..."
+Write-Host "[WARN] ..."
+Write-Host "[FAIL] ..."
+```
+
+then the reporting section at the end **cannot reliably recover the previous console output**.
+
+The better solution is to modify your audit script so that whenever it generates a result, it **both displays it and stores it**.
+
+For example:
+
+```powershell
+$Passes = @()
+$Failures = @()
+$Warnings = @()
+```
+
+Then instead of only:
+
+```powershell
+Write-Host "[PASS] Terraform validation successful"
+```
+
+use:
+
+```powershell
+$message = "Terraform validation successful"
+
+Write-Host "[PASS] $message"
+
+$Passes += $message
+```
+
+For failures:
+
+```powershell
+$message = "CloudFormation validation failed: lambda.yaml"
+
+Write-Host "[FAIL] $message"
+
+$Failures += $message
+```
+
+For warnings:
+
+```powershell
+$message = "cfn-lint was not found"
+
+Write-Host "[WARN] $message"
+
+$Warnings += $message
+```
+
+Then the report section I gave you can correctly create the three files.
+
+---
+
+# 3. Even better for your existing script
+
+Because your audit script is already large, **I recommend we don't manually change dozens of `Write-Host` statements**.
+
+Instead, we can make a small helper function near the **top of your existing script**:
+
+```powershell
+# ============================================================
+# AUDIT RESULT COLLECTIONS
+# ============================================================
+#
+# These arrays store audit results so that the script can
+# later create separate PASS, ERROR and WARNING reports.
+#
+# ============================================================
+
+$Passes   = @()
+$Failures = @()
+$Warnings = @()
+
+
+# ============================================================
+# AUDIT RESULT FUNCTIONS
+# ============================================================
+
+function Add-AuditPass {
+    param (
+        [string]$Message
+    )
+
+    Write-Host "[PASS] $Message"
+
+    $script:Passes += $Message
+}
+
+
+function Add-AuditFailure {
+    param (
+        [string]$Message
+    )
+
+    Write-Host "[FAIL] $Message"
+
+    $script:Failures += $Message
+}
+
+
+function Add-AuditWarning {
+    param (
+        [string]$Message
+    )
+
+    Write-Host "[WARN] $Message"
+
+    $script:Warnings += $Message
+}
+```
+
+Then your existing checks can use:
+
+```powershell
+Add-AuditPass "Terraform validation successful"
+```
+
+instead of:
+
+```powershell
+Write-Host "[PASS] Terraform validation successful"
+```
+
+And:
+
+```powershell
+Add-AuditFailure "CloudFormation validation failed: lambda.yaml"
+```
+
+instead of:
+
+```powershell
+Write-Host "[FAIL] CloudFormation validation failed: lambda.yaml"
+```
+
+And:
+
+```powershell
+Add-AuditWarning "cfn-lint was not found"
+```
+
+instead of:
+
+```powershell
+Write-Host "[WARN] cfn-lint was not found"
+```
+
+---
+
+# 4. Where exactly to put everything
+
+Your script should have this overall structure:
+
+```text
+audit-cloudformation-lab.ps1
+│
+├── 01 - Script Header
+│
+├── 02 - Configuration
+│
+├── 03 - Variables
+│
+├── 04 - PASS / FAIL / WARNING Collections   <-- ADD HERE
+│
+├── 05 - Helper Functions                    <-- ADD HERE
+│
+├── 06 - Tool Checks
+│
+├── 07 - AWS Identity Checks
+│
+├── 08 - CloudFormation Checks
+│
+├── 09 - Nested Stack Checks
+│
+├── 10 - IAM Checks
+│
+├── 11 - Terraform Checks
+│
+├── 12 - Template Checks
+│
+├── 13 - Final Audit Summary
+│
+└── 14 - Report File Generation              <-- ADD AT VERY END
+```
+
+So there are **two additions**:
+
+### Addition A — near the top
+
+Put this after your main variables/configuration:
+
+```powershell
+$Passes   = @()
+$Failures = @()
+$Warnings = @()
+```
+
+plus the three functions.
+
+### Addition B — at the very bottom
+
+Put the report-generation block there.
+
+---
+
+# 5. Your final folder will look like this
+
+After running:
+
+```powershell
+.\scripts\audit-cloudformation-lab.ps1
+```
+
+you should have:
+
+```text
+aws-hybrid-iac-lab
+│
+├── infrastructure
+├── scripts
+├── report-log
+│   │
+│   ├── AWS-Hybrid-IaC-Audit-PASS.txt
+│   ├── AWS-Hybrid-IaC-Audit-ERROR.txt
+│   └── AWS-Hybrid-IaC-Audit-WARNING.txt
+│
+├── cloudformation-audit-report.txt    <-- old file, optional
+└── ...
+```
+
+You can eventually **remove the old `cloudformation-audit-report.txt` approach** because the new `report-log` structure is cleaner.
+
+---
+
+## One thing I strongly recommend
+
+Since your existing audit script is already quite large, **upload `audit-cloudformation-lab.ps1` here** rather than manually changing all of these sections yourself.
+
+If you upload it, I can modify **your actual existing script** so the PASS/ERROR/WARNING collection is integrated correctly without breaking your current 11-template audit logic.
+---
+# PowerShell: Save Command Output to a Text File
+
+Yes. In PowerShell, the easiest way is to use **`Tee-Object`** when you want to **see the output on the screen AND save it to a `.txt` file**.
+
+## 1. Basic command
+
+```powershell
+your-command | Tee-Object -FilePath ".\output.txt"
+```
+
+For example:
+
+```powershell
+.\scripts\preflight.ps1 | Tee-Object -FilePath ".\preflight-result.txt"
+```
+
+This will:
+
+* Run `preflight.ps1`
+* Show the result in PowerShell
+* Save the same result to `preflight-result.txt`
+
+---
+
+# 2. Save the output with a heading/title
+
+If you want the text file to start with a proper heading, use:
+
+```powershell
+"============================================================" | Out-File ".\preflight-result.txt"
+"AWS HYBRID IaC LAB - PREFLIGHT RESULT" | Out-File ".\preflight-result.txt" -Append
+"============================================================" | Out-File ".\preflight-result.txt" -Append
+"Generated: $(Get-Date)" | Out-File ".\preflight-result.txt" -Append
+"" | Out-File ".\preflight-result.txt" -Append
+
+.\scripts\preflight.ps1 | Tee-Object -FilePath ".\preflight-result.txt" -Append
+```
+
+Your file will look like:
+
+```text
+============================================================
+AWS HYBRID IaC LAB - PREFLIGHT RESULT
+============================================================
+Generated: 09/08/2026 17:27:15
+
+============================================================
+01 - PowerShell Environment
+============================================================
+
+[INFO] PowerShell version: 5.1.19041.6456
+[PASS] PowerShell 5.1 or newer detected.
+
+============================================================
+02 - AWS CLI
+============================================================
+
+[PASS] AWS CLI detected.
+
+...
+```
+
+---
+
+# 3. Recommended: One command for your lab
+
+Since you are working on your **AWS Hybrid IaC Lab**, I recommend this:
+
+```powershell
+.\scripts\preflight.ps1 2>&1 | Tee-Object -FilePath ".\preflight-result.txt"
+```
+
+### Why `2>&1`?
+
+Some PowerShell errors/warnings are written to the **error stream** instead of the normal output stream.
+
+```powershell
+2>&1
+```
+
+means:
+
+> Send error output into the normal output stream too.
+
+Therefore, the text file captures much more of the complete result.
+
+---
+
+# 4. Add a title before the script output
+
+If you specifically want the file to begin with your own heading:
+
+```powershell
+@"
+============================================================
+AWS HYBRID IaC LAB
+PREFLIGHT VALIDATION REPORT
+============================================================
+Generated: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+============================================================
+
+"@ | Tee-Object -FilePath ".\preflight-result.txt"
+
+.\scripts\preflight.ps1 2>&1 | Tee-Object -FilePath ".\preflight-result.txt" -Append
+```
+
+This is probably the **best option for your current project**.
+
+---
+
+# 5. If you want the filename to contain the date/time
+
+You can automatically create a new report every time:
+
+```powershell
+$timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$report = ".\preflight-result-$timestamp.txt"
+
+@"
+============================================================
+AWS HYBRID IaC LAB
+PREFLIGHT VALIDATION REPORT
+============================================================
+Generated: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+Report: $report
+============================================================
+
+"@ | Tee-Object -FilePath $report
+
+.\scripts\preflight.ps1 2>&1 | Tee-Object -FilePath $report -Append
+
+Write-Host ""
+Write-Host "Report saved to: $report"
+```
+
+For example, it creates:
+
+```text
+preflight-result-20260908-172715.txt
+```
+
+This is useful because you won't overwrite your previous validation reports.
+
+---
+
+# 6. Save output silently — don't display it
+
+If you **only** want the result in a file:
+
+```powershell
+.\scripts\preflight.ps1 2>&1 | Out-File ".\preflight-result.txt"
+```
+
+Or with UTF-8 encoding:
+
+```powershell
+.\scripts\preflight.ps1 2>&1 | Out-File ".\preflight-result.txt" -Encoding utf8
+```
+
+---
+
+# 7. `>` vs `>>` vs `Tee-Object`
+
+These are important PowerShell commands to remember.
+
+### `>` — create/overwrite
+
+```powershell
+aws sts get-caller-identity > result.txt
+```
+
+If `result.txt` already exists, it is overwritten.
+
+### `>>` — append
+
+```powershell
+aws sts get-caller-identity >> result.txt
+```
+
+This adds the new output to the existing file.
+
+### `Tee-Object` — screen + file
+
+```powershell
+aws sts get-caller-identity | Tee-Object -FilePath result.txt
+```
+
+You see the output **and** save it.
+
+### `2>&1 | Tee-Object` — screen + file including errors
+
+```powershell
+aws cloudformation validate-template `
+    --template-body file://template.yaml `
+    2>&1 | Tee-Object -FilePath validation.txt
+```
+
+For troubleshooting your AWS lab, **this is the pattern I recommend most often**.
+
+---
+
+# 8. For your current preflight problem
+
+You previously had results such as:
+
+```text
+PASS    : 46
+WARNING : 14
+FAIL    : 7
+INFO    : 217
+
+CRITICAL FAILURES
+------------------------------------------------------------
+[FAIL] CloudFormation validation failed: cloudformation-execution-role.yaml
+[FAIL] CloudFormation validation failed: api-gateway.yaml
+[FAIL] CloudFormation validation failed: ec2.yaml
+[FAIL] Validation process failed for: ecs.yaml
+```
+
+Run:
+
+```powershell
+.\scripts\preflight.ps1 2>&1 | Tee-Object -FilePath ".\preflight-result.txt"
+```
+
+Then you can open it with:
+
+```powershell
+notepad .\preflight-result.txt
+```
+
+Or search only the failures:
+
+```powershell
+Select-String -Path ".\preflight-result.txt" -Pattern "\[FAIL\]"
+```
+
+Search warnings:
+
+```powershell
+Select-String -Path ".\preflight-result.txt" -Pattern "\[WARNING\]"
+```
+
+Search both:
+
+```powershell
+Select-String -Path ".\preflight-result.txt" -Pattern "\[FAIL\]|\[WARNING\]"
+```
+
+## My recommendation
+
+For your project, use this simple command first:
+
+```powershell
+.\scripts\preflight.ps1 2>&1 | Tee-Object -FilePath ".\preflight-result.txt"
+```
+
+Then send me the **`preflight-result.txt`** file (or paste its contents), and I can go through the **7 FAIL + 14 WARNING items one by one**, starting with the CloudFormation validation failures.
+
+
+---
+That is expected. `False` means the audit report file was **never created**—most likely because the script execution was blocked before `Tee-Object` could capture the output.
+
+Let's fix it in the safest way.
+
+### 1. Enable scripts only for this PowerShell session
+
+Run:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+```
+
+Verify:
+
+```powershell
+Get-ExecutionPolicy -List
+```
+
+You should see:
+
+```text
+Process    Bypass
+```
+
+### 2. Run the audit again and create the report
+
+From:
+
+```text
+C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab
+```
+
+run:
+
+```powershell
+.\scripts\audit-cloudformation-lab.ps1 2>&1 |
+    Tee-Object -FilePath ".\cloudformation-audit-report.txt"
+```
+
+**Let it finish completely.** Don't stop it even if you see warnings.
+
+### 3. Confirm the report exists
+
+```powershell
+Test-Path .\cloudformation-audit-report.txt
+```
+
+This time it should return:
+
+```text
+True
+```
+
+Then:
+
+```powershell
+Get-Item .\cloudformation-audit-report.txt |
+    Select-Object FullName,Length,LastWriteTime
+```
+
+### 4. Show me only the important failures
+
+Instead of sending the entire huge report, run:
+
+```powershell
+Select-String `
+    -Path .\cloudformation-audit-report.txt `
+    -Pattern "\[FAIL\]|\[WARN\]|RESULT:" `
+    -Context 0,2
+```
+
+### 5. Most important: get the actual Lambda failure
+
+Your latest CloudFormation event already narrowed the problem down to:
+
+```text
+LambdaStack
+└── LambdaExecutionRole
+```
+
+So **before changing anything else**, run:
+
+```powershell
+aws cloudformation describe-stack-events `
+    --stack-name hybridiaclab-dev-MainStack-LambdaStack-X947JVBH5AWO `
+    --region us-east-1 `
+    --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].[LogicalResourceId,ResourceType,ResourceStatusReason]" `
+    --output table
+```
+
+If that stack name is no longer valid, first run:
+
+```powershell
+aws cloudformation describe-stack-resources `
+    --stack-name hybridiaclab-dev-MainStack `
+    --region us-east-1 `
+    --query "StackResources[?LogicalResourceId=='LambdaStack'].[PhysicalResourceId,ResourceStatus]" `
+    --output table
+```
+
+Then use the returned **PhysicalResourceId** with `describe-stack-events`.
+
+**Send me the output of Step 5 first.** That should give us the exact reason `LambdaExecutionRole` failed, rather than guessing at IAM permissions.
+---
+Yes — the problem is likely **not `Tee-Object`**. The script itself is being blocked or the path is not being resolved correctly.
+
+Let's avoid the pipeline completely and troubleshoot it with simple commands.
+
+### 1. First check that the script actually exists
+
+Run:
+
+```powershell
+Test-Path ".\scripts\audit-cloudformation-lab.ps1"
+```
+
+It should return:
+
+```text
+True
+```
+
+If it returns `False`, run:
+
+```powershell
+Get-ChildItem ".\scripts" -Filter "*.ps1" | Select-Object Name
+```
+
+and send me the output.
+
+### 2. Temporarily allow scripts
+
+Run:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+```
+
+Then verify:
+
+```powershell
+Get-ExecutionPolicy -Scope Process
+```
+
+It should say:
+
+```text
+Bypass
+```
+
+### 3. Run the audit WITHOUT `Tee-Object`
+
+This is the important test:
+
+```powershell
+& ".\scripts\audit-cloudformation-lab.ps1"
+```
+
+The `&` is the PowerShell **call operator**. It explicitly tells PowerShell to execute the script.
+
+### 4. If that works, create the report separately
+
+Run:
+
+```powershell
+& ".\scripts\audit-cloudformation-lab.ps1" > ".\cloudformation-audit-report.txt" 2>&1
+```
+
+Then check:
+
+```powershell
+Test-Path ".\cloudformation-audit-report.txt"
+```
+
+It should return:
+
+```text
+True
+```
+
+Then:
+
+```powershell
+Get-Item ".\cloudformation-audit-report.txt" |
+    Select-Object FullName, Length, LastWriteTime
+```
+
+### 5. If Step 3 still gives an error
+
+Run this:
+
+```powershell
+Get-ChildItem ".\scripts\audit-cloudformation-lab.ps1" |
+    Format-List FullName,Length,LastWriteTime
+```
+
+And also:
+
+```powershell
+Get-ExecutionPolicy -List
+```
+
+**Send me the exact output from Step 3**, especially the red error message. Don't change the audit script yet. We first need to determine whether this is a **PowerShell execution-policy problem, file/path problem, or an error inside the audit script itself**.
+---
+Perfect. Everything up to this point is correct:
+
+* Script exists: `True`
+* Execution policy for this session: `Bypass`
+* You are in the correct project root.
+
+Now **do not use `Tee-Object` yet**. First we need to see whether the audit script itself runs.
+
+### Step 3 — Run the script directly
+
+Copy/paste exactly:
+
+```powershell
+& ".\scripts\audit-cloudformation-lab.ps1"
+```
+
+Let it run until it completely finishes.
+
+### If it runs successfully
+
+After it finishes, create the report with:
+
+```powershell
+& ".\scripts\audit-cloudformation-lab.ps1" > ".\cloudformation-audit-report.txt" 2>&1
+```
+
+Then:
+
+```powershell
+Test-Path ".\cloudformation-audit-report.txt"
+```
+
+You should get:
+
+```text
+True
+```
+
+### Important
+
+For now, **only run this command**:
+
+```powershell
+& ".\scripts\audit-cloudformation-lab.ps1"
+```
+
+Send me the **complete output/error from that command**.
+
+We already know the execution-policy issue is fixed. The next output will tell us whether the problem is inside `audit-cloudformation-lab.ps1`.
+---
+I found the exact reason your log files were **never created**.
+
+Your uploaded script already has the PASS/FAIL/WARN collections correctly defined at lines 89–91:
+
+```powershell
+$Failures = New-Object System.Collections.Generic.List[string]
+$Warnings = New-Object System.Collections.Generic.List[string]
+$Passes   = New-Object System.Collections.Generic.List[string]
+```
+
+and your `Write-Pass`, `Write-Warn`, and `Write-Fail` functions already add results to those collections. 
+
+### The actual problem
+
+Your script executes:
+
+```powershell
+if ($FailCount -gt 0) {
+    exit 2
+}
+
+if ($Strict -and $WarnCount -gt 0) {
+    exit 1
+}
+
+exit 0
+```
+
+**before** the report-generation section. Therefore, PowerShell terminates the script and never reaches the code that creates `report-log`. 
+
+So the previous report section itself wasn't the main problem — **its location was wrong**.
+
+I corrected the script so the report files are generated **before `exit 2 / exit 1 / exit 0`**.
+
+### Corrected script
+
+The corrected version will create:
+
+```text
+aws-hybrid-iac-lab\
+│
+├── report-log\
+│   ├── AWS-Hybrid-IaC-Audit-PASS.txt
+│   ├── AWS-Hybrid-IaC-Audit-ERROR.txt
+│   └── AWS-Hybrid-IaC-Audit-WARNING.txt
+│
+├── scripts\
+│   └── audit-cloudformation-lab.ps1
+```
+
+### What I recommend you do now
+
+Replace your existing:
+
+```text
+scripts\audit-cloudformation-lab.ps1
+```
+
+with the corrected file.
+
+Then from the project root run:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+```
+
+Then:
+
+```powershell
+& ".\scripts\audit-cloudformation-lab-CORRECTED.ps1"
+```
+
+After it finishes:
+
+```powershell
+Get-ChildItem ".\report-log"
+```
+
+You should see the three files.
+
+Then check the errors only:
+
+```powershell
+Get-Content ".\report-log\AWS-Hybrid-IaC-Audit-ERROR.txt"
+```
+
+Warnings:
+
+```powershell
+Get-Content ".\report-log\AWS-Hybrid-IaC-Audit-WARNING.txt"
+```
+
+Passes:
+
+```powershell
+Get-Content ".\report-log\AWS-Hybrid-IaC-Audit-PASS.txt"
+```
+
+**One important note:** your script's existing report section was already using `$Passes`, `$Failures`, and `$Warnings`, so we don't need to redesign the audit logic. We only needed to move report generation **above the final `exit` statements**. Your final exit-code behavior remains intact.
+---

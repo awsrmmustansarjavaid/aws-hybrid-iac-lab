@@ -1455,4 +1455,4 @@ Then investigate the specific AWS service involved.
 
 **Don't just run commands. Understand the infrastructure behind them.**
 
-#AWS #AWSCloud #CloudEngineering #DevOps #Terraform #CloudFormation #PowerShell #AWSCLI #IAM #GitHubActions #Docker #ECR #ECS #Kubernetes #EKS #InfrastructureAsCode #CICD #CloudEngineer #DevOpsEngineer
+---

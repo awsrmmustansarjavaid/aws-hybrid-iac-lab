@@ -372,6 +372,29 @@ Desktop.ini
 *.swo
 *~
 
+# ============================================================
+# GENERATED REPORTS AND AUDIT LOGS
+# ============================================================
+#
+# Ignore the complete report-log directory.
+# These files are generated locally by audit/preflight scripts
+# and should NOT be committed or pushed to GitHub.
+#
+# This rule ignores all files and subdirectories inside:
+#   report-log/
+# ============================================================
+
+report-log/
+
+# ============================================================
+# GENERATED ROOT-LEVEL AUDIT REPORT
+# ============================================================
+#
+# Ignore the generated audit report created in the project root.
+# ============================================================
+
+cloudformation-audit-report.txt
+
 # =======================================================
 
 # END OF .gitignore

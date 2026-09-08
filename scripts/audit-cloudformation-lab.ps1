@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # AWS HYBRID IaC LAB
 # CLOUDFORMATION + TERRAFORM
 # COMPLETE NESTED-STACK PREFLIGHT AUDIT
@@ -1529,6 +1529,323 @@ Write-Host "This audit is READ-ONLY and does not modify AWS resources."
 Write-Host ""
 
 # ============================================================
+# AUDIT REPORT FILE GENERATION
+# ============================================================
+#
+# PURPOSE
+# ------------------------------------------------------------
+# This section creates a dedicated report-log folder and
+# separates the audit output into three easy-to-read files:
+#
+#   1. PASS    -> Successful checks
+#   2. ERROR   -> Failed / critical checks
+#   3. WARNING -> Checks that require review
+#
+# This prevents the console from becoming difficult to read
+# when the audit produces a large amount of output.
+#
+# IMPORTANT
+# ------------------------------------------------------------
+# This section is READ-ONLY with respect to AWS resources.
+# It only creates local report files on the computer.
+#
+# Folder:
+#   report-log
+#
+# Files:
+#   AWS-Hybrid-IaC-Audit-PASS.txt
+#   AWS-Hybrid-IaC-Audit-ERROR.txt
+#   AWS-Hybrid-IaC-Audit-WARNING.txt
+#
+# ============================================================
+
+
+# ------------------------------------------------------------
+# 01 - Define report folder
+# ------------------------------------------------------------
+# The report folder will be created in the project root,
+# assuming this script is executed from the project root.
+#
+# Example:
+# C:\Users\musta\Downloads\AWS-Labs\aws-hybrid-iac-lab\
+#     report-log\
+#
+# ------------------------------------------------------------
+
+$ReportFolder = Join-Path (Get-Location) "report-log"
+
+
+# ------------------------------------------------------------
+# 02 - Create report folder if it does not exist
+# ------------------------------------------------------------
+
+if (-not (Test-Path -LiteralPath $ReportFolder)) {
+
+    New-Item `
+        -ItemType Directory `
+        -Path $ReportFolder `
+        -Force |
+        Out-Null
+
+}
+
+
+# ------------------------------------------------------------
+# 03 - Define report file names
+# ------------------------------------------------------------
+# Clear file names make it immediately obvious what each
+# report contains.
+# ------------------------------------------------------------
+
+$PassReport = Join-Path `
+    $ReportFolder `
+    "AWS-Hybrid-IaC-Audit-PASS.txt"
+
+$ErrorReport = Join-Path `
+    $ReportFolder `
+    "AWS-Hybrid-IaC-Audit-ERROR.txt"
+
+$WarningReport = Join-Path `
+    $ReportFolder `
+    "AWS-Hybrid-IaC-Audit-WARNING.txt"
+
+
+# ------------------------------------------------------------
+# 04 - Create report headers
+# ------------------------------------------------------------
+# These headers make each file understandable when opened
+# independently.
+# ------------------------------------------------------------
+
+$PassHeader = @"
+============================================================
+AWS HYBRID IaC LAB
+PASS AUDIT REPORT
+============================================================
+
+Audit Title:
+AWS Hybrid IaC Lab - Automated CloudFormation & Terraform Preflight Audit
+
+Purpose:
+Successful checks detected by the automated preflight audit.
+
+This report is READ-ONLY.
+No AWS resources are modified by this reporting section.
+
+Generated:
+$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+
+============================================================
+
+"@
+
+$ErrorHeader = @"
+============================================================
+AWS HYBRID IaC LAB
+ERROR / FAILURE AUDIT REPORT
+============================================================
+
+Audit Title:
+AWS Hybrid IaC Lab - Automated CloudFormation & Terraform Preflight Audit
+
+Purpose:
+Failed or critical checks detected by the automated preflight audit.
+
+ACTION REQUIRED:
+Review these errors before deployment.
+
+This report is READ-ONLY.
+No AWS resources are modified by this reporting section.
+
+Generated:
+$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+
+============================================================
+
+"@
+
+$WarningHeader = @"
+============================================================
+AWS HYBRID IaC LAB
+WARNING AUDIT REPORT
+============================================================
+
+Audit Title:
+AWS Hybrid IaC Lab - Automated CloudFormation & Terraform Preflight Audit
+
+Purpose:
+Warnings that may require review before deployment.
+
+WARNING:
+A warning does not always mean deployment will fail.
+
+This report is READ-ONLY.
+No AWS resources are modified by this reporting section.
+
+Generated:
+$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+
+============================================================
+
+"@
+
+
+# ------------------------------------------------------------
+# 05 - Read the current PowerShell transcript/output buffer
+# ------------------------------------------------------------
+# IMPORTANT:
+#
+# This method works best when the audit script stores its
+# messages in variables.
+#
+# If your existing audit script uses Write-Host directly,
+# the complete console history cannot reliably be retrieved
+# from inside the script after the fact.
+#
+# Therefore this section also prepares the three files with
+# clear headers even if no matching messages are detected.
+# ------------------------------------------------------------
+
+
+# ------------------------------------------------------------
+# 06 - Initialize report files
+# ------------------------------------------------------------
+
+Set-Content `
+    -Path $PassReport `
+    -Value $PassHeader `
+    -Encoding UTF8
+
+Set-Content `
+    -Path $ErrorReport `
+    -Value $ErrorHeader `
+    -Encoding UTF8
+
+Set-Content `
+    -Path $WarningReport `
+    -Value $WarningHeader `
+    -Encoding UTF8
+
+
+# ------------------------------------------------------------
+# 07 - Export audit result collections
+# ------------------------------------------------------------
+#
+# If your audit script already maintains collections named:
+#
+#   $Passes
+#   $Failures
+#   $Warnings
+#
+# they will be written to the corresponding files.
+#
+# The @() syntax safely handles an empty collection.
+# ------------------------------------------------------------
+
+if ($null -ne $Passes) {
+
+    @($Passes) |
+        ForEach-Object {
+            Add-Content `
+                -Path $PassReport `
+                -Value "[PASS] $_" `
+                -Encoding UTF8
+        }
+
+}
+
+if ($null -ne $Failures) {
+
+    @($Failures) |
+        ForEach-Object {
+            Add-Content `
+                -Path $ErrorReport `
+                -Value "[FAIL] $_" `
+                -Encoding UTF8
+        }
+
+}
+
+if ($null -ne $Warnings) {
+
+    @($Warnings) |
+        ForEach-Object {
+            Add-Content `
+                -Path $WarningReport `
+                -Value "[WARN] $_" `
+                -Encoding UTF8
+        }
+
+}
+
+
+# ------------------------------------------------------------
+# 08 - Add report summary
+# ------------------------------------------------------------
+
+Add-Content `
+    -Path $PassReport `
+    -Value "`r`n============================================================"
+
+Add-Content `
+    -Path $PassReport `
+    -Value "PASS REPORT COMPLETE"
+
+Add-Content `
+    -Path $PassReport `
+    -Value "============================================================"
+
+
+Add-Content `
+    -Path $ErrorReport `
+    -Value "`r`n============================================================"
+
+Add-Content `
+    -Path $ErrorReport `
+    -Value "ERROR REPORT COMPLETE"
+
+Add-Content `
+    -Path $ErrorReport `
+    -Value "============================================================"
+
+
+Add-Content `
+    -Path $WarningReport `
+    -Value "`r`n============================================================"
+
+Add-Content `
+    -Path $WarningReport `
+    -Value "WARNING REPORT COMPLETE"
+
+Add-Content `
+    -Path $WarningReport `
+    -Value "============================================================"
+
+
+# ------------------------------------------------------------
+# 09 - Display report locations in PowerShell
+# ------------------------------------------------------------
+
+Write-Host ""
+Write-Host "============================================================"
+Write-Host "AUDIT REPORT FILES CREATED"
+Write-Host "============================================================"
+
+Write-Host ""
+Write-Host "[PASS]   $PassReport"
+Write-Host "[ERROR]  $ErrorReport"
+Write-Host "[WARN]   $WarningReport"
+
+Write-Host ""
+Write-Host "Report folder:"
+Write-Host "           $ReportFolder"
+
+Write-Host ""
+Write-Host "============================================================"
+
+
+
+# ============================================================
 # 35 - Exit Code
 # ============================================================
 
@@ -1545,3 +1862,4 @@ if ($Strict -and $WarnCount -gt 0) {
 }
 
 exit 0
+
