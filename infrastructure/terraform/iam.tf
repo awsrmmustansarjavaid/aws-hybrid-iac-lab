@@ -942,9 +942,24 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
       # CloudFormation creates and manages IAM roles used
       # by the nested CloudFormation stacks.
       #
-      # The Lambda nested stack creates:
+      # The Lambda nested stack creates an AWS::IAM::Role.
       #
-      #     ${local.name_prefix}-LambdaRole
+      # Because RoleName is not explicitly specified in the
+      # CloudFormation template, CloudFormation generates the
+      # physical IAM role name.
+      #
+      # Example:
+      #
+      # hybridiaclab-dev-MainStack-Lamb-LambdaExecutionRole-XXXXXXX
+      #
+      #  Therefore IAM permissions use:
+      #
+      #
+      # 
+      #       ${local.name_prefix}-*
+      #
+      # 
+      # to cover generated Lambda execution-role names.  
       #
       # CloudFormation therefore needs permission to:
       #
@@ -969,6 +984,8 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
         Action = [
           "iam:GetRole",
           "iam:GetRolePolicy",
+          "iam:ListRolePolicies",
+          "iam:ListAttachedRolePolicies",
           "iam:PutRolePolicy",
           "iam:DeleteRolePolicy",
           "iam:AttachRolePolicy",
@@ -980,7 +997,7 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
         ]
 
         Resource = [
-          "arn:aws:iam::537236558357:role/${local.name_prefix}-LambdaRole"
+          "arn:aws:iam::537236558357:role/${local.name_prefix}-*"
         ]
       },
 
@@ -1003,7 +1020,7 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
         ]
 
         Resource = [
-          "arn:aws:iam::537236558357:role/${local.name_prefix}-LambdaRole"
+          "arn:aws:iam::537236558357:role/${local.name_prefix}-*"
         ]
       },
 
