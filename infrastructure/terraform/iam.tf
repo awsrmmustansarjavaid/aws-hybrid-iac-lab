@@ -822,7 +822,7 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
     Statement = [
 
       # ====================================================
-      # EC2 / ELB / Auto Scaling / PassRole
+      # EC2 / ELB / Auto Scaling 
       # ====================================================
 
       {
@@ -831,8 +831,7 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
         Action = [
           "ec2:*",
           "elasticloadbalancing:*",
-          "autoscaling:*",
-          "iam:PassRole"
+          "autoscaling:*"
         ]
 
         Resource = "*"
@@ -934,6 +933,76 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
         ]
 
         Resource = "*"
+      },
+
+      # ====================================================
+      # IAM ROLE MANAGEMENT FOR CLOUDFORMATION
+      # ====================================================
+      #
+      # CloudFormation creates and manages IAM roles used
+      # by the nested CloudFormation stacks.
+      #
+      # The Lambda nested stack creates:
+      #
+      #     ${local.name_prefix}-LambdaRole
+      #
+      # CloudFormation therefore needs permission to:
+      #
+      #     - Create the role
+      #     - Read the role
+      #     - Read inline policies
+      #     - Create/update inline policies
+      #     - Delete inline policies
+      #     - Attach managed policies
+      #     - Detach managed policies
+      #     - Delete the role during rollback/cleanup
+      #
+      # These permissions are intentionally restricted to
+      # the Lambda execution role.
+      #
+      # ====================================================
+
+      {
+        Sid    = "ManageLambdaExecutionRole"
+        Effect = "Allow"
+
+        Action = [
+          "iam:GetRole",
+          "iam:GetRolePolicy",
+          "iam:PutRolePolicy",
+          "iam:DeleteRolePolicy",
+          "iam:AttachRolePolicy",
+          "iam:DetachRolePolicy",
+          "iam:CreateRole",
+          "iam:DeleteRole"
+        ]
+
+        Resource = [
+          "arn:aws:iam::537236558357:role/${local.name_prefix}-LambdaRole"
+        ]
+      },
+
+
+      # ====================================================
+      # IAM PASSROLE FOR LAMBDA
+      # ====================================================
+      #
+      # CloudFormation must be able to pass the Lambda
+      # execution role to the Lambda service.
+      #
+      # ====================================================
+
+      {
+        Sid    = "PassLambdaExecutionRole"
+        Effect = "Allow"
+
+        Action = [
+          "iam:PassRole"
+        ]
+
+        Resource = [
+          "arn:aws:iam::537236558357:role/${local.name_prefix}-LambdaRole"
+        ]
       }
     ]
   })
