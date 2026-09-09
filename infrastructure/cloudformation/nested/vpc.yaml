@@ -11,54 +11,304 @@ AWSTemplateFormatVersion: "2010-09-09"
 #   This nested CloudFormation stack creates the NETWORK layer
 #   of the Hybrid IaC AWS DevOps Lab.
 #
+#   The network is designed to support:
+#
+#     - EC2
+#     - ECS
+#     - EKS
+#     - RDS
+#     - Lambda
+#     - ALB
+#     - Other private AWS workloads
+#
+# ============================================================
+# ARCHITECTURE
+# ============================================================
+#
+#                              Internet
+#                                  |
+#                                  v
+#                          Internet Gateway
+#                                  |
+#                   +--------------+--------------+
+#                   |                             |
+#                   v                             v
+#            Public Subnet 1              Public Subnet 2
+#             10.0.1.0/24                  10.0.2.0/24
+#                   |                             |
+#                   |                             |
+#                   v                             |
+#              NAT Gateway                       |
+#                   |                             |
+#                   +--------------+--------------+
+#                                  |
+#                                  v
+#                         Private Route Table
+#                                  |
+#                   +--------------+--------------+
+#                   |                             |
+#                   v                             v
+#            Private Subnet 1             Private Subnet 2
+#             10.0.11.0/24                 10.0.12.0/24
+#                   |                             |
+#                   |                             |
+#                   +--------------+--------------+
+#                                  |
+#                                  v
+#                         Private AWS Workloads
+#                                  |
+#                         +--------+--------+
+#                         |                 |
+#                         v                 v
+#                    EKS Worker        Other Private
+#                       Nodes            Workloads
+#
+#
+# ============================================================
+# NETWORK FLOW
+# ============================================================
+#
+# PUBLIC SUBNETS:
+#
+#   PublicSubnet1
+#         |
+#         v
+#   PublicRouteTable
+#         |
+#         | 0.0.0.0/0
+#         v
+#   Internet Gateway
+#         |
+#         v
+#      Internet
+#
+#
+# PRIVATE SUBNETS:
+#
+#   PrivateSubnet1
+#         |
+#         |
+#         +----------------------+
+#                                |
+#   PrivateSubnet2               |
+#         |                      |
+#         +----------+-----------+
+#                    |
+#                    v
+#             PrivateRouteTable
+#                    |
+#                    | 0.0.0.0/0
+#                    v
+#               NAT Gateway
+#                    |
+#                    v
+#             PublicSubnet1
+#                    |
+#                    v
+#             Internet Gateway
+#                    |
+#                    v
+#                 Internet
+#
+#
+# ============================================================
+# EKS NETWORK DESIGN
+# ============================================================
+#
+# The EKS template places worker nodes in:
+#
+#   PrivateSubnet1
+#   PrivateSubnet2
+#
+# Worker nodes:
+#
+#   - Do NOT receive public IPv4 addresses.
+#   - Use the private route table.
+#   - Use the NAT Gateway for outbound Internet access.
+#
+# Example:
+#
+#   EKS Worker Node
+#          |
+#          v
+#   Private Subnet
+#          |
+#          v
+#   Private Route Table
+#          |
+#          | 0.0.0.0/0
+#          v
+#   NAT Gateway
+#          |
+#          v
+#   Internet Gateway
+#          |
+#          v
+#       Internet
+#
+#
+# This is important for EKS because worker nodes may need
+# outbound connectivity for:
+#
+#   - ECR image pulls
+#   - Kubernetes components
+#   - Package downloads
+#   - Container image downloads
+#   - AWS APIs
+#   - Operating system updates
+#   - External Internet endpoints
+#
+#
+# ============================================================
+# NAT GATEWAY DESIGN
+# ============================================================
+#
+# This lab intentionally uses:
+#
+#   ONE NAT Gateway
+#
+# The NAT Gateway is placed in:
+#
+#   PublicSubnet1
+#
+# The reason is cost control and simplicity for the lab.
+#
 # Architecture:
 #
-#                       Internet
-#                           |
-#                           v
-#                   Internet Gateway
-#                           |
-#                           v
-#                    +-------------+
-#                    |     VPC     |
-#                    | 10.0.0.0/16 |
-#                    +-------------+
-#                       /       \
-#                      /         \
-#                     v           v
-#              Public Subnet   Public Subnet
-#               10.0.1.0/24    10.0.2.0/24
-#                    |               |
-#                    +-------+-------+
-#                            |
-#                      Public Route Table
-#
-#              Private Subnet   Private Subnet
-#               10.0.11.0/24    10.0.12.0/24
+#   Private Subnets
+#          |
+#          v
+#   One Private Route Table
+#          |
+#          v
+#   One NAT Gateway
+#          |
+#          v
+#   Internet Gateway
 #
 #
 # IMPORTANT:
 #
-# This template creates:
+# One NAT Gateway is suitable for this learning lab.
 #
-#   1. VPC
-#   2. Internet Gateway
-#   3. Internet Gateway attachment
-#   4. Two public subnets
-#   5. Two private subnets
-#   6. Public route table
-#   7. Default internet route
-#   8. Public subnet route associations
+# However, this is NOT the highest-availability production
+# architecture.
 #
-# The private subnets intentionally do NOT have a route to the
-# Internet Gateway.
+# A production Multi-AZ architecture would normally use:
 #
-# A NAT Gateway can be added later if private resources need
-# outbound Internet access.
+#   NAT Gateway 1 -> AZ 1
+#   NAT Gateway 2 -> AZ 2
+#
+# with separate private route tables so that each private
+# subnet uses the NAT Gateway in its own Availability Zone.
+#
+# This lab intentionally keeps ONE NAT Gateway to reduce:
+#
+#   - AWS cost
+#   - Resource count
+#   - Configuration complexity
+#
 #
 # ============================================================
-
-
+# NAT GATEWAY TRAFFIC
+# ============================================================
+#
+# NAT Gateway provides OUTBOUND Internet connectivity.
+#
+# Example:
+#
+#   EKS Node
+#      |
+#      v
+#   Private Subnet
+#      |
+#      v
+#   Private Route Table
+#      |
+#      v
+#   NAT Gateway
+#      |
+#      v
+#   Internet Gateway
+#      |
+#      v
+#   Internet
+#
+#
+# IMPORTANT:
+#
+# NAT Gateway does NOT make the private subnet public.
+#
+# Resources in private subnets still:
+#
+#   - Do not receive public IPv4 addresses automatically.
+#   - Are not directly reachable from the Internet through
+#     the NAT Gateway.
+#
+# NAT Gateway primarily provides outbound connectivity.
+#
+#
+# ============================================================
+# NETWORK DESIGN
+# ============================================================
+#
+# VPC:
+#
+#   10.0.0.0/16
+#
+# Public Subnets:
+#
+#   PublicSubnet1
+#       10.0.1.0/24
+#       AZ 1
+#
+#   PublicSubnet2
+#       10.0.2.0/24
+#       AZ 2
+#
+# Private Subnets:
+#
+#   PrivateSubnet1
+#       10.0.11.0/24
+#       AZ 1
+#
+#   PrivateSubnet2
+#       10.0.12.0/24
+#       AZ 2
+#
+#
+# ============================================================
+# ROUTE TABLE DESIGN
+# ============================================================
+#
+# PUBLIC:
+#
+#   ONLY ONE PublicRouteTable
+#
+#   Used by:
+#
+#     - PublicSubnet1
+#     - PublicSubnet2
+#
+#   Default route:
+#
+#     0.0.0.0/0 -> Internet Gateway
+#
+#
+# PRIVATE:
+#
+#   ONLY ONE PrivateRouteTable
+#
+#   Used by:
+#
+#     - PrivateSubnet1
+#     - PrivateSubnet2
+#
+#   Default route:
+#
+#     0.0.0.0/0 -> NAT Gateway
+#
+#
 # ============================================================
 # DESCRIPTION
 # ============================================================
@@ -67,25 +317,17 @@ Description: >
   Network layer for the Hybrid IaC Lab.
   Creates a VPC with two public and two private subnets
   distributed across two Availability Zones.
+  Uses one shared public route table and one shared private
+  route table. A single NAT Gateway is deployed in the first
+  public subnet to provide outbound Internet connectivity
+  for private workloads such as EKS worker nodes.
 
 
 # ============================================================
 # PARAMETERS
 # ============================================================
-#
-# These parameters are received from the ROOT STACK:
-#
-#   infrastructure/cloudformation/main.yaml
-#
-# The root stack passes:
-#
-#   ProjectName
-#   Environment
-#
-# ============================================================
 
 Parameters:
-
 
   # ----------------------------------------------------------
   # PROJECT NAME
@@ -95,8 +337,9 @@ Parameters:
   #
   #   HybridIaCLab
   #
-  # This value is used when creating resource names.
+  # Used for resource names and tags.
   #
+
   ProjectName:
     Type: String
 
@@ -112,12 +355,13 @@ Parameters:
   #
   #   dev
   #
-  # Other possible values:
+  # Other examples:
   #
   #   test
   #   staging
   #   prod
   #
+
   Environment:
     Type: String
 
@@ -136,16 +380,11 @@ Resources:
   # VPC
   # ==========================================================
   #
-  # The VPC is the main private networking boundary for our
-  # AWS infrastructure.
+  # Main networking boundary for the AWS infrastructure.
   #
   # CIDR:
   #
   #   10.0.0.0/16
-  #
-  # This provides 65,536 IPv4 addresses before AWS subnet
-  # reservations and allows us to divide the network into
-  # multiple subnets.
   #
   # ==========================================================
 
@@ -158,10 +397,11 @@ Resources:
       # VPC CIDR RANGE
       # --------------------------------------------------------
       #
-      # Entire network:
+      # Entire VPC network:
       #
       #   10.0.0.0/16
       #
+
       CidrBlock: 10.0.0.0/16
 
 
@@ -169,8 +409,10 @@ Resources:
       # DNS SUPPORT
       # --------------------------------------------------------
       #
-      # Allows instances in the VPC to resolve DNS hostnames.
+      # Allows resources inside the VPC to perform DNS
+      # resolution.
       #
+
       EnableDnsSupport: true
 
 
@@ -180,19 +422,14 @@ Resources:
       #
       # Enables DNS hostnames for resources in the VPC.
       #
-      # This is useful for EC2 instances and other AWS services
-      # that rely on DNS names.
-      #
+
       EnableDnsHostnames: true
 
 
       # --------------------------------------------------------
       # TAGS
       # --------------------------------------------------------
-      #
-      # Tags make resources easier to identify in the AWS
-      # Console, CLI, billing reports, and automation.
-      #
+
       Tags:
 
         - Key: Name
@@ -214,18 +451,18 @@ Resources:
   # INTERNET GATEWAY
   # ==========================================================
   #
-  # The Internet Gateway provides a path between the VPC and
-  # the public Internet.
+  # Provides connectivity between the VPC and the Internet.
   #
   # IMPORTANT:
   #
   # Creating an Internet Gateway alone does NOT make a subnet
   # public.
   #
-  # A subnet becomes public when:
+  # A public subnet requires:
   #
-  #   1. Its route table has a route to the Internet Gateway.
-  #   2. Resources have appropriate public IP addressing.
+  #   1. A route table association.
+  #   2. A default route to the Internet Gateway.
+  #   3. Appropriate public addressing and security rules.
   #
   # ==========================================================
 
@@ -255,8 +492,7 @@ Resources:
   # VPC / INTERNET GATEWAY ATTACHMENT
   # ==========================================================
   #
-  # An Internet Gateway must be attached to the VPC before
-  # traffic can flow through it.
+  # Attaches the Internet Gateway to the VPC.
   #
   # Relationship:
   #
@@ -272,9 +508,12 @@ Resources:
     Properties:
 
       # VPC that will use the Internet Gateway.
+
       VpcId: !Ref VPC
 
-      # Internet Gateway being attached to the VPC.
+
+      # Internet Gateway being attached.
+
       InternetGatewayId: !Ref InternetGateway
 
 
@@ -288,13 +527,9 @@ Resources:
   #
   # Availability Zone:
   #
-  #   First AZ returned by AWS for the selected region.
+  #   First AZ returned by AWS.
   #
-  # Example:
-  #
-  #   us-east-1a
-  #
-  # The exact AZ depends on the AWS region.
+  # This subnet is used as the NAT Gateway subnet.
   #
   # ==========================================================
 
@@ -303,11 +538,13 @@ Resources:
 
     Properties:
 
-      # Attach the subnet to our VPC.
+      # Attach subnet to our VPC.
+
       VpcId: !Ref VPC
 
 
       # Network range for Public Subnet 1.
+
       CidrBlock: 10.0.1.0/24
 
 
@@ -315,14 +552,8 @@ Resources:
       # AVAILABILITY ZONE
       # --------------------------------------------------------
       #
-      # Fn::GetAZs returns the Availability Zones available in
-      # the current AWS region.
+      # Select the first Availability Zone.
       #
-      # Fn::Select:
-      #
-      #   0 = first Availability Zone
-      #
-      # --------------------------------------------------------
 
       AvailabilityZone:
         Fn::Select:
@@ -336,14 +567,20 @@ Resources:
       # PUBLIC IPv4 ADDRESS
       # --------------------------------------------------------
       #
-      # EC2 instances launched into this subnet will receive a
-      # public IPv4 address automatically when supported by the
+      # Resources launched into this subnet can automatically
+      # receive public IPv4 addresses when supported by their
       # launch configuration.
       #
+      # The NAT Gateway is located in this public subnet.
+      #
+
       MapPublicIpOnLaunch: true
 
 
-      # Resource tags.
+      # --------------------------------------------------------
+      # TAGS
+      # --------------------------------------------------------
+
       Tags:
 
         - Key: Name
@@ -374,10 +611,9 @@ Resources:
   #
   #   10.0.2.0/24
   #
-  # This subnet is placed in the SECOND Availability Zone.
+  # Availability Zone:
   #
-  # Using multiple AZs improves availability and allows us to
-  # practice Multi-AZ AWS architectures.
+  #   Second AZ returned by AWS.
   #
   # ==========================================================
 
@@ -387,14 +623,17 @@ Resources:
     Properties:
 
       # Attach subnet to the VPC.
+
       VpcId: !Ref VPC
 
 
       # Network range for Public Subnet 2.
+
       CidrBlock: 10.0.2.0/24
 
 
       # Select the second Availability Zone.
+
       AvailabilityZone:
         Fn::Select:
 
@@ -403,12 +642,15 @@ Resources:
           - Fn::GetAZs: !Ref AWS::Region
 
 
-      # Automatically assign public IPv4 addresses where
-      # supported.
+      # Automatically assign public IPv4 addresses.
+
       MapPublicIpOnLaunch: true
 
 
-      # Resource tags.
+      # --------------------------------------------------------
+      # TAGS
+      # --------------------------------------------------------
+
       Tags:
 
         - Key: Name
@@ -443,18 +685,10 @@ Resources:
   #
   #   First AZ
   #
-  # This subnet does NOT automatically assign public IP
-  # addresses.
+  # Used by:
   #
-  # It also has no Internet Gateway route in this template.
-  #
-  # Suitable future resources:
-  #
-  #   - RDS
-  #   - ECS tasks
-  #   - Internal application servers
-  #   - Lambda ENIs
-  #   - Other private workloads
+  #   - EKS worker nodes
+  #   - Private application workloads
   #
   # ==========================================================
 
@@ -463,15 +697,18 @@ Resources:
 
     Properties:
 
-      # Attach subnet to VPC.
+      # Attach subnet to the VPC.
+
       VpcId: !Ref VPC
 
 
       # Private network range.
+
       CidrBlock: 10.0.11.0/24
 
 
-      # Place the subnet in the first AZ.
+      # Place subnet in the first Availability Zone.
+
       AvailabilityZone:
         Fn::Select:
 
@@ -480,11 +717,21 @@ Resources:
           - Fn::GetAZs: !Ref AWS::Region
 
 
-      # Do NOT automatically assign public IPv4 addresses.
+      # --------------------------------------------------------
+      # PUBLIC IPv4 ADDRESS
+      # --------------------------------------------------------
+      #
+      # Private resources must not automatically receive public
+      # IPv4 addresses.
+      #
+
       MapPublicIpOnLaunch: false
 
 
-      # Resource tags.
+      # --------------------------------------------------------
+      # TAGS
+      # --------------------------------------------------------
+
       Tags:
 
         - Key: Name
@@ -519,8 +766,10 @@ Resources:
   #
   #   Second AZ
   #
-  # This provides a second private subnet for Multi-AZ
-  # architectures.
+  # Used by:
+  #
+  #   - EKS worker nodes
+  #   - Private application workloads
   #
   # ==========================================================
 
@@ -529,15 +778,18 @@ Resources:
 
     Properties:
 
-      # Attach subnet to VPC.
+      # Attach subnet to the VPC.
+
       VpcId: !Ref VPC
 
 
       # Private network range.
+
       CidrBlock: 10.0.12.0/24
 
 
-      # Place the subnet in the second AZ.
+      # Place subnet in the second Availability Zone.
+
       AvailabilityZone:
         Fn::Select:
 
@@ -546,11 +798,15 @@ Resources:
           - Fn::GetAZs: !Ref AWS::Region
 
 
-      # Private subnet does not automatically assign public IPs.
+      # Do not automatically assign public IPv4 addresses.
+
       MapPublicIpOnLaunch: false
 
 
-      # Resource tags.
+      # --------------------------------------------------------
+      # TAGS
+      # --------------------------------------------------------
+
       Tags:
 
         - Key: Name
@@ -577,15 +833,21 @@ Resources:
   # PUBLIC ROUTE TABLE
   # ==========================================================
   #
-  # A route table controls where network traffic from a subnet
-  # is sent.
+  # ONLY ONE public route table is created.
   #
-  # This route table will contain:
+  # Used by:
   #
-  #   0.0.0.0/0 --> Internet Gateway
+  #   - PublicSubnet1
+  #   - PublicSubnet2
   #
-  # Therefore, subnets associated with this route table are
-  # public subnets.
+  # Default route:
+  #
+  #   0.0.0.0/0
+  #          |
+  #          v
+  #   Internet Gateway
+  #
+  # This route table makes the two public subnets public.
   #
   # ==========================================================
 
@@ -595,10 +857,14 @@ Resources:
     Properties:
 
       # Route table belongs to our VPC.
+
       VpcId: !Ref VPC
 
 
-      # Tags for easier identification.
+      # --------------------------------------------------------
+      # TAGS
+      # --------------------------------------------------------
+
       Tags:
 
         - Key: Name
@@ -625,7 +891,7 @@ Resources:
   # DEFAULT PUBLIC ROUTE
   # ==========================================================
   #
-  # This creates the default route:
+  # Creates:
   #
   #   Destination:
   #
@@ -634,11 +900,6 @@ Resources:
   #   Target:
   #
   #       Internet Gateway
-  #
-  # Meaning:
-  #
-  #   Traffic destined for anywhere on the Internet is sent
-  #   through the Internet Gateway.
   #
   # ==========================================================
 
@@ -650,41 +911,345 @@ Resources:
     # DEPENDS ON
     # --------------------------------------------------------
     #
-    # Make sure the Internet Gateway is attached to the VPC
-    # before CloudFormation creates this route.
+    # Ensure the Internet Gateway is attached to the VPC before
+    # creating the route.
     #
+
     DependsOn: VPCGatewayAttachment
 
 
     Properties:
 
       # Route table receiving this route.
+
       RouteTableId: !Ref PublicRouteTable
 
 
       # Default IPv4 route.
+
       DestinationCidrBlock: 0.0.0.0/0
 
 
       # Send traffic to the Internet Gateway.
+
       GatewayId: !Ref InternetGateway
+
+
+  # ==========================================================
+  # ELASTIC IP FOR NAT GATEWAY
+  # ==========================================================
+  #
+  # A NAT Gateway requires an Elastic IP address when using
+  # a public NAT Gateway.
+  #
+  # The Elastic IP provides the public IPv4 address used by
+  # the NAT Gateway when communicating with the Internet.
+  #
+  # Architecture:
+  #
+  #   Private Resource
+  #          |
+  #          v
+  #      NAT Gateway
+  #          |
+  #          v
+  #      Elastic IP
+  #          |
+  #          v
+  #       Internet
+  #
+  # ==========================================================
+
+  NATGatewayEIP:
+    Type: AWS::EC2::EIP
+
+    Properties:
+
+      # --------------------------------------------------------
+      # DOMAIN
+      # --------------------------------------------------------
+      #
+      # "vpc" means this Elastic IP is allocated for use inside
+      # a VPC.
+      #
+
+      Domain: vpc
+
+
+      # --------------------------------------------------------
+      # TAGS
+      # --------------------------------------------------------
+
+      Tags:
+
+        - Key: Name
+
+          Value: !Sub "${ProjectName}-${Environment}-NAT-EIP"
+
+
+        - Key: Project
+
+          Value: !Ref ProjectName
+
+
+        - Key: Environment
+
+          Value: !Ref Environment
+
+
+  # ==========================================================
+  # NAT GATEWAY
+  # ==========================================================
+  #
+  # The NAT Gateway provides outbound Internet connectivity
+  # for resources located in private subnets.
+  #
+  # IMPORTANT:
+  #
+  # The NAT Gateway MUST be placed inside a PUBLIC subnet.
+  #
+  # In this lab:
+  #
+  #   NAT Gateway
+  #        |
+  #        v
+  #   PublicSubnet1
+  #        |
+  #        v
+  #   PublicRouteTable
+  #        |
+  #        v
+  #   Internet Gateway
+  #
+  # Private resources use the NAT Gateway through the private
+  # route table.
+  #
+  # ==========================================================
+
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+
+
+    # --------------------------------------------------------
+    # DEPENDS ON
+    # --------------------------------------------------------
+    #
+    # Make sure the Internet Gateway is attached before the
+    # NAT Gateway is created.
+    #
+    # The public subnet must have a functional path toward the
+    # Internet Gateway.
+    #
+
+    DependsOn: VPCGatewayAttachment
+
+
+    Properties:
+
+      # --------------------------------------------------------
+      # ELASTIC IP
+      # --------------------------------------------------------
+      #
+      # Public IPv4 address assigned to the NAT Gateway.
+      #
+
+      AllocationId: !GetAtt NATGatewayEIP.AllocationId
+
+
+      # --------------------------------------------------------
+      # PUBLIC SUBNET
+      # --------------------------------------------------------
+      #
+      # NAT Gateway is intentionally placed in PublicSubnet1.
+      #
+      # This subnet has a route:
+      #
+      #   0.0.0.0/0 -> Internet Gateway
+      #
+      SubnetId: !Ref PublicSubnet1
+
+
+      # --------------------------------------------------------
+      # CONNECTIVITY TYPE
+      # --------------------------------------------------------
+      #
+      # Public NAT Gateway provides Internet connectivity to
+      # resources in private subnets.
+      #
+
+      ConnectivityType: public
+
+
+      # --------------------------------------------------------
+      # TAGS
+      # --------------------------------------------------------
+
+      Tags:
+
+        - Key: Name
+
+          Value: !Sub "${ProjectName}-${Environment}-NATGateway"
+
+
+        - Key: Tier
+
+          Value: Public
+
+
+        - Key: Project
+
+          Value: !Ref ProjectName
+
+
+        - Key: Environment
+
+          Value: !Ref Environment
+
+
+  # ==========================================================
+  # PRIVATE ROUTE TABLE
+  # ==========================================================
+  #
+  # ONLY ONE private route table is created.
+  #
+  # Used by:
+  #
+  #   - PrivateSubnet1
+  #   - PrivateSubnet2
+  #
+  # Default route:
+  #
+  #   0.0.0.0/0
+  #          |
+  #          v
+  #     NAT Gateway
+  #
+  # Therefore private resources can initiate outbound Internet
+  # connections without having public IP addresses.
+  #
+  # ==========================================================
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+
+    Properties:
+
+      # Route table belongs to our VPC.
+
+      VpcId: !Ref VPC
+
+
+      # --------------------------------------------------------
+      # TAGS
+      # --------------------------------------------------------
+
+      Tags:
+
+        - Key: Name
+
+          Value: !Sub "${ProjectName}-${Environment}-PrivateRouteTable"
+
+
+        - Key: Tier
+
+          Value: Private
+
+
+        - Key: Project
+
+          Value: !Ref ProjectName
+
+
+        - Key: Environment
+
+          Value: !Ref Environment
+
+
+  # ==========================================================
+  # DEFAULT PRIVATE ROUTE
+  # ==========================================================
+  #
+  # This is the most important addition for EKS.
+  #
+  # Creates:
+  #
+  #   Destination:
+  #
+  #       0.0.0.0/0
+  #
+  #   Target:
+  #
+  #       NAT Gateway
+  #
+  # Result:
+  #
+  #   PrivateSubnet1
+  #          |
+  #   PrivateSubnet2
+  #          |
+  #          v
+  #   PrivateRouteTable
+  #          |
+  #          v
+  #      NAT Gateway
+  #          |
+  #          v
+  #   Internet Gateway
+  #          |
+  #          v
+  #       Internet
+  #
+  # ==========================================================
+
+  DefaultPrivateRoute:
+    Type: AWS::EC2::Route
+
+
+    # --------------------------------------------------------
+    # DEPENDS ON
+    # --------------------------------------------------------
+    #
+    # Ensure NAT Gateway exists before creating the route.
+    #
+
+    DependsOn: NATGateway
+
+
+    Properties:
+
+      # Private route table receiving this route.
+
+      RouteTableId: !Ref PrivateRouteTable
+
+
+      # Default IPv4 route.
+
+      DestinationCidrBlock: 0.0.0.0/0
+
+
+      # Send private subnet traffic to the NAT Gateway.
+
+      NatGatewayId: !Ref NATGateway
 
 
   # ==========================================================
   # PUBLIC SUBNET 1 ROUTE TABLE ASSOCIATION
   # ==========================================================
   #
-  # Associates PublicSubnet1 with PublicRouteTable.
+  # Associates PublicSubnet1 with the shared public route
+  # table.
   #
-  # Therefore:
+  # Result:
   #
   #   PublicSubnet1
-  #          |
-  #          v
+  #         |
+  #         v
   #   PublicRouteTable
-  #          |
-  #          v
+  #         |
+  #         v
   #   Internet Gateway
+  #
+  # PublicSubnet1 also contains the NAT Gateway.
   #
   # ==========================================================
 
@@ -693,10 +1258,13 @@ Resources:
 
     Properties:
 
-      # Subnet being associated.
+      # Public subnet being associated.
+
       SubnetId: !Ref PublicSubnet1
 
-      # Public route table being assigned.
+
+      # Shared public route table.
+
       RouteTableId: !Ref PublicRouteTable
 
 
@@ -704,10 +1272,7 @@ Resources:
   # PUBLIC SUBNET 2 ROUTE TABLE ASSOCIATION
   # ==========================================================
   #
-  # Associates PublicSubnet2 with PublicRouteTable.
-  #
-  # Both public subnets therefore use the same public route
-  # table in this simple lab design.
+  # Associates PublicSubnet2 with the SAME public route table.
   #
   # ==========================================================
 
@@ -716,21 +1281,79 @@ Resources:
 
     Properties:
 
-      # Subnet being associated.
+      # Public subnet being associated.
+
       SubnetId: !Ref PublicSubnet2
 
-      # Public route table being assigned.
+
+      # SAME shared public route table.
+
       RouteTableId: !Ref PublicRouteTable
+
+
+  # ==========================================================
+  # PRIVATE SUBNET 1 ROUTE TABLE ASSOCIATION
+  # ==========================================================
+  #
+  # Associates PrivateSubnet1 with the shared private route
+  # table.
+  #
+  # The private route table contains:
+  #
+  #   0.0.0.0/0 -> NAT Gateway
+  #
+  # ==========================================================
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+
+    Properties:
+
+      # Private subnet being associated.
+
+      SubnetId: !Ref PrivateSubnet1
+
+
+      # Shared private route table.
+
+      RouteTableId: !Ref PrivateRouteTable
+
+
+  # ==========================================================
+  # PRIVATE SUBNET 2 ROUTE TABLE ASSOCIATION
+  # ==========================================================
+  #
+  # Associates PrivateSubnet2 with the SAME private route
+  # table.
+  #
+  # ==========================================================
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+
+    Properties:
+
+      # Private subnet being associated.
+
+      SubnetId: !Ref PrivateSubnet2
+
+
+      # SAME shared private route table.
+
+      RouteTableId: !Ref PrivateRouteTable
 
 
 # ============================================================
 # OUTPUTS
 # ============================================================
 #
-# Outputs expose important resource IDs to the parent stack
-# and to users/automation.
+# Outputs expose important resource IDs to:
 #
-# The ROOT STACK can later consume these values if needed.
+#   - Parent CloudFormation stack
+#   - AWS Console
+#   - AWS CLI
+#   - Automation
+#   - Future Terraform integration
 #
 # ============================================================
 
@@ -748,15 +1371,6 @@ Outputs:
 
     Value: !Ref VPC
 
-    # Export allows other CloudFormation stacks in the same
-    # AWS account and region to reference this value using
-    # Fn::ImportValue.
-    #
-    # Example:
-    #
-    #   !ImportValue
-    #     !Sub "${ProjectName}-${Environment}-VpcId"
-    #
     Export:
 
       Name: !Sub "${ProjectName}-${Environment}-VpcId"
@@ -793,7 +1407,8 @@ Outputs:
   PrivateSubnet1Id:
 
     Description: >
-      ID of Private Subnet 1.
+      ID of Private Subnet 1 used by private workloads
+      including EKS worker nodes.
 
     Value: !Ref PrivateSubnet1
 
@@ -805,18 +1420,14 @@ Outputs:
   PrivateSubnet2Id:
 
     Description: >
-      ID of Private Subnet 2.
+      ID of Private Subnet 2 used by private workloads
+      including EKS worker nodes.
 
     Value: !Ref PrivateSubnet2
 
 
   # ==========================================================
   # INTERNET GATEWAY ID
-  # ==========================================================
-  #
-  # Exposing this ID is useful for troubleshooting and
-  # verification from the AWS CLI.
-  #
   # ==========================================================
 
   InternetGatewayId:
@@ -828,13 +1439,61 @@ Outputs:
 
 
   # ==========================================================
+  # NAT GATEWAY ID
+  # ==========================================================
+  #
+  # Useful for:
+  #
+  #   - AWS CLI verification
+  #   - Troubleshooting
+  #   - Future Terraform integration
+  #   - Monitoring
+  #
+  # ==========================================================
+
+  NatGatewayId:
+
+    Description: >
+      ID of the NAT Gateway providing outbound Internet
+      connectivity to private subnets.
+
+    Value: !Ref NATGateway
+
+
+  # ==========================================================
+  # NAT GATEWAY ELASTIC IP
+  # ==========================================================
+
+  NatGatewayEip:
+
+    Description: >
+      Elastic IP address associated with the NAT Gateway.
+
+    Value: !Ref NATGatewayEIP
+
+
+  # ==========================================================
   # PUBLIC ROUTE TABLE ID
   # ==========================================================
 
   PublicRouteTableId:
 
     Description: >
-      ID of the public route table.
+      ID of the single public route table used by all public
+      subnets.
 
     Value: !Ref PublicRouteTable
 
+
+  # ==========================================================
+  # PRIVATE ROUTE TABLE ID
+  # ==========================================================
+
+  PrivateRouteTableId:
+
+    Description: >
+      ID of the single private route table used by all private
+      subnets. The table routes Internet-bound traffic through
+      the NAT Gateway.
+
+    Value: !Ref PrivateRouteTable

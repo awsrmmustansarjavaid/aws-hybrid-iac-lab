@@ -1,644 +1,502 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
 # ============================================================
 # AWS HYBRID IaC LAB
-# ECS FARGATE CONTAINER PLATFORM
+# ECS FARGATE + APPLICATION LOAD BALANCER
 # ============================================================
 #
 # File:
 #   infrastructure/cloudformation/nested/ecs.yaml
 #
-# Purpose:
-#   Creates an Amazon ECS Fargate platform that runs a Docker
-#   container stored in Amazon Elastic Container Registry (ECR).
+# PURPOSE:
+#   Creates the ECS Fargate application platform for the
+#   Hybrid IaC AWS DevOps Lab.
 #
-# Resources created:
+# ============================================================
 #
-#   1. ECS Cluster
-#   2. ECS Security Group
-#   3. ECS Task Execution IAM Role
-#   4. CloudWatch Log Group
-#   5. ECS Fargate Task Definition
-#   6. ECS Fargate Service
+# IMPORTANT ARCHITECTURE NOTE
+# ============================================================
+#
+# Although this template is stored under:
+#
+#   infrastructure/cloudformation/nested/
+#
+# it is currently deployed as an INDEPENDENT CloudFormation
+# stack.
+#
+# It is NOT currently deployed as:
+#
+#   AWS::CloudFormation::Stack
+#
+# inside MainStack.
+#
+# This is intentional.
+#
+# The deployment pipeline follows this general flow:
+#
+#   Main Infrastructure
+#          |
+#          +--> VPC
+#          +--> ECR
+#          +--> Other infrastructure
+#
+#   GitHub Actions
+#          |
+#          +--> Build Docker image
+#          |
+#          +--> Push image to ECR
+#          |
+#          +--> Deploy/update ECS stack
+#
+# ECS is deployed only after the Docker image already exists
+# in ECR.
 #
 #
 # ============================================================
-# TWO-PHASE DEPLOYMENT ARCHITECTURE
+# ARCHITECTURE
 # ============================================================
+#
+#                         INTERNET
+#                             |
+#                             | HTTP :80
+#                             v
+#                  +----------------------+
+#                  | Application Load     |
+#                  | Balancer             |
+#                  | Internet-facing      |
+#                  +----------+-----------+
+#                             |
+#                             | HTTP :80
+#                             v
+#                  +----------------------+
+#                  | ECS Target Group     |
+#                  | Target Type: IP      |
+#                  +----------+-----------+
+#                             |
+#                    +--------+--------+
+#                    |                 |
+#                    v                 v
+#             Private Subnet 1   Private Subnet 2
+#                    |                 |
+#                    v                 v
+#               ECS Task          ECS Task
+#               Fargate           Fargate
+#                    |
+#                    |
+#                    v
+#               NAT Gateway
+#                    |
+#                    v
+#                Internet
+#
+#
+# ============================================================
+# NETWORK DESIGN
+# ============================================================
+#
+# ALB:
+#
+#   - Internet-facing
+#   - PublicSubnet1
+#   - PublicSubnet2
+#   - HTTP port 80
+#
+# ECS:
+#
+#   - Fargate
+#   - PrivateSubnet1
+#   - PrivateSubnet2
+#   - No public IP
+#   - AssignPublicIp: DISABLED
+#
 #
 # IMPORTANT:
 #
-# This ECS stack is intentionally deployed AFTER the Docker
-# image has been pushed to ECR.
+# Private ECS tasks require outbound network connectivity for
+# operations such as:
 #
-# The deployment flow is:
+#   - Pulling container images from ECR
+#   - Sending logs to CloudWatch Logs
+#   - Accessing external APIs
 #
-#   PHASE 1
-#   ----------------------------------------------------------
-#   Terraform
-#       |
-#       v
-#   CloudFormation Main Stack
-#       |
-#       +--> VPC
-#       +--> S3
-#       +--> DynamoDB
-#       +--> ECR Repository
-#       +--> Lambda
-#       +--> API Gateway
-#       +--> CloudFront
-#       +--> EC2
-#       +--> EKS
-#       +--> RDS
+# This lab uses a NAT Gateway for that outbound connectivity.
+#
+# VPC endpoints can be introduced later as an optimization.
 #
 #
-#   PHASE 2
-#   ----------------------------------------------------------
-#   GitHub Actions Docker Workflow
-#       |
-#       v
-#   Docker Build
-#       |
-#       v
-#   Push immutable image to ECR
-#       |
-#       v
-#   ECS CloudFormation Stack
-#       |
-#       v
-#   ECS Fargate Service
+# ============================================================
+# MULTI-AZ DESIGN
+# ============================================================
+#
+# ALB:
+#
+#   PublicSubnet1
+#   PublicSubnet2
+#
+# ECS:
+#
+#   PrivateSubnet1
+#   PrivateSubnet2
+#
+# The ALB is therefore deployed across two Availability Zones.
+#
+# However:
+#
+#   DesiredCount: 1
+#
+# means that only ONE ECS task is maintained.
+#
+# Therefore, one task does NOT provide application redundancy
+# across both Availability Zones.
+#
+# For a more highly available deployment:
+#
+#   DesiredCount: 2
+#
+# could be used.
+#
+# ============================================================
+# SECURITY GROUP FLOW
+# ============================================================
+#
+# INTERNET
+#    |
+#    | TCP 80
+#    v
+# ALB SECURITY GROUP
+#    |
+#    | TCP 80
+#    | ONLY from ALB Security Group
+#    v
+# ECS SECURITY GROUP
+#    |
+#    v
+# ECS FARGATE TASK
 #
 #
-# Therefore:
+# IMPORTANT:
 #
-#   ECR repository creation
-#       !=
-#   Docker image deployment
+# ECS port 80 is NOT publicly accessible.
 #
-# The ECR repository is created during the infrastructure
-# bootstrap phase.
+# There is intentionally NO rule:
 #
-# The actual Docker image is pushed by GitHub Actions.
+#   0.0.0.0/0 -> ECS TCP 80
 #
-# ECS receives the exact Docker image URI through:
+# Only the ALB security group can access the ECS tasks.
+#
+#
+# ============================================================
+# HTTP / HTTPS DESIGN
+# ============================================================
+#
+# This learning lab currently uses HTTP.
+#
+# Traffic:
+#
+#   Internet
+#      |
+#      | HTTP :80
+#      v
+#     ALB
+#      |
+#      | HTTP :80
+#      v
+#   ECS Task
+#
+# HTTP is unencrypted.
+#
+# It is acceptable for this learning environment.
+#
+# A production architecture should normally use:
+#
+#   Internet
+#      |
+#      | HTTPS :443
+#      v
+#     ALB
+#      |
+#      | HTTP/HTTPS
+#      v
+#   ECS Task
+#
+# Production HTTPS would normally require:
+#
+#   - ACM certificate
+#   - ALB HTTPS listener
+#   - HTTP -> HTTPS redirect
+#   - appropriate security group rules
+#
+# HTTPS is intentionally NOT included in this version.
+#
+#
+# ============================================================
+# ECR / DOCKER IMAGE DESIGN
+# ============================================================
+#
+# ECR repository creation belongs to:
+#
+#   ecr.yaml
+#
+# This template does NOT create an ECR repository.
+#
+# Instead, ECS receives the COMPLETE Docker image URI through
+# the CloudFormation parameter:
 #
 #   EcrImageUri
+#
+#
+# Example:
+#
+#   537236558357.dkr.ecr.us-east-1.amazonaws.com/
+#   hybridiaclab-dev-app:abcdef1234567890
+#
+#
+# The important design decision is that EcrImageUri contains
+# BOTH:
+#
+#   Repository URI
+#        +
+#   Immutable image tag
+#
+#
+# Therefore the ECS Task Definition simply uses:
+#
+#   Image:
+#     !Ref EcrImageUri
+#
+#
+# ============================================================
+# WHY EcrImageUri IS USED
+# ============================================================
+#
+# Your docker.yml deployment passes:
+#
+#   EcrImageUri=$IMAGE_URI
+#
+# Therefore the ECS template must define:
+#
+#   EcrImageUri
+#
+# as a CloudFormation parameter.
+#
+# The previous template instead defined:
+#
+#   EcrRepositoryUri
+#   ImageTag
+#
+# That did NOT match docker.yml.
+#
+# FINAL CONTRACT:
+#
+#   docker.yml
+#       |
+#       | EcrImageUri=$IMAGE_URI
+#       v
+#   ecs.yaml
+#       |
+#       | EcrImageUri
+#       v
+#   TaskDefinition.Image
 #
 #
 # ============================================================
 # IMMUTABLE IMAGE TAGGING
 # ============================================================
 #
-# The Docker workflow uses the GitHub commit SHA as the image
-# tag.
+# The image should NOT use:
+#
+#   latest
+#
+# Instead, GitHub Actions should use an immutable tag such as:
+#
+#   Git commit SHA
 #
 # Example:
 #
-#   537236558357.dkr.ecr.us-east-1.amazonaws.com/
-#   HybridIaCLab-dev-app:
-#   abcdef1234567890...
+#   abcdef1234567890
 #
-# This is preferred over the "latest" tag because:
+# Docker image:
 #
-#   1. Every deployment points to one exact image.
-#   2. Deployments are reproducible.
-#   3. Rollbacks are easier.
-#   4. Image tags cannot accidentally be overwritten.
-#
-# IMPORTANT:
-#
-# The ECR repository used by this project is configured with
-# immutable image tags.
-#
-# Therefore this ECS deployment must NOT depend on repeatedly
-# pushing the "latest" tag.
-#
-#
-# ============================================================
-# ECR IMAGE REQUIREMENT
-# ============================================================
-#
-# Before deploying this stack:
-#
-#   A Docker image MUST already exist in ECR.
-#
-# The complete image URI is passed through:
-#
+#   ECR Repository
+#          +
+#   Git SHA
+#          |
+#          v
 #   EcrImageUri
 #
 # Example:
 #
 #   537236558357.dkr.ecr.us-east-1.amazonaws.com/
-#   HybridIaCLab-dev-app:COMMIT_SHA
+#   hybridiaclab-dev-app:abcdef1234567890
 #
 #
 # ============================================================
-# NETWORK ARCHITECTURE
+# ECR OUTPUT NAME
 # ============================================================
 #
-# This is a basic ECS Fargate learning-lab configuration.
+# The ECR template should expose the repository URI using:
 #
-# ECS tasks are deployed into public subnets with:
+#   RepositoryUri
 #
-#   AssignPublicIp: ENABLED
-#
-# The security group allows:
-#
-#   TCP 80 from 0.0.0.0/0
-#
-# This makes the container easy to test directly through its
-# public IP address.
-#
-#
-# Production architecture would normally use:
-#
-#   Internet
-#       |
-#       v
-#   Application Load Balancer
-#       |
-#       v
-#   Private ECS Fargate Tasks
-#
-# with:
-#
-#   AssignPublicIp: DISABLED
-#
-# and appropriate private subnet routing/NAT or VPC endpoints.
-#
-#
-# ============================================================
-# AWS CLI COMMANDS
-# ============================================================
-#
-# These commands are provided for manual troubleshooting and
-# learning.
-#
-# The GitHub Actions workflow will automate the deployment.
-#
-#
-# ============================================================
-# 1. VERIFY AWS CLI
-# ============================================================
-#
-# aws --version
-#
-#
-# ============================================================
-# 2. VERIFY AWS ACCOUNT
-# ============================================================
-#
-# aws sts get-caller-identity
-#
-#
-# ============================================================
-# 3. CHECK AWS REGION
-# ============================================================
-#
-# aws configure get region
-#
-# Expected:
-#
-# us-east-1
-#
-#
-# ============================================================
-# 4. FIND VPC
-# ============================================================
-#
-# aws ec2 describe-vpcs \
-#   --query "Vpcs[].{VpcId:VpcId,Cidr:CidrBlock}" \
-#   --output table \
-#   --region us-east-1
-#
-#
-# ============================================================
-# 5. FIND PUBLIC SUBNETS
-# ============================================================
-#
-# aws ec2 describe-subnets \
-#   --query "Subnets[].{SubnetId:SubnetId,VpcId:VpcId,AZ:AvailabilityZone,Cidr:CidrBlock}" \
-#   --output table \
-#   --region us-east-1
-#
-#
-# Select two suitable public subnets belonging to the
-# application VPC.
-#
-#
-# ============================================================
-# 6. CHECK ECR REPOSITORIES
-# ============================================================
-#
-# aws ecr describe-repositories \
-#   --region us-east-1
-#
-#
-# ============================================================
-# 7. LOGIN TO ECR
-# ============================================================
-#
-# aws ecr get-login-password \
-#   --region us-east-1 | \
-# docker login \
-#   --username AWS \
-#   --password-stdin \
-#   537236558357.dkr.ecr.us-east-1.amazonaws.com
-#
-#
-# ============================================================
-# 8. BUILD DOCKER IMAGE
-# ============================================================
-#
-# From the project root:
-#
-# docker build \
-#   -t hybrid-iac-app:COMMIT_SHA \
-#   docker/app
-#
-#
-# Replace COMMIT_SHA with the Git commit SHA.
-#
-#
-# ============================================================
-# 9. TAG DOCKER IMAGE
-# ============================================================
-#
-# docker tag \
-#   hybrid-iac-app:COMMIT_SHA \
-#   537236558357.dkr.ecr.us-east-1.amazonaws.com/HybridIaCLab-dev-app:COMMIT_SHA
-#
-#
-# ============================================================
-# 10. PUSH IMAGE TO ECR
-# ============================================================
-#
-# docker push \
-#   537236558357.dkr.ecr.us-east-1.amazonaws.com/HybridIaCLab-dev-app:COMMIT_SHA
-#
-#
-# IMPORTANT:
-#
-# Do NOT repeatedly push "latest" for this project because the
-# ECR repository uses immutable image tags.
-#
-#
-# ============================================================
-# 11. VERIFY IMAGE
-# ============================================================
-#
-# aws ecr describe-images \
-#   --repository-name HybridIaCLab-dev-app \
-#   --region us-east-1
-#
-#
-# ============================================================
-# 12. VALIDATE CLOUDFORMATION TEMPLATE
-# ============================================================
-#
-# From:
-#
-# infrastructure/cloudformation/
-#
-# Run:
-#
-# aws cloudformation validate-template \
-#   --template-body file://ecs.yaml \
-#   --region us-east-1
-#
-#
-# ============================================================
-# 13. DEPLOY ECS STACK
-# ============================================================
-#
-# IMPORTANT:
-#
-# The ECR image must already exist before running this command.
+# This is the canonical ECR repository URI output.
 #
 # Example:
 #
-# aws cloudformation deploy \
-#   --template-file ecs.yaml \
-#   --stack-name HybridIaCLab-dev-ECSStack \
-#   --parameter-overrides \
-#   ProjectName=HybridIaCLab \
-#   Environment=dev \
-#   VpcId=vpc-xxxxxxxxxxxxxxxxx \
-#   PublicSubnet1Id=subnet-xxxxxxxxxxxxxxxxx \
-#   PublicSubnet2Id=subnet-yyyyyyyyyyyyyyyyy \
-#   EcrImageUri=537236558357.dkr.ecr.us-east-1.amazonaws.com/HybridIaCLab-dev-app:COMMIT_SHA \
-#   --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
-#   --region us-east-1
+#   RepositoryUri =
+#   537236558357.dkr.ecr.us-east-1.amazonaws.com/
+#   hybridiaclab-dev-app
 #
+# docker.yml can then append the immutable image tag and
+# construct:
 #
-# IMPORTANT:
+#   IMAGE_URI=<RepositoryUri>:<GitSHA>
 #
-# Replace the VPC, subnet and image values with actual values.
+# The final IMAGE_URI is passed to this ECS template as:
+#
+#   EcrImageUri
 #
 #
 # ============================================================
-# 14. CHECK STACK
+# ECR LIFECYCLE
 # ============================================================
 #
-# aws cloudformation describe-stacks \
-#   --stack-name HybridIaCLab-dev-ECSStack \
-#   --region us-east-1
+# ECR lifecycle rules belong in:
 #
+#   ecr.yaml
 #
-# ============================================================
-# 15. WATCH CLOUDFORMATION EVENTS
-# ============================================================
+# They are intentionally NOT duplicated here.
 #
-# aws cloudformation describe-stack-events \
-#   --stack-name HybridIaCLab-dev-ECSStack \
-#   --region us-east-1
+# Recommended learning-lab policy:
+#
+#   Keep the newest 10 images.
 #
 #
 # ============================================================
-# 16. GET STACK OUTPUTS
+# IAM DESIGN
 # ============================================================
 #
-# aws cloudformation describe-stacks \
-#   --stack-name HybridIaCLab-dev-ECSStack \
-#   --query "Stacks[0].Outputs" \
-#   --output table \
-#   --region us-east-1
+# This template creates:
+#
+#   ECSTaskExecutionRole
+#
+# This role is DIFFERENT from the GitHub Actions OIDC role.
 #
 #
-# ============================================================
-# ECS CLI COMMANDS
-# ============================================================
+# ECS:
+#
+#   ECS/Fargate
+#       |
+#       v
+#   ECSTaskExecutionRole
+#       |
+#       +--> Pull image from ECR
+#       |
+#       +--> Write logs to CloudWatch
 #
 #
-# ============================================================
-# 17. LIST ECS CLUSTERS
-# ============================================================
+# GitHub Actions:
 #
-# aws ecs list-clusters \
-#   --region us-east-1
-#
-#
-# ============================================================
-# 18. DESCRIBE ECS CLUSTER
-# ============================================================
-#
-# aws ecs describe-clusters \
-#   --clusters HybridIaCLab-dev-ECSCluster \
-#   --region us-east-1
-#
-#
-# ============================================================
-# 19. LIST ECS SERVICES
-# ============================================================
-#
-# aws ecs list-services \
-#   --cluster HybridIaCLab-dev-ECSCluster \
-#   --region us-east-1
+#   GitHub
+#       |
+#       v
+#   OIDC
+#       |
+#       v
+#   GitHubActions IAM Role
+#       |
+#       +--> CloudFormation
+#       +--> ECR
+#       +--> ECS
+#       +--> other deployment permissions
 #
 #
-# ============================================================
-# 20. DESCRIBE ECS SERVICE
-# ============================================================
-#
-# aws ecs describe-services \
-#   --cluster HybridIaCLab-dev-ECSCluster \
-#   --services HybridIaCLab-dev-Service \
-#   --region us-east-1
+# The GitHub Actions IAM role MUST NOT be used as the ECS
+# task execution role.
 #
 #
 # ============================================================
-# 21. LIST RUNNING TASKS
+# ECS TASK ROLE
 # ============================================================
 #
-# aws ecs list-tasks \
-#   --cluster HybridIaCLab-dev-ECSCluster \
-#   --service-name HybridIaCLab-dev-Service \
-#   --desired-status RUNNING \
-#   --region us-east-1
+# This template intentionally does NOT create TaskRoleArn.
 #
+# Execution role:
 #
-# ============================================================
-# 22. DESCRIBE ECS TASK
-# ============================================================
+#   Used by ECS/Fargate for infrastructure-level operations.
 #
-# First obtain the task ARN:
+# Task role:
 #
-# aws ecs list-tasks \
-#   --cluster HybridIaCLab-dev-ECSCluster \
-#   --service-name HybridIaCLab-dev-Service \
-#   --region us-east-1
+#   Used by the application running inside the container.
 #
+# If the application later needs:
 #
-# Then:
+#   - S3
+#   - DynamoDB
+#   - Secrets Manager
+#   - SQS
+#   - KMS
+#   - other AWS APIs
 #
-# aws ecs describe-tasks \
-#   --cluster HybridIaCLab-dev-ECSCluster \
-#   --tasks YOUR_TASK_ARN \
-#   --region us-east-1
+# create a separate task role with least-privilege permissions.
 #
 #
 # ============================================================
-# 23. GET TASK PUBLIC IP
+# HEALTH CHECKS
 # ============================================================
 #
-# Because AssignPublicIp is ENABLED, the task receives a
-# public IP address.
+# There are TWO independent health checks.
 #
-# First obtain the task network interface:
+# ------------------------------------------------------------
+# 1. ECS CONTAINER HEALTH CHECK
+# ------------------------------------------------------------
 #
-# aws ecs describe-tasks \
-#   --cluster HybridIaCLab-dev-ECSCluster \
-#   --tasks YOUR_TASK_ARN \
-#   --query "tasks[0].attachments[0].details" \
-#   --output table \
-#   --region us-east-1
+# Runs INSIDE the container:
 #
+#   curl -f http://localhost/ || exit 1
 #
-# Find:
+# Therefore the Docker image must contain curl.
 #
-#   networkInterfaceId
+# If curl is not available, update the Docker image or change
+# the command to an executable available in the image.
 #
 #
-# Then:
+# ------------------------------------------------------------
+# 2. ALB TARGET HEALTH CHECK
+# ------------------------------------------------------------
 #
-# aws ec2 describe-network-interfaces \
-#   --network-interface-ids YOUR_NETWORK_INTERFACE_ID \
-#   --query "NetworkInterfaces[0].Association.PublicIp" \
-#   --output text \
-#   --region us-east-1
+# The ALB checks:
 #
+#   Protocol: HTTP
+#   Port: 80
+#   Path: /
 #
-# ============================================================
-# 24. TEST CONTAINER
-# ============================================================
+# Expected response:
 #
-# If the application listens on TCP port 80:
-#
-# curl http://YOUR_TASK_PUBLIC_IP
-#
-#
-# Or open:
-#
-# http://YOUR_TASK_PUBLIC_IP
+#   HTTP 200-399
 #
 #
 # ============================================================
-# CLOUDWATCH LOGGING
+# DEPLOYMENT SAFETY
 # ============================================================
 #
-# ECS sends container logs to:
+# ECS deployment circuit breaker is enabled.
 #
-#   /ecs/HybridIaCLab-dev
+# If a new deployment fails:
 #
+#   ECS deployment
+#        |
+#        v
+#   Health failure
+#        |
+#        v
+#   Deployment circuit breaker
+#        |
+#        v
+#   Automatic rollback
 #
-# ============================================================
-# 25. CHECK LOG GROUP
-# ============================================================
-#
-# aws logs describe-log-groups \
-#   --log-group-name-prefix /ecs/HybridIaCLab-dev \
-#   --region us-east-1
-#
-#
-# ============================================================
-# 26. LIST LOG STREAMS
-# ============================================================
-#
-# aws logs describe-log-streams \
-#   --log-group-name /ecs/HybridIaCLab-dev \
-#   --order-by LastEventTime \
-#   --descending \
-#   --region us-east-1
+# This is useful when deploying immutable Docker images.
 #
 #
-# ============================================================
-# 27. READ CONTAINER LOGS
-# ============================================================
-#
-# aws logs get-log-events \
-#   --log-group-name /ecs/HybridIaCLab-dev \
-#   --log-stream-name YOUR_LOG_STREAM \
-#   --region us-east-1
-#
-#
-# ============================================================
-# ECS TROUBLESHOOTING
-# ============================================================
-#
-# If the ECS service cannot start a task:
-#
-# aws ecs describe-services \
-#   --cluster HybridIaCLab-dev-ECSCluster \
-#   --services HybridIaCLab-dev-Service \
-#   --query "services[0].events[0:10]" \
-#   --output table \
-#   --region us-east-1
-#
-#
-# Check the task stopped reason:
-#
-# aws ecs describe-tasks \
-#   --cluster HybridIaCLab-dev-ECSCluster \
-#   --tasks YOUR_TASK_ARN \
-#   --query "tasks[0].{LastStatus:lastStatus,StopCode:stopCode,StoppedReason:stoppedReason}" \
-#   --output table \
-#   --region us-east-1
-#
-#
-# ============================================================
-# 28. FORCE NEW ECS DEPLOYMENT
-# ============================================================
-#
-# Normally the GitHub Actions workflow updates the ECS task
-# definition with a new immutable image URI.
-#
-# This command can still be useful for troubleshooting:
-#
-# aws ecs update-service \
-#   --cluster HybridIaCLab-dev-ECSCluster \
-#   --service HybridIaCLab-dev-Service \
-#   --force-new-deployment \
-#   --region us-east-1
-#
-#
-# IMPORTANT:
-#
-# With immutable SHA image tags, normally you should deploy a
-# new task definition containing the new image URI rather than
-# relying on the same image tag.
-#
-#
-# ============================================================
-# 29. CHECK ECS SERVICE DESIRED/RUNNING COUNT
-# ============================================================
-#
-# aws ecs describe-services \
-#   --cluster HybridIaCLab-dev-ECSCluster \
-#   --services HybridIaCLab-dev-Service \
-#   --query "services[0].{Desired:desiredCount,Running:runningCount,Pending:pendingCount}" \
-#   --output table \
-#   --region us-east-1
-#
-#
-# Expected for this learning lab:
-#
-#   Desired = 1
-#   Running = 1
-#   Pending = 0
-#
-#
-# ============================================================
-# CLEANUP
-# ============================================================
-#
-#
-# ============================================================
-# 30. DELETE ECS CLOUDFORMATION STACK
-# ============================================================
-#
-# aws cloudformation delete-stack \
-#   --stack-name HybridIaCLab-dev-ECSStack \
-#   --region us-east-1
-#
-#
-# ============================================================
-# 31. CHECK STACK DELETION
-# ============================================================
-#
-# aws cloudformation describe-stack-events \
-#   --stack-name HybridIaCLab-dev-ECSStack \
-#   --region us-east-1
-#
-#
-# ============================================================
-# 32. OPTIONAL - DELETE ECR REPOSITORY
-# ============================================================
-#
-# WARNING:
-#
-# This deletes the ECR repository and all images in it.
-#
-# The ECR repository is normally managed by the main
-# CloudFormation infrastructure stack, so do NOT run this
-# command during normal cleanup if CloudFormation is managing
-# the repository.
-#
-# If you intentionally want to remove it manually:
-#
-# aws ecr delete-repository \
-#   --repository-name HybridIaCLab-dev-app \
-#   --force \
-#   --region us-east-1
-#
-#
-# ============================================================
-# CLOUDFORMATION TEMPLATE
-# ============================================================
-
-AWSTemplateFormatVersion: "2010-09-09"
-
-Description: >
-  ECS Fargate container platform for the Hybrid IaC Lab.
-
-
 # ============================================================
 # PARAMETERS
 # ============================================================
@@ -646,97 +504,152 @@ Description: >
 Parameters:
 
   # ----------------------------------------------------------
-  # Project name
+  # PROJECT NAME
   # ----------------------------------------------------------
+  #
+  # Lowercase project name used for resource naming.
   #
   # Example:
   #
-  # HybridIaCLab
+  #   hybridiaclab
   #
-  # ----------------------------------------------------------
-
   ProjectName:
     Type: String
-    Description: Project name
+    Default: hybridiaclab
 
+    Description: >
+      Lowercase project name used for AWS resource naming.
+
+    AllowedPattern: "^[a-z0-9-]+$"
+
+    ConstraintDescription: >
+      ProjectName must contain only lowercase letters,
+      numbers, and hyphens.
 
   # ----------------------------------------------------------
-  # Environment
+  # ENVIRONMENT
   # ----------------------------------------------------------
+  #
+  # Deployment environment.
   #
   # Example:
   #
-  # dev
+  #   dev
+  #   test
+  #   prod
   #
-  # ----------------------------------------------------------
-
   Environment:
     Type: String
-    Description: Deployment environment
+    Default: dev
 
+    Description: >
+      Deployment environment.
+
+    AllowedPattern: "^[a-z0-9-]+$"
+
+    ConstraintDescription: >
+      Environment must contain only lowercase letters,
+      numbers, and hyphens.
 
   # ----------------------------------------------------------
-  # VPC
+  # VPC ID
   # ----------------------------------------------------------
   #
-  # The VPC is created by the VPC nested CloudFormation stack.
+  # The VPC is managed by the separate VPC infrastructure
+  # stack.
   #
-  # The GitHub Actions Docker workflow obtains the VPC ID from
-  # the main CloudFormation stack and passes it here.
-  #
-  # ----------------------------------------------------------
-
   VpcId:
     Type: AWS::EC2::VPC::Id
-    Description: VPC where ECS resources will run
 
+    Description: >
+      VPC where the Application Load Balancer and ECS
+      Fargate tasks will run.
 
   # ----------------------------------------------------------
   # PUBLIC SUBNET 1
   # ----------------------------------------------------------
   #
-  # ECS task subnet in Availability Zone 1.
+  # Used by the internet-facing Application Load Balancer.
   #
-  # ----------------------------------------------------------
-
   PublicSubnet1Id:
     Type: AWS::EC2::Subnet::Id
-    Description: First public subnet for ECS Fargate
 
+    Description: >
+      First public subnet used by the Application Load Balancer.
 
   # ----------------------------------------------------------
   # PUBLIC SUBNET 2
   # ----------------------------------------------------------
   #
-  # ECS task subnet in Availability Zone 2.
+  # Used by the internet-facing Application Load Balancer.
   #
-  # ----------------------------------------------------------
-
   PublicSubnet2Id:
     Type: AWS::EC2::Subnet::Id
-    Description: Second public subnet for ECS Fargate
 
+    Description: >
+      Second public subnet used by the Application Load
+      Balancer.
 
   # ----------------------------------------------------------
-  # ECR IMAGE URI
+  # PRIVATE SUBNET 1
   # ----------------------------------------------------------
   #
-  # This value is supplied AFTER GitHub Actions builds and
-  # pushes the Docker image to ECR.
+  # Used by ECS Fargate tasks.
+  #
+  PrivateSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+
+    Description: >
+      First private subnet used by ECS Fargate tasks.
+
+  # ----------------------------------------------------------
+  # PRIVATE SUBNET 2
+  # ----------------------------------------------------------
+  #
+  # Used by ECS Fargate tasks.
+  #
+  PrivateSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+
+    Description: >
+      Second private subnet used by ECS Fargate tasks.
+
+  # ==========================================================
+  # COMPLETE ECR IMAGE URI
+  # ==========================================================
+  #
+  # IMPORTANT:
+  #
+  # This parameter replaces the previous combination:
+  #
+  #   EcrRepositoryUri
+  #   ImageTag
+  #
+  # The complete image URI is supplied by docker.yml.
   #
   # Example:
   #
-  # 537236558357.dkr.ecr.us-east-1.amazonaws.com/
-  # HybridIaCLab-dev-app:COMMIT_SHA
+  #   537236558357.dkr.ecr.us-east-1.amazonaws.com/
+  #   hybridiaclab-dev-app:abcdef1234567890
   #
-  # The GitHub commit SHA is used as the image tag.
+  # This exactly matches:
   #
-  # ----------------------------------------------------------
-
+  #   EcrImageUri=$IMAGE_URI
+  #
+  # from the deployment workflow.
+  #
   EcrImageUri:
     Type: String
-    Description: Full URI of the immutable Docker image stored in Amazon ECR
 
+    Description: >
+      Complete immutable Amazon ECR Docker image URI,
+      including the repository URI and image tag.
+
+    AllowedPattern: "^[A-Za-z0-9][A-Za-z0-9._:/@-]*$"
+
+    ConstraintDescription: >
+      EcrImageUri must contain a valid ECR image URI
+      including its immutable image tag.
 
 # ============================================================
 # RESOURCES
@@ -744,13 +657,8 @@ Parameters:
 
 Resources:
 
-
   # ==========================================================
   # ECS CLUSTER
-  # ==========================================================
-  #
-  # Logical container management environment.
-  #
   # ==========================================================
 
   ECSCluster:
@@ -759,35 +667,117 @@ Resources:
     Properties:
 
       # ------------------------------------------------------
-      # Cluster name
+      # CLUSTER NAME
       # ------------------------------------------------------
 
       ClusterName:
         !Sub "${ProjectName}-${Environment}-ECSCluster"
 
-
       # ------------------------------------------------------
       # CONTAINER INSIGHTS
       # ------------------------------------------------------
       #
-      # Enables additional monitoring information for ECS.
+      # Enables enhanced ECS monitoring through CloudWatch.
       #
-      # This is useful for learning ECS and CloudWatch
-      # observability.
+      # Useful for this DevOps learning lab.
       #
-      # ------------------------------------------------------
-
       ClusterSettings:
 
         - Name: containerInsights
           Value: enabled
 
+      # ------------------------------------------------------
+      # TAGS
+      # ------------------------------------------------------
+
+      Tags:
+
+        - Key: Name
+          Value:
+            !Sub "${ProjectName}-${Environment}-ECSCluster"
+
+        - Key: Project
+          Value:
+            !Ref ProjectName
+
+        - Key: Environment
+          Value:
+            !Ref Environment
+
+  # ==========================================================
+  # ALB SECURITY GROUP
+  # ==========================================================
+  #
+  # Allows public HTTP traffic to the internet-facing ALB.
+  #
+  # ==========================================================
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+
+    Properties:
+
+      GroupDescription:
+        !Sub "${ProjectName}-${Environment} ALB security group"
+
+      VpcId:
+        !Ref VpcId
+
+      # ------------------------------------------------------
+      # INBOUND HTTP
+      # ------------------------------------------------------
+      #
+      # Internet
+      #    |
+      #    | TCP 80
+      #    v
+      # ALB
+      #
+      SecurityGroupIngress:
+
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: Public HTTP access to Application Load Balancer
+
+      # ------------------------------------------------------
+      # OUTBOUND
+      # ------------------------------------------------------
+
+      SecurityGroupEgress:
+
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow outbound traffic
+
+      # ------------------------------------------------------
+      # TAGS
+      # ------------------------------------------------------
+
+      Tags:
+
+        - Key: Name
+          Value:
+            !Sub "${ProjectName}-${Environment}-ALB-SG"
+
+        - Key: Project
+          Value:
+            !Ref ProjectName
+
+        - Key: Environment
+          Value:
+            !Ref Environment
 
   # ==========================================================
   # ECS SECURITY GROUP
   # ==========================================================
   #
-  # Controls network access to the Fargate task.
+  # Controls inbound traffic to ECS Fargate tasks.
+  #
+  # IMPORTANT:
+  #
+  # Port 80 is accessible ONLY from the ALB security group.
   #
   # ==========================================================
 
@@ -796,44 +786,45 @@ Resources:
 
     Properties:
 
-      # ------------------------------------------------------
-      # Description
-      # ------------------------------------------------------
-
       GroupDescription:
-        !Sub "${ProjectName}-${Environment} ECS security group"
-
-
-      # ------------------------------------------------------
-      # VPC
-      # ------------------------------------------------------
+        !Sub "${ProjectName}-${Environment} ECS task security group"
 
       VpcId:
         !Ref VpcId
 
-
-      # ======================================================
-      # INBOUND HTTP
-      # ======================================================
+      # ------------------------------------------------------
+      # INBOUND HTTP FROM ALB ONLY
+      # ------------------------------------------------------
       #
-      # Allows Internet clients to reach the container on
-      # TCP port 80.
+      # ALB Security Group
+      #       |
+      #       | TCP 80
+      #       v
+      # ECS Security Group
       #
-      # LAB ONLY:
-      #
-      # Production should normally place an Application Load
-      # Balancer in front of private ECS tasks.
-      #
-      # ======================================================
-
       SecurityGroupIngress:
 
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
-          CidrIp: 0.0.0.0/0
-          Description: HTTP access
+          SourceSecurityGroupId:
+            !Ref ALBSecurityGroup
+          Description: HTTP access from Application Load Balancer
 
+      # ------------------------------------------------------
+      # OUTBOUND
+      # ------------------------------------------------------
+      #
+      # Private ECS tasks need outbound connectivity for
+      # operations such as ECR and CloudWatch Logs.
+      #
+      # The VPC routing/NAT configuration provides the path.
+      #
+      SecurityGroupEgress:
+
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow outbound traffic
 
       # ------------------------------------------------------
       # TAGS
@@ -845,31 +836,255 @@ Resources:
           Value:
             !Sub "${ProjectName}-${Environment}-ECS-SG"
 
+        - Key: Project
+          Value:
+            !Ref ProjectName
+
+        - Key: Environment
+          Value:
+            !Ref Environment
+
+  # ==========================================================
+  # APPLICATION LOAD BALANCER
+  # ==========================================================
+  #
+  # Internet-facing ALB deployed across two public subnets.
+  #
+  # ==========================================================
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+
+    Properties:
+
+      # ------------------------------------------------------
+      # ALB NAME
+      # ------------------------------------------------------
+
+      Name:
+        !Sub "${ProjectName}-${Environment}-ALB"
+
+      # ------------------------------------------------------
+      # INTERNET FACING
+      # ------------------------------------------------------
+
+      Scheme: internet-facing
+
+      # ------------------------------------------------------
+      # IP ADDRESS TYPE
+      # ------------------------------------------------------
+
+      IpAddressType: ipv4
+
+      # ------------------------------------------------------
+      # LOAD BALANCER TYPE
+      # ------------------------------------------------------
+
+      Type: application
+
+      # ------------------------------------------------------
+      # SECURITY GROUP
+      # ------------------------------------------------------
+
+      SecurityGroups:
+
+        - !Ref ALBSecurityGroup
+
+      # ------------------------------------------------------
+      # PUBLIC SUBNETS
+      # ------------------------------------------------------
+      #
+      # Two public subnets provide multi-AZ ALB placement.
+      #
+      Subnets:
+
+        - !Ref PublicSubnet1Id
+        - !Ref PublicSubnet2Id
+
+      # ------------------------------------------------------
+      # ACCESS LOGGING
+      # ------------------------------------------------------
+      #
+      # Disabled for this cost-conscious learning lab.
+      #
+      # Production can enable ALB access logging to S3.
+      #
+      # LoadBalancerAttributes:
+      #
+      #   - Key: access_logs.s3.enabled
+      #     Value: "true"
+
+      # ------------------------------------------------------
+      # TAGS
+      # ------------------------------------------------------
+
+      Tags:
+
+        - Key: Name
+          Value:
+            !Sub "${ProjectName}-${Environment}-ALB"
+
+        - Key: Project
+          Value:
+            !Ref ProjectName
+
+        - Key: Environment
+          Value:
+            !Ref Environment
+
+  # ==========================================================
+  # ECS TARGET GROUP
+  # ==========================================================
+  #
+  # Fargate with awsvpc networking requires:
+  #
+  #   TargetType: ip
+  #
+  # The target group therefore registers ECS task ENI IP
+  # addresses.
+  #
+  # ==========================================================
+
+  ECSTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+
+    Properties:
+
+      Name:
+        !Sub "${ProjectName}-${Environment}-TG"
+
+      # ------------------------------------------------------
+      # FARGATE TARGET TYPE
+      # ------------------------------------------------------
+
+      TargetType: ip
+
+      # ------------------------------------------------------
+      # APPLICATION PROTOCOL
+      # ------------------------------------------------------
+
+      Protocol: HTTP
+
+      # ------------------------------------------------------
+      # APPLICATION PORT
+      # ------------------------------------------------------
+
+      Port: 80
+
+      VpcId:
+        !Ref VpcId
+
+      # ------------------------------------------------------
+      # ALB HEALTH CHECK
+      # ------------------------------------------------------
+
+      HealthCheckEnabled: true
+
+      HealthCheckProtocol: HTTP
+
+      HealthCheckPort: traffic-port
+
+      HealthCheckPath: /
+
+      HealthCheckIntervalSeconds: 30
+
+      HealthCheckTimeoutSeconds: 5
+
+      HealthyThresholdCount: 2
+
+      UnhealthyThresholdCount: 3
+
+      # ------------------------------------------------------
+      # EXPECTED HTTP STATUS CODES
+      # ------------------------------------------------------
+
+      Matcher:
+        HttpCode: "200-399"
+
+      # ------------------------------------------------------
+      # DEREGISTRATION DELAY
+      # ------------------------------------------------------
+      #
+      # Gives existing connections time to finish when ECS
+      # removes a task during deployment.
+      #
+      TargetGroupAttributes:
+
+        - Key: deregistration_delay.timeout_seconds
+          Value: "30"
+
+      # ------------------------------------------------------
+      # TAGS
+      # ------------------------------------------------------
+
+      Tags:
+
+        - Key: Name
+          Value:
+            !Sub "${ProjectName}-${Environment}-TargetGroup"
+
+        - Key: Project
+          Value:
+            !Ref ProjectName
+
+        - Key: Environment
+          Value:
+            !Ref Environment
+
+  # ==========================================================
+  # ALB HTTP LISTENER
+  # ==========================================================
+  #
+  # HTTP port 80 is intentionally used for this lab.
+  #
+  # ==========================================================
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+
+    Properties:
+
+      # ------------------------------------------------------
+      # LOAD BALANCER
+      # ------------------------------------------------------
+
+      LoadBalancerArn:
+        !Ref ApplicationLoadBalancer
+
+      # ------------------------------------------------------
+      # LISTENER PORT
+      # ------------------------------------------------------
+
+      Port: 80
+
+      # ------------------------------------------------------
+      # LISTENER PROTOCOL
+      # ------------------------------------------------------
+
+      Protocol: HTTP
+
+      # ------------------------------------------------------
+      # DEFAULT ACTION
+      # ------------------------------------------------------
+      #
+      # Forward traffic to the ECS target group.
+      #
+      DefaultActions:
+
+        - Type: forward
+
+          TargetGroupArn:
+            !Ref ECSTargetGroup
 
   # ==========================================================
   # ECS TASK EXECUTION ROLE
   # ==========================================================
   #
-  # This IAM role is assumed by the ECS task execution process.
-  #
-  # It provides permissions required to:
-  #
-  #   - Pull private Docker images from ECR
-  #   - Send container logs to CloudWatch Logs
-  #
   # IMPORTANT:
   #
-  # This role is different from the GitHub Actions OIDC role.
+  # This is the ECS task execution role.
   #
-  # GitHub Actions:
-  #
-  #   GitHub -> OIDC -> GitHubActions IAM Role
-  #
-  # ECS:
-  #
-  #   ECS Tasks -> ECSTaskExecutionRole
-  #
-  # Do not replace this role with the GitHub Actions role.
+  # It is NOT the GitHub Actions OIDC role.
   #
   # ==========================================================
 
@@ -878,18 +1093,15 @@ Resources:
 
     Properties:
 
-      # ------------------------------------------------------
-      # Role name
-      # ------------------------------------------------------
-
       RoleName:
         !Sub "${ProjectName}-${Environment}-ECSTaskExecutionRole"
 
-
-      # ======================================================
+      # ------------------------------------------------------
       # TRUST POLICY
-      # ======================================================
-
+      # ------------------------------------------------------
+      #
+      # ECS tasks are allowed to assume this role.
+      #
       AssumeRolePolicyDocument:
 
         Version: "2012-10-17"
@@ -906,28 +1118,43 @@ Resources:
             Action:
               - sts:AssumeRole
 
-
-      # ======================================================
-      # MANAGED POLICY
-      # ======================================================
+      # ------------------------------------------------------
+      # AWS MANAGED ECS EXECUTION POLICY
+      # ------------------------------------------------------
       #
-      # Provides standard ECS task execution permissions.
+      # Provides the standard ECS task execution permissions,
+      # including:
       #
-      # This includes permissions required to pull private
-      # images from ECR and send container logs to CloudWatch.
+      #   - ECR image pulling
+      #   - CloudWatch Logs
       #
-      # ======================================================
-
       ManagedPolicyArns:
 
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
 
+      # ------------------------------------------------------
+      # TAGS
+      # ------------------------------------------------------
+
+      Tags:
+
+        - Key: Name
+          Value:
+            !Sub "${ProjectName}-${Environment}-ECSTaskExecutionRole"
+
+        - Key: Project
+          Value:
+            !Ref ProjectName
+
+        - Key: Environment
+          Value:
+            !Ref Environment
 
   # ==========================================================
   # CLOUDWATCH LOG GROUP
   # ==========================================================
   #
-  # Stores container logs.
+  # Stores container stdout/stderr logs.
   #
   # ==========================================================
 
@@ -936,32 +1163,36 @@ Resources:
 
     Properties:
 
-      # ------------------------------------------------------
-      # Log group name
-      # ------------------------------------------------------
-
       LogGroupName:
         !Sub "/ecs/${ProjectName}-${Environment}"
-
 
       # ------------------------------------------------------
       # LOG RETENTION
       # ------------------------------------------------------
       #
-      # Logs are automatically retained for 7 days.
+      # Seven days keeps the learning lab inexpensive.
       #
-      # This helps control lab storage costs.
-      #
-      # ------------------------------------------------------
-
       RetentionInDays: 7
 
+      # ------------------------------------------------------
+      # TAGS
+      # ------------------------------------------------------
+
+      Tags:
+
+        - Key: Project
+          Value:
+            !Ref ProjectName
+
+        - Key: Environment
+          Value:
+            !Ref Environment
 
   # ==========================================================
   # ECS TASK DEFINITION
   # ==========================================================
   #
-  # Defines how the Docker container should run.
+  # Defines the Fargate container configuration.
   #
   # ==========================================================
 
@@ -971,23 +1202,19 @@ Resources:
     Properties:
 
       # ------------------------------------------------------
-      # Task family
+      # TASK FAMILY
       # ------------------------------------------------------
 
       Family:
         !Sub "${ProjectName}-${Environment}-Task"
 
-
       # ------------------------------------------------------
       # NETWORK MODE
       # ------------------------------------------------------
       #
-      # Fargate requires awsvpc networking.
+      # awsvpc is required for Fargate.
       #
-      # ------------------------------------------------------
-
       NetworkMode: awsvpc
-
 
       # ------------------------------------------------------
       # FARGATE COMPATIBILITY
@@ -997,17 +1224,13 @@ Resources:
 
         - FARGATE
 
-
       # ------------------------------------------------------
       # CPU
       # ------------------------------------------------------
       #
-      # 256 CPU units.
+      # 256 CPU units = 0.25 vCPU.
       #
-      # ------------------------------------------------------
-
       Cpu: "256"
-
 
       # ------------------------------------------------------
       # MEMORY
@@ -1015,76 +1238,118 @@ Resources:
       #
       # 512 MiB.
       #
-      # ------------------------------------------------------
-
       Memory: "512"
-
 
       # ------------------------------------------------------
       # EXECUTION ROLE
-      # ------------------------------------------------------
-      #
-      # Allows ECS to pull the ECR image and send logs.
-      #
       # ------------------------------------------------------
 
       ExecutionRoleArn:
         !GetAtt ECSTaskExecutionRole.Arn
 
+      # ------------------------------------------------------
+      # TASK ROLE
+      # ------------------------------------------------------
+      #
+      # Intentionally omitted.
+      #
+      # The application does not receive AWS API permissions
+      # through a task role in this version of the lab.
+      #
+      # If required later, create a separate least-privilege
+      # task role.
+      #
+      # TaskRoleArn:
+      #   !GetAtt ECSTaskRole.Arn
 
       # ======================================================
-      # CONTAINER DEFINITION
+      # CONTAINER DEFINITIONS
       # ======================================================
 
       ContainerDefinitions:
 
         - Name: application
 
-
           # --------------------------------------------------
-          # DOCKER IMAGE
+          # IMMUTABLE ECR IMAGE
           # --------------------------------------------------
           #
-          # The image URI is supplied by GitHub Actions.
+          # The COMPLETE image URI is provided by docker.yml.
           #
           # Example:
           #
-          # 537236558357.dkr.ecr.us-east-1.amazonaws.com/
-          # HybridIaCLab-dev-app:COMMIT_SHA
+          #   537236558357.dkr.ecr.us-east-1.amazonaws.com/
+          #   hybridiaclab-dev-app:abcdef1234567890
           #
-          # --------------------------------------------------
-
+          # This fixes the previous mismatch between:
+          #
+          #   docker.yml
+          #
+          # and:
+          #
+          #   ecs.yaml
+          #
           Image:
             !Ref EcrImageUri
-
 
           # --------------------------------------------------
           # ESSENTIAL CONTAINER
           # --------------------------------------------------
-          #
-          # If this container stops, ECS considers the task
-          # unhealthy/stopped.
-          #
-          # --------------------------------------------------
 
           Essential: true
-
 
           # --------------------------------------------------
           # PORT MAPPING
           # --------------------------------------------------
           #
-          # Container listens on:
+          # Application listens on port 80.
           #
-          #   TCP 80
-          #
-          # --------------------------------------------------
-
           PortMappings:
 
             - ContainerPort: 80
               Protocol: tcp
 
+          # ==================================================
+          # ECS CONTAINER HEALTH CHECK
+          # ==================================================
+          #
+          # Runs INSIDE the container.
+          #
+          # The Docker image must contain curl.
+          #
+          HealthCheck:
+
+            Command:
+
+              - CMD-SHELL
+              - "curl -f http://localhost/ || exit 1"
+
+            # ------------------------------------------------
+            # CHECK INTERVAL
+            # ------------------------------------------------
+
+            Interval: 30
+
+            # ------------------------------------------------
+            # CHECK TIMEOUT
+            # ------------------------------------------------
+
+            Timeout: 5
+
+            # ------------------------------------------------
+            # FAILURE RETRIES
+            # ------------------------------------------------
+
+            Retries: 3
+
+            # ------------------------------------------------
+            # START PERIOD
+            # ------------------------------------------------
+            #
+            # Allows the application time to start before
+            # health-check failures count.
+            #
+            StartPeriod: 60
 
           # ==================================================
           # CLOUDWATCH LOGGING
@@ -1097,12 +1362,11 @@ Resources:
             Options:
 
               # ------------------------------------------------
-              # CloudWatch Log Group
+              # LOG GROUP
               # ------------------------------------------------
 
               awslogs-group:
                 !Ref LogGroup
-
 
               # ------------------------------------------------
               # AWS REGION
@@ -1111,23 +1375,17 @@ Resources:
               awslogs-region:
                 !Ref AWS::Region
 
-
               # ------------------------------------------------
               # LOG STREAM PREFIX
               # ------------------------------------------------
 
               awslogs-stream-prefix: ecs
 
-
   # ==========================================================
   # ECS SERVICE
   # ==========================================================
   #
-  # Maintains the desired number of running Fargate tasks.
-  #
-  # DesiredCount = 1
-  #
-  # ECS automatically attempts to replace a task if it stops.
+  # Maintains the desired number of Fargate tasks.
   #
   # ==========================================================
 
@@ -1135,11 +1393,15 @@ Resources:
     Type: AWS::ECS::Service
 
     # --------------------------------------------------------
-    # Ensure the ECS cluster exists before creating the service.
+    # DEPENDENCY
     # --------------------------------------------------------
-
+    #
+    # Ensure the ALB listener exists before the ECS service
+    # begins registering tasks with the target group.
+    #
     DependsOn:
-      - ECSCluster
+
+      - ALBListener
 
     Properties:
 
@@ -1150,7 +1412,6 @@ Resources:
       ServiceName:
         !Sub "${ProjectName}-${Environment}-Service"
 
-
       # ------------------------------------------------------
       # ECS CLUSTER
       # ------------------------------------------------------
@@ -1158,28 +1419,24 @@ Resources:
       Cluster:
         !Ref ECSCluster
 
-
       # ------------------------------------------------------
       # LAUNCH TYPE
-      # ------------------------------------------------------
-      #
-      # AWS manages the underlying servers.
-      #
       # ------------------------------------------------------
 
       LaunchType: FARGATE
 
-
       # ------------------------------------------------------
-      # DESIRED TASK COUNT
+      # DESIRED COUNT
       # ------------------------------------------------------
       #
-      # One task for this learning lab.
+      # One task keeps this lab cost-conscious.
       #
-      # ------------------------------------------------------
-
+      # IMPORTANT:
+      #
+      # One task does NOT provide actual task redundancy
+      # across both Availability Zones.
+      #
       DesiredCount: 1
-
 
       # ------------------------------------------------------
       # TASK DEFINITION
@@ -1188,6 +1445,46 @@ Resources:
       TaskDefinition:
         !Ref TaskDefinition
 
+      # ======================================================
+      # DEPLOYMENT CONFIGURATION
+      # ======================================================
+      #
+      # Enables ECS deployment circuit breaker and automatic
+      # rollback.
+      #
+      DeploymentConfiguration:
+
+        DeploymentCircuitBreaker:
+
+          Enable: true
+
+          Rollback: true
+
+        # ----------------------------------------------------
+        # MAXIMUM PERCENT
+        # ----------------------------------------------------
+        #
+        # DesiredCount = 1
+        #
+        # MaximumPercent = 200
+        #
+        # ECS can temporarily run up to 2 tasks during a
+        # rolling deployment when capacity permits.
+        #
+        MaximumPercent: 200
+
+        # ----------------------------------------------------
+        # MINIMUM HEALTHY PERCENT
+        # ----------------------------------------------------
+        #
+        # DesiredCount = 1
+        #
+        # MinimumHealthyPercent = 50
+        #
+        # ECS may temporarily operate below one healthy task
+        # during deployment according to ECS scheduling rules.
+        #
+        MinimumHealthyPercent: 50
 
       # ======================================================
       # NETWORK CONFIGURATION
@@ -1201,36 +1498,61 @@ Resources:
           # PUBLIC IP
           # --------------------------------------------------
           #
-          # ENABLED makes the Fargate task receive a public IP.
+          # DISABLED.
           #
-          # This is intentionally used for the basic lab.
+          # ECS tasks remain private.
           #
-          # Production architecture would normally use private
-          # subnets behind an Application Load Balancer.
-          #
-          # --------------------------------------------------
-
-          AssignPublicIp: ENABLED
-
+          AssignPublicIp: DISABLED
 
           # --------------------------------------------------
-          # SUBNETS
+          # PRIVATE SUBNETS
           # --------------------------------------------------
 
           Subnets:
 
-            - !Ref PublicSubnet1Id
-            - !Ref PublicSubnet2Id
-
+            - !Ref PrivateSubnet1Id
+            - !Ref PrivateSubnet2Id
 
           # --------------------------------------------------
-          # SECURITY GROUP
+          # ECS SECURITY GROUP
           # --------------------------------------------------
 
           SecurityGroups:
 
             - !Ref ECSSecurityGroup
 
+      # ======================================================
+      # ALB INTEGRATION
+      # ======================================================
+      #
+      # Connects the ECS service to the ALB target group.
+      #
+      LoadBalancers:
+
+        - ContainerName: application
+
+          ContainerPort: 80
+
+          TargetGroupArn:
+            !Ref ECSTargetGroup
+
+      # ------------------------------------------------------
+      # SERVICE TAGS
+      # ------------------------------------------------------
+
+      Tags:
+
+        - Key: Name
+          Value:
+            !Sub "${ProjectName}-${Environment}-ECSService"
+
+        - Key: Project
+          Value:
+            !Ref ProjectName
+
+        - Key: Environment
+          Value:
+            !Ref Environment
 
 # ============================================================
 # OUTPUTS
@@ -1238,18 +1560,17 @@ Resources:
 
 Outputs:
 
-
   # ==========================================================
   # ECS CLUSTER NAME
   # ==========================================================
 
   ECSClusterName:
 
-    Description: ECS cluster name
+    Description: >
+      ECS cluster name.
 
     Value:
       !Ref ECSCluster
-
 
   # ==========================================================
   # ECS SERVICE NAME
@@ -1257,11 +1578,11 @@ Outputs:
 
   ECSServiceName:
 
-    Description: ECS service name
+    Description: >
+      ECS service name.
 
     Value:
       !GetAtt ECSService.Name
-
 
   # ==========================================================
   # TASK DEFINITION ARN
@@ -1269,8 +1590,154 @@ Outputs:
 
   TaskDefinitionArn:
 
-    Description: ECS task definition ARN
+    Description: >
+      ECS task definition ARN.
 
     Value:
       !Ref TaskDefinition
+
+  # ==========================================================
+  # ECS SECURITY GROUP ID
+  # ==========================================================
+
+  ECSSecurityGroupId:
+
+    Description: >
+      Security group attached to ECS Fargate tasks.
+
+    Value:
+      !Ref ECSSecurityGroup
+
+  # ==========================================================
+  # ALB SECURITY GROUP ID
+  # ==========================================================
+
+  ALBSecurityGroupId:
+
+    Description: >
+      Security group attached to the Application Load Balancer.
+
+    Value:
+      !Ref ALBSecurityGroup
+
+  # ==========================================================
+  # APPLICATION LOAD BALANCER ARN
+  # ==========================================================
+
+  ALBArn:
+
+    Description: >
+      Application Load Balancer ARN.
+
+    Value:
+      !Ref ApplicationLoadBalancer
+
+  # ==========================================================
+  # APPLICATION LOAD BALANCER DNS NAME
+  # ==========================================================
+
+  ALBDnsName:
+
+    Description: >
+      DNS name of the internet-facing Application Load Balancer.
+
+    Value:
+      !GetAtt ApplicationLoadBalancer.DNSName
+
+  # ==========================================================
+  # TARGET GROUP ARN
+  # ==========================================================
+
+  TargetGroupArn:
+
+    Description: >
+      ECS target group ARN.
+
+    Value:
+      !Ref ECSTargetGroup
+
+  # ==========================================================
+  # TARGET GROUP FULL NAME
+  # ==========================================================
+
+  TargetGroupFullName:
+
+    Description: >
+      Full name of the ECS target group.
+
+    Value:
+      !GetAtt ECSTargetGroup.TargetGroupFullName
+
+  # ==========================================================
+  # ALB LISTENER ARN
+  # ==========================================================
+
+  ALBListenerArn:
+
+    Description: >
+      Application Load Balancer HTTP listener ARN.
+
+    Value:
+      !Ref ALBListener
+
+  # ==========================================================
+  # CLOUDWATCH LOG GROUP
+  # ==========================================================
+
+  LogGroupName:
+
+    Description: >
+      ECS CloudWatch log group.
+
+    Value:
+      !Ref LogGroup
+
+  # ==========================================================
+  # ECS TASK EXECUTION ROLE ARN
+  # ==========================================================
+
+  ECSTaskExecutionRoleArn:
+
+    Description: >
+      ECS task execution IAM role ARN.
+
+    Value:
+      !GetAtt ECSTaskExecutionRole.Arn
+
+  # ==========================================================
+  # DEPLOYED ECR IMAGE URI
+  # ==========================================================
+  #
+  # This outputs the exact image URI deployed by ECS.
+  #
+  # Example:
+  #
+  #   repository:abcdef1234567890
+  #
+  # ==========================================================
+
+  EcrImageUri:
+
+    Description: >
+      Complete immutable ECR image URI deployed to ECS.
+
+    Value:
+      !Ref EcrImageUri
+
+  # ==========================================================
+  # APPLICATION URL
+  # ==========================================================
+  #
+  # HTTP is intentionally used for this learning lab.
+  #
+  # ==========================================================
+
+  ApplicationURL:
+
+    Description: >
+      HTTP URL for accessing the application through the
+      Application Load Balancer.
+
+    Value:
+      !Sub "http://${ApplicationLoadBalancer.DNSName}"
 

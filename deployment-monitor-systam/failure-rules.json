@@ -1,0 +1,155 @@
+{
+  "rules": [
+    {
+      "category": "IAM / PERMISSIONS",
+      "priority": 1,
+      "patterns": [
+        "AccessDenied",
+        "is not authorized",
+        "not authorized to perform",
+        "UnauthorizedOperation",
+        "Access Denied",
+        "authorization",
+        "iam:"
+      ],
+      "recommendation": "Inspect the IAM role used by CloudFormation and verify the required service permissions."
+    },
+    {
+      "category": "IAM / PASSROLE",
+      "priority": 1,
+      "patterns": [
+        "iam:PassRole",
+        "PassRole",
+        "cannot pass role",
+        "not authorized to perform iam:PassRole"
+      ],
+      "recommendation": "Verify that the CloudFormation execution role has iam:PassRole permission for the target service role."
+    },
+    {
+      "category": "EKS / NODE PROVISIONING",
+      "priority": 1,
+      "patterns": [
+        "EKS",
+        "eks:",
+        "NodeCreationFailure",
+        "NodeCreationFailure",
+        "Node group",
+        "node group",
+        "Amazon EKS"
+      ],
+      "recommendation": "Inspect EKS cluster, node group IAM roles, subnet connectivity, security groups, instance profile, AMI compatibility, and service quotas."
+    },
+    {
+      "category": "NETWORKING",
+      "priority": 1,
+      "patterns": [
+        "VPC",
+        "Subnet",
+        "RouteTable",
+        "Route Table",
+        "SecurityGroup",
+        "security group",
+        "InternetGateway",
+        "NatGateway",
+        "NAT Gateway",
+        "availability zone"
+      ],
+      "recommendation": "Inspect VPC, subnet, route table, NAT/Internet Gateway, security group, and Availability Zone configuration."
+    },
+    {
+      "category": "RESOURCE NAMING / EXISTENCE",
+      "priority": 2,
+      "patterns": [
+        "already exists",
+        "AlreadyExists",
+        "Resource already exists",
+        "does not exist",
+        "not found",
+        "NoSuch",
+        "EntityAlreadyExists"
+      ],
+      "recommendation": "Check whether the resource already exists, was deleted manually, or conflicts with another stack/resource."
+    },
+    {
+      "category": "CLOUDFORMATION TEMPLATE",
+      "priority": 1,
+      "patterns": [
+        "Template format error",
+        "Invalid template",
+        "TemplateURL",
+        "Template validation error",
+        "Unresolved resource dependencies",
+        "Fn::GetAtt",
+        "does not exist in the template"
+      ],
+      "recommendation": "Validate the CloudFormation template and verify parameters, dependencies, references, TemplateURL values, and nested stack templates."
+    },
+    {
+      "category": "S3 / CLOUDFORMATION TEMPLATE",
+      "priority": 1,
+      "patterns": [
+        "S3 object",
+        "NoSuchKey",
+        "NoSuchBucket",
+        "The specified key does not exist",
+        "does not exist in bucket"
+      ],
+      "recommendation": "Verify the S3 bucket, object key, region, permissions, and that the referenced CloudFormation template actually exists."
+    },
+    {
+      "category": "LAMBDA",
+      "priority": 2,
+      "patterns": [
+        "AWS::Lambda",
+        "Lambda",
+        "lambda",
+        "function",
+        "Layer"
+      ],
+      "recommendation": "Inspect Lambda role permissions, runtime, architecture, layer compatibility, package contents, environment variables, and dependencies."
+    },
+    {
+      "category": "API GATEWAY",
+      "priority": 2,
+      "patterns": [
+        "AWS::ApiGateway",
+        "API Gateway",
+        "apigateway",
+        "ApiGateway"
+      ],
+      "recommendation": "Inspect API Gateway resource configuration, IAM roles, integrations, deployments, authorizers, VPC links, and dependencies."
+    },
+    {
+      "category": "RDS",
+      "priority": 2,
+      "patterns": [
+        "AWS::RDS",
+        "RDS",
+        "DBInstance",
+        "DBCluster"
+      ],
+      "recommendation": "Inspect subnet groups, security groups, engine/version, credentials, parameter groups, storage, and network connectivity."
+    },
+    {
+      "category": "DYNAMODB",
+      "priority": 2,
+      "patterns": [
+        "AWS::DynamoDB",
+        "DynamoDB",
+        "dynamodb"
+      ],
+      "recommendation": "Inspect table name conflicts, billing mode, key schema, indexes, encryption, and IAM permissions."
+    },
+    {
+      "category": "ROLLBACK",
+      "priority": 3,
+      "patterns": [
+        "ROLLBACK_FAILED",
+        "UPDATE_ROLLBACK_FAILED",
+        "ROLLBACK_COMPLETE",
+        "UPDATE_ROLLBACK_COMPLETE"
+      ],
+      "recommendation": "Do not treat rollback status as the original root cause. Find the earliest CREATE_FAILED or UPDATE_FAILED event before rollback."
+    }
+  ]
+}

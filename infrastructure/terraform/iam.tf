@@ -935,50 +935,43 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
         Resource = "*"
       },
 
+
       # ====================================================
-      # IAM ROLE MANAGEMENT FOR CLOUDFORMATION
+      # IAM ROLE MANAGEMENT FOR CLOUDFORMATION-MANAGED ROLES
       # ====================================================
       #
       # CloudFormation creates and manages IAM roles used
       # by the nested CloudFormation stacks.
       #
-      # The Lambda nested stack creates an AWS::IAM::Role.
+      # These roles can include:
       #
-      # Because RoleName is not explicitly specified in the
-      # CloudFormation template, CloudFormation generates the
-      # physical IAM role name.
+      #     - Lambda execution roles
+      #     - EC2 instance roles
+      #     - EKS cluster roles
+      #     - EKS node roles
       #
-      # Example:
+      # The role ARN pattern:
       #
-      # hybridiaclab-dev-MainStack-Lamb-LambdaExecutionRole-XXXXXXX
+      #     ${local.name_prefix}-*
       #
-      #  Therefore IAM permissions use:
-      #
-      #
-      # 
-      #       ${local.name_prefix}-*
-      #
-      # 
-      # to cover generated Lambda execution-role names.  
+      # intentionally covers CloudFormation-managed roles that
+      # belong to this lab.
       #
       # CloudFormation therefore needs permission to:
       #
-      #     - Create the role
-      #     - Read the role
+      #     - Create roles
+      #     - Read roles
       #     - Read inline policies
       #     - Create/update inline policies
       #     - Delete inline policies
       #     - Attach managed policies
       #     - Detach managed policies
-      #     - Delete the role during rollback/cleanup
-      #
-      # These permissions are intentionally restricted to
-      # the Lambda execution role.
+      #     - Delete roles during rollback/cleanup
       #
       # ====================================================
 
       {
-        Sid    = "ManageLambdaExecutionRole"
+        Sid    = "ManageCloudFormationManagedRoles"
         Effect = "Allow"
 
         Action = [
@@ -998,6 +991,44 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
 
         Resource = [
           "arn:aws:iam::537236558357:role/${local.name_prefix}-*"
+        ]
+      },
+
+      # ====================================================
+      # IAM INSTANCE PROFILE MANAGEMENT FOR EC2
+      # ====================================================
+      #
+      # The EC2 nested CloudFormation stack creates an
+      # IAM Instance Profile and associates the EC2 IAM
+      # role with that profile.
+      #
+      # CloudFormation therefore needs permission to:
+      #
+      #     - Create the instance profile
+      #     - Read the instance profile
+      #     - Add the EC2 role to the profile
+      #     - Remove the EC2 role from the profile
+      #     - Delete the instance profile during cleanup
+      #
+      # The resource pattern follows the same lab naming
+      # convention used by the CloudFormation-managed roles.
+      #
+      # ====================================================
+
+      {
+        Sid    = "ManageEC2InstanceProfiles"
+        Effect = "Allow"
+
+        Action = [
+          "iam:CreateInstanceProfile",
+          "iam:GetInstanceProfile",
+          "iam:AddRoleToInstanceProfile",
+          "iam:RemoveRoleFromInstanceProfile",
+          "iam:DeleteInstanceProfile"
+        ]
+
+        Resource = [
+          "arn:aws:iam::537236558357:instance-profile/${local.name_prefix}-*"
         ]
       },
 

@@ -170,9 +170,7 @@ env:
   # ----------------------------------------------------------
 
   AWS_REGION: "us-east-1"
-
   AWS_EXPECTED_ROLE_NAME: "aws-hybrid-iac-lab-GitHubActions"
-
   AWS_ROLE_SESSION_NAME: "GitHubActions-Terraform"
 
 
@@ -207,13 +205,9 @@ env:
   # ----------------------------------------------------------
 
   TF_WORKING_DIRECTORY: "infrastructure/terraform"
-
   TF_VERSION: "latest"
-
   TF_PLAN_FILE: "tfplan"
-
   TF_IN_AUTOMATION: "true"
-
   TF_INPUT: "false"
 
 
@@ -264,7 +258,6 @@ jobs:
   terraform:
 
     name: Terraform Infrastructure Deployment
-
     runs-on: ubuntu-latest
 
 
@@ -282,7 +275,6 @@ jobs:
     # ========================================================
 
     steps:
-
 
       # ======================================================
       # STEP 1
@@ -302,7 +294,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           echo "=================================================="
           echo "PRE-FLIGHT CONFIGURATION VALIDATION"
           echo "=================================================="
@@ -702,14 +693,12 @@ jobs:
               awk '
                 {
                   remainder = length($0) % 4;
-
                   if (remainder == 2) {
                     $0 = $0 "==";
                   }
                   else if (remainder == 3) {
                     $0 = $0 "=";
                   }
-
                   print $0;
                 }
               ' |
@@ -963,8 +952,10 @@ jobs:
 
           echo ""
           echo "AWS account verification: PASSED"
+
           echo ""
           echo "AWS role verification: PASSED"
+
           echo ""
           echo "AWS OIDC authentication: PASSED"
 
@@ -1240,14 +1231,19 @@ jobs:
             echo "Terraform state command completed successfully."
 
             if [[ -s "${STATE_FILE}" ]]; then
+
               echo ""
               echo "Resources currently recorded in Terraform state:"
               echo "--------------------------------------------------"
+
               cat "${STATE_FILE}"
+
             else
+
               echo ""
               echo "Terraform state exists but currently contains"
               echo "no resources."
+
             fi
 
             echo ""
@@ -1404,1124 +1400,273 @@ jobs:
 
 
       # ==========================================================
-      # STEP 15
-      # TERRAFORM APPLY + LIVE CLOUDFORMATION MONITOR
-      #
-      # IMPORTANT:
-      #
-      # Terraform project_name:
-      #
-      #   hybridiaclab
-      #
-      # Environment:
-      #
-      #   dev
-      #
-      # Real root CloudFormation stack:
-      #
-      #   hybridiaclab-dev-MainStack
-      #
-      # This step:
-      #
-      #   1. Verifies PowerShell.
-      #   2. Builds the correct root stack name.
-      #   3. Starts the live CloudFormation monitor.
-      #   4. Runs the exact Terraform plan.
-      #   5. Preserves Terraform's original exit code.
-      #   6. If Terraform fails, directly queries CloudFormation.
-      #   7. Displays root stack failure events.
-      #   8. Discovers nested CloudFormation stacks.
-      #   9. Recursively inspects nested stack events.
-      #  10. Displays exact ResourceStatusReason values.
-      #
-      # This means failures such as:
-      #
-      #   EFS CREATE_FAILED
-      #   EKS CREATE_FAILED
-      #   Lambda CREATE_FAILED
-      #   RDS CREATE_FAILED
-      #   API Gateway CREATE_FAILED
-      #
-      # can be exposed directly in the GitHub Actions log.
-      #
+      # STEP 15 - TERRAFORM APPLY + LIVE CLOUDFORMATION MONITOR
       # ==========================================================
 
-      - name: Terraform Apply With Live CloudFormation Diagnostics
+      - name: Step 15 - Terraform Apply With Live CloudFormation Diagnostics
         if: ${{ env.TF_AUTO_APPROVE == 'true' }}
         working-directory: ${{ env.TF_WORKING_DIRECTORY }}
         shell: pwsh
+
+        env:
+          AWS_PAGER: ""
+
         run: |
 
           $ErrorActionPreference = "Continue"
 
           Write-Host ""
+
           Write-Host "============================================================" -ForegroundColor Cyan
-          Write-Host "STEP 15 - TERRAFORM APPLY WITH LIVE CLOUDFORMATION MONITOR" -ForegroundColor Cyan
+          Write-Host "STEP 15 - TERRAFORM APPLY + LIVE CLOUDFORMATION MONITOR" -ForegroundColor Cyan
           Write-Host "============================================================" -ForegroundColor Cyan
+
           Write-Host ""
 
+          # ==========================================================
+          # REPOSITORY ROOT
+          # ==========================================================
+          #
+          # TF_WORKING_DIRECTORY is normally:
+          #
+          #   infrastructure/terraform
+          #
+          # Therefore:
+          #
+          #   ../.. = repository root
+          #
+          # ==========================================================
 
-          # ======================================================
-          # [1/9]
-          # VERIFY POWERSHELL
-          # ======================================================
+          $RepositoryRoot = (
+            Resolve-Path "../.."
+          ).Path
 
-          Write-Host "[1/9] Verifying PowerShell..." -ForegroundColor Yellow
+          Write-Host "Repository root:"
+          Write-Host $RepositoryRoot
 
-          $PwshCommand = Get-Command pwsh -ErrorAction SilentlyContinue
 
-          if ($null -eq $PwshCommand) {
+          # ==========================================================
+          # NEW MONITOR DIRECTORY
+          # ==========================================================
 
-              Write-Host ""
-              Write-Host "ERROR: pwsh was not found." -ForegroundColor Red
+          $MonitorDirectory = Join-Path `
+            $RepositoryRoot `
+            "deployment-monitor-systam"
 
-              exit 1
+          Write-Host ""
+          Write-Host "Deployment monitor directory:"
+          Write-Host $MonitorDirectory
+
+
+          # ==========================================================
+          # OUTPUT DIRECTORY
+          # ==========================================================
+
+          $OutputDirectory = Join-Path `
+            $RepositoryRoot `
+            "deployment-logs"
+
+          Write-Host ""
+          Write-Host "Deployment diagnostics directory:"
+          Write-Host $OutputDirectory
+
+
+          # ==========================================================
+          # VERIFY MONITOR DIRECTORY
+          # ==========================================================
+
+          if (
+            -not (
+              Test-Path `
+                -LiteralPath $MonitorDirectory
+            )
+          ) {
+
+            Write-Host ""
+
+            Write-Host "ERROR: deployment-monitor-systam directory was not found." `
+              -ForegroundColor Red
+
+            Write-Host ""
+
+            Write-Host "Expected:"
+            Write-Host $MonitorDirectory
+
+            exit 1
           }
 
-          Write-Host "PowerShell 7 found:"
-          & pwsh --version
+
+          # ==========================================================
+          # VERIFY REQUIRED FILES
+          # ==========================================================
+
+          $RequiredFiles = @(
+            "Monitor-CloudFormation.ps1"
+            "Start-Deployment.ps1"
+            "Generate-Report.ps1"
+            "failure-rules.json"
+          )
+
+          foreach ($File in $RequiredFiles) {
+
+            $FullPath = Join-Path `
+              $MonitorDirectory `
+              $File
+
+            if (
+              -not (
+                Test-Path `
+                  -LiteralPath $FullPath
+              )
+            ) {
+
+              Write-Host ""
+
+              Write-Host "ERROR: Required monitoring file missing:" `
+                -ForegroundColor Red
+
+              Write-Host $FullPath
+
+              exit 1
+            }
+
+            Write-Host "FOUND: $FullPath"
+          }
 
 
-          # ======================================================
-          # [2/9]
-          # CONFIGURATION
-          # ======================================================
-
-          Write-Host ""
-          Write-Host "[2/9] Configuring CloudFormation monitoring..." -ForegroundColor Yellow
-
-          # ------------------------------------------------------
-          # IMPORTANT:
-          #
-          # PROJECT_NAME comes from workflow environment:
-          #
-          #   PROJECT_NAME: "hybridiaclab"
-          #
-          # Terraform creates:
-          #
-          #   hybridiaclab-dev-MainStack
-          #
-          # ------------------------------------------------------
+          # ==========================================================
+          # DETERMINE ROOT STACK
+          # ==========================================================
 
           $MainStackName = "${env:PROJECT_NAME}-${env:ENVIRONMENT}-MainStack"
 
-          $MonitorScript = Join-Path `
-            $env:GITHUB_WORKSPACE `
-            "scripts/Monitor-CloudFormation.ps1"
-
-          $DiagnosticDirectory = Join-Path `
-            $env:GITHUB_WORKSPACE `
-            "cloudformation-live-diagnostics"
-
-          Write-Host "Project Name:"
-          Write-Host "  $env:PROJECT_NAME"
-
-          Write-Host "Environment:"
-          Write-Host "  $env:ENVIRONMENT"
-
-          Write-Host "Main Stack:"
-          Write-Host "  $MainStackName"
-
-          Write-Host "Region:"
-          Write-Host "  $env:AWS_REGION"
-
-          Write-Host "Monitor Script:"
-          Write-Host "  $MonitorScript"
-
-          Write-Host "Diagnostic Directory:"
-          Write-Host "  $DiagnosticDirectory"
-
-
-          # ------------------------------------------------------
-          # HARD SAFETY CHECK
-          #
-          # Prevent the workflow from accidentally monitoring
-          # the old incorrect stack name:
-          #
-          #   aws-hybrid-iac-lab-dev-MainStack
-          #
-          # ------------------------------------------------------
-
-          if ($MainStackName -ne "hybridiaclab-dev-MainStack") {
-
-              Write-Host ""
-              Write-Host "ERROR: Unexpected CloudFormation root stack name." -ForegroundColor Red
-
-              Write-Host ""
-              Write-Host "Expected:"
-              Write-Host "  hybridiaclab-dev-MainStack"
-
-              Write-Host ""
-              Write-Host "Actual:"
-              Write-Host "  $MainStackName"
-
-              exit 1
-          }
-
-
-          # ======================================================
-          # [3/9]
-          # VERIFY MONITOR SCRIPT
-          # ======================================================
+          Write-Host ""
+          Write-Host "CloudFormation root stack:"
+          Write-Host $MainStackName
 
           Write-Host ""
-          Write-Host "[3/9] Verifying CloudFormation monitor script..." -ForegroundColor Yellow
 
-          if (-not (Test-Path -LiteralPath $MonitorScript)) {
-
-              Write-Host ""
-              Write-Host "ERROR: CloudFormation monitor script was not found." -ForegroundColor Red
-
-              Write-Host ""
-              Write-Host "Expected path:"
-              Write-Host "  $MonitorScript"
-
-              exit 1
-          }
-
-          Write-Host "Monitor script found."
-
-
-          # ======================================================
-          # [4/9]
-          # CREATE DIAGNOSTIC DIRECTORY
-          # ======================================================
-
-          Write-Host ""
-          Write-Host "[4/9] Creating diagnostic directory..." -ForegroundColor Yellow
-
-          New-Item `
-            -ItemType Directory `
-            -Path $DiagnosticDirectory `
-            -Force |
-            Out-Null
-
-          Write-Host "Diagnostic directory ready."
-
-
-          # ======================================================
-          # [5/9]
-          # VERIFY AWS IDENTITY
-          # ======================================================
-
-          Write-Host ""
-          Write-Host "[5/9] Verifying AWS identity..." -ForegroundColor Yellow
-
-          $IdentityOutput = & aws sts get-caller-identity `
-            --region $env:AWS_REGION `
-            --output json `
-            2>&1
-
-          $IdentityExitCode = $LASTEXITCODE
-
-          if ($IdentityExitCode -ne 0) {
-
-              Write-Host ""
-              Write-Host "ERROR: AWS credentials are not available." -ForegroundColor Red
-
-              Write-Host ""
-              Write-Host ($IdentityOutput -join "`n")
-
-              exit 1
-          }
-
-          try {
-
-              $Identity = (
-                $IdentityOutput -join "`n"
-              ) | ConvertFrom-Json
-
-              Write-Host "AWS Account:"
-              Write-Host "  $($Identity.Account)"
-
-              Write-Host "AWS Principal:"
-              Write-Host "  $($Identity.Arn)"
-
-          }
-          catch {
-
-              Write-Host ""
-              Write-Host "WARNING: Unable to parse AWS identity." -ForegroundColor Yellow
-          }
-
-
-          # ======================================================
-          # [6/9]
-          # START LIVE CLOUDFORMATION MONITOR
-          # ======================================================
-
-          Write-Host ""
-          Write-Host "[6/9] Starting live CloudFormation monitor..." -ForegroundColor Yellow
-
-          $MonitorProcess = $null
-
-          # ------------------------------------------------------
-          # Default to failure.
-          #
-          # This guarantees that an unexpected interruption does
-          # not accidentally produce a success result.
-          # ------------------------------------------------------
-
-          $TerraformExitCode = 1
-
-          try {
-
-              $MonitorArguments = @(
-                  "-NoProfile"
-                  "-NonInteractive"
-                  "-File"
-                  $MonitorScript
-                  "-StackName"
-                  $MainStackName
-                  "-Region"
-                  $env:AWS_REGION
-                  "-PollingIntervalSeconds"
-                  "3"
-                  "-LogDirectory"
-                  $DiagnosticDirectory
-              )
-
-              $MonitorProcess = Start-Process `
-                -FilePath $PwshCommand.Source `
-                -WorkingDirectory $env:GITHUB_WORKSPACE `
-                -ArgumentList $MonitorArguments `
-                -PassThru `
-                -NoNewWindow
-
-              if ($null -eq $MonitorProcess) {
-
-                  Write-Host ""
-                  Write-Host "ERROR: CloudFormation monitor could not be started." -ForegroundColor Red
-
-                  exit 1
-              }
-
-              Write-Host "CloudFormation monitor started."
-              Write-Host "Monitor PID: $($MonitorProcess.Id)"
-
-              # Give monitor time to initialize.
-              Start-Sleep -Seconds 2
-
-
-              # ====================================================
-              # [7/9]
-              # TERRAFORM APPLY
-              # ====================================================
-
-              Write-Host ""
-              Write-Host "============================================================" -ForegroundColor Cyan
-              Write-Host "[7/9] RUNNING TERRAFORM APPLY" -ForegroundColor Cyan
-              Write-Host "============================================================" -ForegroundColor Cyan
-              Write-Host ""
-
-              terraform apply `
-                -input=false `
-                -auto-approve `
-                $env:TF_PLAN_FILE
-
-              # ----------------------------------------------------
-              # IMPORTANT:
-              #
-              # Capture Terraform's native exit code immediately.
-              # ----------------------------------------------------
-
-              $TerraformExitCode = $LASTEXITCODE
-
-              Write-Host ""
-              Write-Host "============================================================"
-
-              if ($TerraformExitCode -eq 0) {
-
-                  Write-Host `
-                    "TERRAFORM APPLY COMPLETED SUCCESSFULLY" `
-                    -ForegroundColor Green
-
-              }
-              else {
-
-                  Write-Host `
-                    "TERRAFORM APPLY FAILED" `
-                    -ForegroundColor Red
-              }
-
-              Write-Host ""
-              Write-Host "Terraform Exit Code:"
-              Write-Host "  $TerraformExitCode"
-
-              Write-Host "Root CloudFormation Stack:"
-              Write-Host "  $MainStackName"
-
-              Write-Host "============================================================"
-
-
-              # ====================================================
-              # WAIT FOR FINAL CLOUDFORMATION EVENTS
-              # ====================================================
-
-              Write-Host ""
-              Write-Host "Waiting 5 seconds for final CloudFormation events..."
-
-              Start-Sleep -Seconds 5
-
-
-              # ====================================================
-              # DIRECT CLOUDFORMATION DIAGNOSTICS
-              #
-              # This section is intentionally independent from
-              # Monitor-CloudFormation.ps1.
-              #
-              # If the monitor watches incorrectly, stops early,
-              # crashes, or misses an event, these direct AWS CLI
-              # queries still retrieve the CloudFormation state.
-              # ====================================================
-
-              if ($TerraformExitCode -ne 0) {
-
-                  Write-Host ""
-                  Write-Host "============================================================" -ForegroundColor Red
-                  Write-Host "DIRECT CLOUDFORMATION FAILURE DIAGNOSTICS" -ForegroundColor Red
-                  Write-Host "============================================================" -ForegroundColor Red
-                  Write-Host ""
-
-                  Write-Host "Root Stack:"
-                  Write-Host "  $MainStackName"
-
-                  Write-Host ""
-                  Write-Host "Region:"
-                  Write-Host "  $env:AWS_REGION"
-
-
-                  # ==================================================
-                  # ROOT STACK STATUS
-                  # ==================================================
-
-                  Write-Host ""
-                  Write-Host "------------------------------------------------------------"
-                  Write-Host "ROOT STACK STATUS"
-                  Write-Host "------------------------------------------------------------"
-
-                  $StackOutput = & aws cloudformation describe-stacks `
-                    --stack-name $MainStackName `
-                    --region $env:AWS_REGION `
-                    --output json `
-                    2>&1
-
-                  $StackExitCode = $LASTEXITCODE
-
-                  $StackJsonFile = Join-Path `
-                    $DiagnosticDirectory `
-                    "direct-root-stack.json"
-
-                  ($StackOutput -join "`n") |
-                    Set-Content `
-                      -LiteralPath $StackJsonFile `
-                      -Encoding UTF8
-
-                  if ($StackExitCode -eq 0) {
-
-                      try {
-
-                          $StackData = (
-                            $StackOutput -join "`n"
-                          ) | ConvertFrom-Json
-
-                          $Stack = $StackData.Stacks[0]
-
-                          Write-Host ""
-                          Write-Host "Stack Name:"
-                          Write-Host "  $($Stack.StackName)"
-
-                          Write-Host ""
-                          Write-Host "Stack Status:"
-                          Write-Host "  $($Stack.StackStatus)"
-
-                          if (-not [string]::IsNullOrWhiteSpace(
-                            [string]$Stack.StackStatusReason
-                          )) {
-
-                              Write-Host ""
-                              Write-Host "Stack Status Reason:"
-                              Write-Host "  $($Stack.StackStatusReason)"
-                          }
-
-                      }
-                      catch {
-
-                          Write-Host ""
-                          Write-Host "WARNING: Could not parse root stack response." `
-                            -ForegroundColor Yellow
-                      }
-
-                  }
-                  else {
-
-                      Write-Host ""
-                      Write-Host "WARNING: Root stack could not be queried." `
-                        -ForegroundColor Yellow
-
-                      Write-Host ($StackOutput -join "`n")
-                  }
-
-
-                  # ==================================================
-                  # ROOT STACK EVENTS
-                  # ==================================================
-
-                  Write-Host ""
-                  Write-Host "------------------------------------------------------------"
-                  Write-Host "ROOT CLOUDFORMATION FAILURE EVENTS"
-                  Write-Host "------------------------------------------------------------"
-
-                  $EventsOutput = & aws cloudformation describe-stack-events `
-                    --stack-name $MainStackName `
-                    --region $env:AWS_REGION `
-                    --output json `
-                    2>&1
-
-                  $EventsExitCode = $LASTEXITCODE
-
-                  $EventsJsonFile = Join-Path `
-                    $DiagnosticDirectory `
-                    "direct-root-events.json"
-
-                  ($EventsOutput -join "`n") |
-                    Set-Content `
-                      -LiteralPath $EventsJsonFile `
-                      -Encoding UTF8
-
-                  if ($EventsExitCode -eq 0) {
-
-                      try {
-
-                          $EventsData = (
-                            $EventsOutput -join "`n"
-                          ) | ConvertFrom-Json
-
-                          $FailedEvents = @(
-                            $EventsData.StackEvents |
-                            Where-Object {
-                              $_.ResourceStatus -match `
-                                "CREATE_FAILED|UPDATE_FAILED|DELETE_FAILED|ROLLBACK_FAILED"
-                            }
-                          )
-
-                          if ($FailedEvents.Count -eq 0) {
-
-                              Write-Host ""
-                              Write-Host "No direct FAILED root-stack events were returned."
-
-                          }
-                          else {
-
-                              foreach ($Event in $FailedEvents) {
-
-                                  Write-Host ""
-                                  Write-Host "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" `
-                                    -ForegroundColor Red
-
-                                  Write-Host "ROOT STACK FAILED RESOURCE" `
-                                    -ForegroundColor Red
-
-                                  Write-Host "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-
-                                  Write-Host ""
-                                  Write-Host "Logical Resource:"
-                                  Write-Host "  $($Event.LogicalResourceId)"
-
-                                  Write-Host ""
-                                  Write-Host "Resource Type:"
-                                  Write-Host "  $($Event.ResourceType)"
-
-                                  Write-Host ""
-                                  Write-Host "Status:"
-                                  Write-Host "  $($Event.ResourceStatus)"
-
-                                  if (-not [string]::IsNullOrWhiteSpace(
-                                    [string]$Event.PhysicalResourceId
-                                  )) {
-
-                                      Write-Host ""
-                                      Write-Host "Physical Resource:"
-                                      Write-Host "  $($Event.PhysicalResourceId)"
-                                  }
-
-                                  Write-Host ""
-                                  Write-Host "EXACT CLOUDFORMATION REASON:"
-                                  Write-Host "------------------------------------------------------------" `
-                                    -ForegroundColor Yellow
-
-                                  if (-not [string]::IsNullOrWhiteSpace(
-                                    [string]$Event.ResourceStatusReason
-                                  )) {
-
-                                      Write-Host `
-                                        $Event.ResourceStatusReason `
-                                        -ForegroundColor Yellow
-
-                                  }
-                                  else {
-
-                                      Write-Host `
-                                        "No CloudFormation status reason provided." `
-                                        -ForegroundColor Yellow
-                                  }
-
-                                  Write-Host "------------------------------------------------------------" `
-                                    -ForegroundColor Yellow
-                              }
-                          }
-
-                      }
-                      catch {
-
-                          Write-Host ""
-                          Write-Host `
-                            "WARNING: Could not parse root CloudFormation events." `
-                            -ForegroundColor Yellow
-                      }
-
-                  }
-                  else {
-
-                      Write-Host ""
-                      Write-Host `
-                        "WARNING: CloudFormation root events could not be queried." `
-                        -ForegroundColor Yellow
-
-                      Write-Host ($EventsOutput -join "`n")
-                  }
-
-
-                  # ==================================================
-                  # DISCOVER NESTED STACKS
-                  # ==================================================
-
-                  Write-Host ""
-                  Write-Host "------------------------------------------------------------"
-                  Write-Host "DISCOVERING NESTED CLOUDFORMATION STACKS"
-                  Write-Host "------------------------------------------------------------"
-
-                  $ResourcesOutput = & aws cloudformation list-stack-resources `
-                    --stack-name $MainStackName `
-                    --region $env:AWS_REGION `
-                    --output json `
-                    2>&1
-
-                  $ResourcesExitCode = $LASTEXITCODE
-
-                  $ResourcesJsonFile = Join-Path `
-                    $DiagnosticDirectory `
-                    "direct-root-resources.json"
-
-                  ($ResourcesOutput -join "`n") |
-                    Set-Content `
-                      -LiteralPath $ResourcesJsonFile `
-                      -Encoding UTF8
-
-
-                  # --------------------------------------------------
-                  # Recursive helper.
-                  #
-                  # This function receives a nested stack ARN and
-                  # recursively inspects its events/resources.
-                  #
-                  # This is important for:
-                  #
-                  #   MainStack
-                  #       |
-                  #       +-- EFSStack
-                  #       |      |
-                  #       |      +-- FileSystem
-                  #       |
-                  #       +-- EKSStack
-                  #              |
-                  #              +-- EKSCluster
-                  #              +-- EKSNodeGroup
-                  #
-                  # The function attempts to expose the deepest
-                  # ResourceStatusReason available from AWS.
-                  # --------------------------------------------------
-
-                  function Get-NestedCloudFormationDiagnostics {
-
-                      param(
-                          [Parameter(Mandatory = $true)]
-                          [string]$StackNameOrArn,
-
-                          [Parameter(Mandatory = $true)]
-                          [string]$Region,
-
-                          [Parameter(Mandatory = $true)]
-                          [string]$LogDirectory,
-
-                          [int]$Depth = 0
-                      )
-
-                      if ($Depth -gt 10) {
-
-                          Write-Host ""
-                          Write-Host "WARNING: Nested stack depth limit reached." `
-                            -ForegroundColor Yellow
-
-                          return
-                      }
-
-
-                      $Indent = ("  " * $Depth)
-
-                      Write-Host ""
-                      Write-Host "${Indent}============================================================" `
-                        -ForegroundColor Magenta
-
-                      Write-Host "${Indent}NESTED STACK DIAGNOSTICS" `
-                        -ForegroundColor Magenta
-
-                      Write-Host "${Indent}============================================================" `
-                        -ForegroundColor Magenta
-
-                      Write-Host ""
-                      Write-Host "${Indent}Stack:"
-                      Write-Host "${Indent}$StackNameOrArn"
-
-
-                      # ------------------------------------------------
-                      # Get stack events.
-                      # ------------------------------------------------
-
-                      $SafeName = ($StackNameOrArn -replace '[^a-zA-Z0-9._-]', '_')
-
-                      $NestedEventsFile = Join-Path `
-                        $LogDirectory `
-                        "nested-$SafeName-events.json"
-
-                      $NestedEventsOutput = & aws cloudformation describe-stack-events `
-                        --stack-name $StackNameOrArn `
-                        --region $Region `
-                        --output json `
-                        2>&1
-
-                      $NestedEventsExitCode = $LASTEXITCODE
-
-                      ($NestedEventsOutput -join "`n") |
-                        Set-Content `
-                          -LiteralPath $NestedEventsFile `
-                          -Encoding UTF8
-
-
-                      if ($NestedEventsExitCode -eq 0) {
-
-                          try {
-
-                              $NestedEventsData = (
-                                $NestedEventsOutput -join "`n"
-                              ) | ConvertFrom-Json
-
-                              $NestedFailedEvents = @(
-                                $NestedEventsData.StackEvents |
-                                Where-Object {
-                                  $_.ResourceStatus -match `
-                                    "CREATE_FAILED|UPDATE_FAILED|DELETE_FAILED|ROLLBACK_FAILED"
-                                }
-                              )
-
-
-                              if ($NestedFailedEvents.Count -eq 0) {
-
-                                  Write-Host ""
-                                  Write-Host "${Indent}No FAILED events found in this nested stack."
-
-                              }
-                              else {
-
-                                  foreach ($NestedEvent in $NestedFailedEvents) {
-
-                                      Write-Host ""
-                                      Write-Host "${Indent}!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" `
-                                        -ForegroundColor Red
-
-                                      Write-Host "${Indent}NESTED STACK FAILED RESOURCE" `
-                                        -ForegroundColor Red
-
-                                      Write-Host "${Indent}!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-
-                                      Write-Host ""
-                                      Write-Host "${Indent}Logical Resource:"
-                                      Write-Host "${Indent}  $($NestedEvent.LogicalResourceId)"
-
-                                      Write-Host ""
-                                      Write-Host "${Indent}Resource Type:"
-                                      Write-Host "${Indent}  $($NestedEvent.ResourceType)"
-
-                                      Write-Host ""
-                                      Write-Host "${Indent}Status:"
-                                      Write-Host "${Indent}  $($NestedEvent.ResourceStatus)"
-
-                                      if (-not [string]::IsNullOrWhiteSpace(
-                                        [string]$NestedEvent.PhysicalResourceId
-                                      )) {
-
-                                          Write-Host ""
-                                          Write-Host "${Indent}Physical Resource:"
-                                          Write-Host "${Indent}  $($NestedEvent.PhysicalResourceId)"
-                                      }
-
-                                      Write-Host ""
-                                      Write-Host "${Indent}EXACT CLOUDFORMATION REASON:" `
-                                        -ForegroundColor Yellow
-
-                                      Write-Host "${Indent}------------------------------------------------------------" `
-                                        -ForegroundColor Yellow
-
-                                      if (-not [string]::IsNullOrWhiteSpace(
-                                        [string]$NestedEvent.ResourceStatusReason
-                                      )) {
-
-                                          Write-Host `
-                                            "${Indent}$($NestedEvent.ResourceStatusReason)" `
-                                            -ForegroundColor Yellow
-
-                                      }
-                                      else {
-
-                                          Write-Host `
-                                            "${Indent}No CloudFormation status reason provided." `
-                                            -ForegroundColor Yellow
-                                      }
-
-                                      Write-Host "${Indent}------------------------------------------------------------" `
-                                        -ForegroundColor Yellow
-                                  }
-                              }
-
-
-                              # --------------------------------------------
-                              # Find deeper nested stacks.
-                              # --------------------------------------------
-
-                              $NestedResourcesOutput = & aws cloudformation list-stack-resources `
-                                --stack-name $StackNameOrArn `
-                                --region $Region `
-                                --output json `
-                                2>&1
-
-                              $NestedResourcesExitCode = $LASTEXITCODE
-
-
-                              if ($NestedResourcesExitCode -eq 0) {
-
-                                  try {
-
-                                      $NestedResourcesData = (
-                                        $NestedResourcesOutput -join "`n"
-                                      ) | ConvertFrom-Json
-
-                                      $ChildStacks = @(
-                                        $NestedResourcesData.StackResourceSummaries |
-                                        Where-Object {
-                                          $_.ResourceType -eq "AWS::CloudFormation::Stack" `
-                                          -and `
-                                          -not [string]::IsNullOrWhiteSpace(
-                                            [string]$_.PhysicalResourceId
-                                          )
-                                        }
-                                      )
-
-
-                                      foreach ($ChildStack in $ChildStacks) {
-
-                                          Write-Host ""
-                                          Write-Host "${Indent}Child Nested Stack:"
-                                          Write-Host "${Indent}  $($ChildStack.LogicalResourceId)"
-
-                                          Write-Host ""
-                                          Write-Host "${Indent}Child Stack Status:"
-                                          Write-Host "${Indent}  $($ChildStack.ResourceStatus)"
-
-                                          Write-Host ""
-                                          Write-Host "${Indent}Child Stack ARN:"
-                                          Write-Host "${Indent}  $($ChildStack.PhysicalResourceId)"
-
-
-                                          Get-NestedCloudFormationDiagnostics `
-                                            -StackNameOrArn $ChildStack.PhysicalResourceId `
-                                            -Region $Region `
-                                            -LogDirectory $LogDirectory `
-                                            -Depth ($Depth + 1)
-                                      }
-
-                                  }
-                                  catch {
-
-                                      Write-Host ""
-                                      Write-Host `
-                                        "${Indent}WARNING: Could not parse nested stack resources." `
-                                        -ForegroundColor Yellow
-                                  }
-
-                              }
-
-                          }
-                          catch {
-
-                              Write-Host ""
-                              Write-Host `
-                                "${Indent}WARNING: Could not parse nested stack events." `
-                                -ForegroundColor Yellow
-                          }
-
-                      }
-                      else {
-
-                          Write-Host ""
-                          Write-Host `
-                            "${Indent}WARNING: Could not query nested stack events." `
-                            -ForegroundColor Yellow
-
-                          Write-Host ($NestedEventsOutput -join "`n")
-                      }
-                  }
-
-
-                  # --------------------------------------------------
-                  # Start recursive inspection from root stack.
-                  # --------------------------------------------------
-
-                  if ($ResourcesExitCode -eq 0) {
-
-                      try {
-
-                          $ResourcesData = (
-                            $ResourcesOutput -join "`n"
-                          ) | ConvertFrom-Json
-
-                          $NestedStacksFound = @(
-                            $ResourcesData.StackResourceSummaries |
-                            Where-Object {
-                              $_.ResourceType -eq "AWS::CloudFormation::Stack" `
-                              -and `
-                              -not [string]::IsNullOrWhiteSpace(
-                                [string]$_.PhysicalResourceId
-                              )
-                            }
-                          )
-
-
-                          if ($NestedStacksFound.Count -eq 0) {
-
-                              Write-Host ""
-                              Write-Host "No nested CloudFormation stacks found."
-
-                          }
-                          else {
-
-                              Write-Host ""
-                              Write-Host "Nested CloudFormation stacks discovered:"
-                              Write-Host ""
-
-                              foreach ($NestedStack in $NestedStacksFound) {
-
-                                  Write-Host "============================================================" `
-                                    -ForegroundColor Magenta
-
-                                  Write-Host "Nested Stack:"
-                                  Write-Host "  $($NestedStack.LogicalResourceId)"
-
-                                  Write-Host ""
-                                  Write-Host "Status:"
-                                  Write-Host "  $($NestedStack.ResourceStatus)"
-
-                                  Write-Host ""
-                                  Write-Host "Physical Stack:"
-                                  Write-Host "  $($NestedStack.PhysicalResourceId)"
-
-                                  Write-Host "============================================================"
-
-
-                                  # ----------------------------------------
-                                  # Recursively inspect nested stack.
-                                  # ----------------------------------------
-
-                                  Get-NestedCloudFormationDiagnostics `
-                                    -StackNameOrArn $NestedStack.PhysicalResourceId `
-                                    -Region $env:AWS_REGION `
-                                    -LogDirectory $DiagnosticDirectory `
-                                    -Depth 1
-                              }
-                          }
-
-                      }
-                      catch {
-
-                          Write-Host ""
-                          Write-Host `
-                            "WARNING: Could not parse root stack resources." `
-                            -ForegroundColor Yellow
-                      }
-
-                  }
-                  else {
-
-                      Write-Host ""
-                      Write-Host `
-                        "WARNING: Root stack resources could not be queried." `
-                        -ForegroundColor Yellow
-                  }
-
-
-                  # ==================================================
-                  # DISPLAY LIVE MONITOR FAILURE LOG
-                  # ==================================================
-
-                  Write-Host ""
-                  Write-Host "------------------------------------------------------------"
-                  Write-Host "LIVE MONITOR FAILURE LOG"
-                  Write-Host "------------------------------------------------------------"
-
-                  $FailureLog = Join-Path `
-                    $DiagnosticDirectory `
-                    "cloudformation-failures.log"
-
-                  if (Test-Path -LiteralPath $FailureLog) {
-
-                      Get-Content `
-                        -LiteralPath $FailureLog `
-                        -ErrorAction SilentlyContinue
-
-                  }
-                  else {
-
-                      Write-Host "No monitor failure log was generated."
-                  }
-
-
-                  # ==================================================
-                  # DIAGNOSTIC SUMMARY
-                  # ==================================================
-
-                  Write-Host ""
-                  Write-Host "============================================================" `
-                    -ForegroundColor Red
-
-                  Write-Host "CLOUDFORMATION DIAGNOSTICS COMPLETE" `
-                    -ForegroundColor Red
-
-                  Write-Host "============================================================" `
-                    -ForegroundColor Red
-
-                  Write-Host ""
-
-                  Write-Host "IMPORTANT:"
-                  Write-Host "The Terraform failure above is the original Terraform result."
-                  Write-Host "The CloudFormation diagnostics are additional diagnostic data."
-              }
-
-          }
-          finally {
-
-
-              # ======================================================
-              # [8/9]
-              # STOP LIVE MONITOR
-              # ======================================================
-
-              Write-Host ""
-              Write-Host "[8/9] Stopping CloudFormation monitor..." `
-                -ForegroundColor Yellow
-
-              if ($null -ne $MonitorProcess) {
-
-                  try {
-                      $MonitorProcess.Refresh()
-                  }
-                  catch {}
-
-                  if (-not $MonitorProcess.HasExited) {
-
-                      Write-Host "Stopping monitor PID $($MonitorProcess.Id)..."
-
-                      Stop-Process `
-                        -Id $MonitorProcess.Id `
-                        -Force `
-                        -ErrorAction SilentlyContinue
-
-                      Start-Sleep -Seconds 1
-
-                      Write-Host "CloudFormation monitor stopped."
-
-                  }
-                  else {
-
-                      Write-Host "CloudFormation monitor already exited."
-                  }
-
-              }
-              else {
-
-                  Write-Host "No monitor process was running."
-              }
-
-
-              # ======================================================
-              # DISPLAY ALL GENERATED DIAGNOSTIC FILES
-              # ======================================================
-
-              Write-Host ""
-              Write-Host "------------------------------------------------------------"
-              Write-Host "GENERATED CLOUDFORMATION DIAGNOSTIC FILES"
-              Write-Host "------------------------------------------------------------"
-
-              if (Test-Path -LiteralPath $DiagnosticDirectory) {
-
-                  $DiagnosticFiles = @(
-                    Get-ChildItem `
-                      -Path $DiagnosticDirectory `
-                      -File `
-                      -ErrorAction SilentlyContinue
-                  )
-
-                  if ($DiagnosticFiles.Count -gt 0) {
-
-                      foreach ($File in $DiagnosticFiles) {
-
-                          Write-Host ""
-                          Write-Host "FILE: $($File.FullName)"
-                      }
-
-                  }
-                  else {
-
-                      Write-Host "No diagnostic files were generated."
-                  }
-
-              }
-              else {
-
-                  Write-Host "Diagnostic directory does not exist."
-              }
-
-
-              # ======================================================
-              # [9/9]
-              # FINAL EXIT CODE
-              # ======================================================
-
-              Write-Host ""
-              Write-Host "============================================================"
-              Write-Host "[9/9] FINAL TERRAFORM EXIT CODE: $TerraformExitCode" `
-                -ForegroundColor Yellow
-              Write-Host "============================================================"
-          }
+          Write-Host "AWS region:"
+          Write-Host $env:AWS_REGION
 
 
           # ==========================================================
-          # RETURN TERRAFORM'S ORIGINAL EXIT CODE
+          # DETERMINE TERRAFORM PLAN
+          # ==========================================================
           #
-          # 0     = Terraform succeeded
-          # != 0  = Terraform failed
+          # Keep this aligned with your existing workflow.
           #
-          # CloudFormation diagnostics NEVER replace the original
-          # Terraform exit code.
+          # If your Step 14 creates a different plan filename, change
+          # TF_PLAN_FILE in your existing workflow.
+          #
           # ==========================================================
 
-          exit $TerraformExitCode
+          if (
+            [string]::IsNullOrWhiteSpace(
+              $env:TF_PLAN_FILE
+            )
+          ) {
 
+            Write-Host ""
+
+            Write-Host "ERROR: TF_PLAN_FILE is not defined." `
+              -ForegroundColor Red
+
+            exit 1
+          }
+
+          Write-Host ""
+
+          Write-Host "Terraform plan:"
+          Write-Host $env:TF_PLAN_FILE
+
+
+          # ==========================================================
+          # START PROFESSIONAL DEPLOYMENT ORCHESTRATOR
+          # ==========================================================
+
+          Write-Host ""
+
+          Write-Host "============================================================" -ForegroundColor Yellow
+          Write-Host "STARTING DEPLOYMENT MONITORING SYSTEM" -ForegroundColor Yellow
+          Write-Host "============================================================" -ForegroundColor Yellow
+
+          Write-Host ""
+
+          & pwsh `
+            -NoProfile `
+            -NonInteractive `
+            -File `
+            (Join-Path $MonitorDirectory "Start-Deployment.ps1") `
+            -TerraformWorkingDirectory `
+            (Get-Location).Path `
+            -StackName `
+            $MainStackName `
+            -Region `
+            $env:AWS_REGION `
+            -MonitorDirectory `
+            $MonitorDirectory `
+            -OutputDirectory `
+            $OutputDirectory `
+            -TerraformPlanFile `
+            $env:TF_PLAN_FILE `
+            -AutoApprove `
+            -PollSeconds `
+            3 `
+            -MonitorTimeoutMinutes `
+            120
+
+          $DeploymentExitCode = $LASTEXITCODE
+
+          Write-Host ""
+
+          Write-Host "============================================================"
+
+          if ($DeploymentExitCode -eq 0) {
+
+            Write-Host `
+              "STEP 15 COMPLETED SUCCESSFULLY" `
+              -ForegroundColor Green
+
+          }
+          else {
+
+            Write-Host `
+              "STEP 15 FAILED" `
+              -ForegroundColor Red
+
+          }
+
+          Write-Host ""
+
+          Write-Host "Final Terraform/Deployment exit code:"
+          Write-Host $DeploymentExitCode
+
+          Write-Host ""
+
+          Write-Host "Diagnostic directory:"
+          Write-Host $OutputDirectory
+
+          Write-Host "============================================================"
+
+
+          # ==========================================================
+          # TERRAFORM REMAINS AUTHORITATIVE
+          # ==========================================================
+
+          exit $DeploymentExitCode
+
+
+      # ==========================================================
+      # STEP 16 - UPLOAD COMPLETE DEPLOYMENT DIAGNOSTICS
+      # ==========================================================
+
+      - name: Step 16 - Upload Complete Deployment Diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-diagnostics-${{ github.run_id }}
+          path: |
+            ${{ github.workspace }}/deployment-logs/
+          if-no-files-found: warn
+          retention-days: 30

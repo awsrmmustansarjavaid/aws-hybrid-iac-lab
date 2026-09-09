@@ -1,154 +1,60 @@
 # ==========================================================
-# HYBRID TERRAFORM + CLOUDFORMATION AWS LAB
+# HYBRID TERRAFORM + CLOUDFORMATION AWS DEVOPS LAB
 # Docker + Amazon ECR + ECS Deployment Workflow
 # ==========================================================
 #
 # File:
-#
 #   .github/workflows/docker.yml
 #
 # Purpose:
 #
-#   This workflow is responsible for the APPLICATION
-#   container deployment phase.
+#   This workflow handles the APPLICATION CONTAINER
+#   deployment phase of the Hybrid IaC AWS DevOps Lab.
 #
 #
+# HIGH-LEVEL FLOW
 # ==========================================================
-# DEPLOYMENT ARCHITECTURE
-# ==========================================================
 #
-# Infrastructure is created first by the Terraform workflow.
-#
-#
-# Terraform
-#     |
-#     v
-# CloudFormation Root Stack
-#     |
-#     +--> VPC
-#     +--> S3
-#     +--> DynamoDB
-#     +--> ECR Repository
-#     +--> Lambda
-#     +--> API Gateway
-#     +--> CloudFront
-#     +--> EC2
-#     +--> EKS
-#     +--> RDS
-#
-#
-# After infrastructure exists, THIS workflow performs the
-# application container deployment:
-#
-#
-# Dockerfile
-#     |
-#     v
+# GitHub
+#    |
+#    v
+# GitHub OIDC
+#    |
+#    v
+# AWS IAM Role
+#    |
+#    v
 # Docker Build
-#     |
-#     v
-# Docker Image
-#     |
-#     v
+#    |
+#    v
 # Amazon ECR
-#     |
-#     v
-# ECS CloudFormation Stack
-#     |
-#     v
-# ECS Service
-#     |
-#     v
-# Running Container
+#    |
+#    | Repository URI + immutable GITHUB_SHA
+#    v
+# ECS CloudFormation
+#    |
+#    v
+# ECS Fargate
+#    |
+#    v
+# Private ECS Tasks
 #
 #
-# ==========================================================
-# IMPORTANT ECR / ECS DESIGN
-# ==========================================================
+# IMPORTANT:
 #
-# The ECR CloudFormation stack creates the ECR repository.
+# ECR is created by:
 #
-# It does NOT build or push the Docker image.
+#   infrastructure/cloudformation/nested/ecr.yaml
 #
+# ECS infrastructure is created by:
 #
-# This workflow creates the Docker image and pushes it to
-# the already-created ECR repository.
+#   infrastructure/cloudformation/nested/ecs.yaml
 #
-#
-# ECS deployment happens ONLY AFTER the image has been
-# successfully pushed to ECR.
-#
-#
-# This is important because ECS needs a real image that
-# already exists in ECR when the ECS service starts.
-#
+# This workflow does NOT create either resource.
 #
 # ==========================================================
-# IMAGE TAGGING STRATEGY
-# ==========================================================
-#
-# This workflow uses:
-#
-#   ${GITHUB_SHA}
-#
-# as the Docker image tag.
-#
-#
-# Example:
-#
-#   123456789012.dkr.ecr.us-east-1.amazonaws.com/
-#   hybrid-iac-lab-dev-app:abc123456789...
-#
-#
-# This provides immutable deployment tracking:
-#
-#
-# Git commit A
-#     |
-#     v
-# image:A
-#     |
-#     v
-# ECS
-#
-#
-# Git commit B
-#     |
-#     v
-# image:B
-#     |
-#     v
-# ECS
-#
-#
-# You can therefore determine exactly which Git commit
-# produced the image currently running in ECS.
-#
-#
-# ==========================================================
-# IMPORTANT: DO NOT USE "latest"
-# ==========================================================
-#
-# The ECR repository should use:
-#
-#   ImageTagMutability: IMMUTABLE
-#
-#
-# Therefore repeatedly pushing:
-#
-#   :latest
-#
-# is not appropriate.
-#
-#
-# Instead this workflow pushes:
-#
-#   :${GITHUB_SHA}
-#
-#
-# Every Git commit receives a unique image tag.
-#
-#
+
+
 # ==========================================================
 # WORKFLOW NAME
 # ==========================================================
@@ -160,17 +66,22 @@ name: Docker Build, ECR Push and ECS Deployment
 # GLOBAL ENVIRONMENT VARIABLES
 # ==========================================================
 #
-# These variables are available to every job step.
+# These values are available to every step in this job.
 #
-# Centralizing these values makes the workflow easier to
-# maintain and reduces the chance of inconsistent names.
+# GitHub Repository Variables required:
 #
-# IMPORTANT:
+#   AWS_REGION
+#   AWS_ACCOUNT_ID
+#   AWS_ROLE_ARN
 #
-# ECR repository names should be lowercase.
+# AWS authentication uses GitHub OIDC.
 #
-# Make sure ECR_REPOSITORY_NAME exactly matches the repository
-# created by your CloudFormation ecr.yaml template.
+# No long-lived:
+#
+#   AWS_ACCESS_KEY_ID
+#   AWS_SECRET_ACCESS_KEY
+#
+# is required.
 #
 # ==========================================================
 
@@ -179,44 +90,52 @@ env:
   # --------------------------------------------------------
   # AWS REGION
   # --------------------------------------------------------
-  #
-  # AWS_REGION is read from GitHub repository/environment
-  # variable:
-  #
-  #   AWS_REGION
-  #
-  # Example:
-  #
-  #   us-east-1
-  #
-  # --------------------------------------------------------
 
   AWS_REGION: ${{ vars.AWS_REGION }}
 
 
   # --------------------------------------------------------
-  # PROJECT NAME
+  # AWS ACCOUNT ID
   # --------------------------------------------------------
   #
-  # Logical project name used by CloudFormation.
+  # Used only to verify that GitHub authenticated into the
+  # expected AWS account.
+  #
+  # IMPORTANT:
+  #
+  # This value is NOT used to construct the ECR URI.
+  #
+  # The real ECR URI is retrieved directly from AWS.
   #
   # --------------------------------------------------------
 
-  PROJECT_NAME: HybridIaCLab
+  AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+
+
+  # --------------------------------------------------------
+  # AWS IAM ROLE ARN
+  # --------------------------------------------------------
+  #
+  # GitHub Actions assumes this IAM role using OIDC.
+  #
+  # Example:
+  #
+  # arn:aws:iam::<ACCOUNT_ID>:role/aws-hybrid-iac-lab-GitHubActions
+  #
+  # --------------------------------------------------------
+
+  AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+
+
+  # --------------------------------------------------------
+  # PROJECT NAME
+  # --------------------------------------------------------
+
+  PROJECT_NAME: hybridiaclab
 
 
   # --------------------------------------------------------
   # ENVIRONMENT
-  # --------------------------------------------------------
-  #
-  # Deployment environment.
-  #
-  # Examples:
-  #
-  #   dev
-  #   staging
-  #   prod
-  #
   # --------------------------------------------------------
 
   ENVIRONMENT: dev
@@ -226,22 +145,22 @@ env:
   # ECR REPOSITORY NAME
   # --------------------------------------------------------
   #
-  # IMPORTANT:
+  # This MUST match the repository created by ecr.yaml.
   #
-  # Amazon ECR repository names should use lowercase.
+  # Expected:
   #
-  # This should match the repository created by ecr.yaml.
+  # hybridiaclab-dev-app
   #
   # --------------------------------------------------------
 
-  ECR_REPOSITORY_NAME: hybrid-iac-lab-dev-app
+  ECR_REPOSITORY_NAME: hybridiaclab-dev-app
 
 
   # --------------------------------------------------------
   # LOCAL DOCKER IMAGE NAME
   # --------------------------------------------------------
   #
-  # Temporary local image name used during the Docker build.
+  # Temporary image name used by the GitHub runner.
   #
   # --------------------------------------------------------
 
@@ -249,11 +168,16 @@ env:
 
 
   # --------------------------------------------------------
-  # DOCKER BUILD DIRECTORY
+  # DOCKER BUILD CONTEXT
   # --------------------------------------------------------
   #
-  # Directory containing the Dockerfile and Docker build
-  # context.
+  # Expected:
+  #
+  # docker/app/
+  #
+  # containing:
+  #
+  # docker/app/Dockerfile
   #
   # --------------------------------------------------------
 
@@ -261,65 +185,49 @@ env:
 
 
   # --------------------------------------------------------
-  # ECS CLOUDFORMATION STACK NAME
+  # MAIN CLOUDFORMATION STACK
   # --------------------------------------------------------
   #
-  # CloudFormation stack responsible for ECS resources.
-  #
-  # --------------------------------------------------------
-
-  ECS_STACK_NAME: HybridIaCLab-dev-ECSStack
-
-
-  # --------------------------------------------------------
-  # MAIN CLOUDFORMATION STACK NAME
-  # --------------------------------------------------------
-  #
-  # Root CloudFormation stack created during infrastructure
-  # deployment.
-  #
-  # This stack exposes network outputs required by ECS.
+  # Root stack exposing the network outputs required by ECS.
   #
   # --------------------------------------------------------
 
-  MAIN_STACK_NAME: HybridIaCLab-dev-MainStack
+  MAIN_STACK_NAME: hybridiaclab-dev-MainStack
+
+
+  # --------------------------------------------------------
+  # ECS CLOUDFORMATION STACK
+  # --------------------------------------------------------
+  #
+  # Creates the ECS/Fargate application platform.
+  #
+  # --------------------------------------------------------
+
+  ECS_STACK_NAME: hybridiaclab-dev-ECSStack
 
 
   # --------------------------------------------------------
   # ECS CLOUDFORMATION TEMPLATE
   # --------------------------------------------------------
-  #
-  # Local repository path to the ECS CloudFormation template.
-  #
-  # --------------------------------------------------------
 
-  ECS_TEMPLATE: infrastructure/cloudformation/ecs.yaml
+  ECS_TEMPLATE: infrastructure/cloudformation/nested/ecs.yaml
 
 
 # ==========================================================
-# TRIGGERS
+# WORKFLOW TRIGGERS
 # ==========================================================
 
 on:
 
   # --------------------------------------------------------
-  # Reusable workflow trigger
-  # --------------------------------------------------------
-  #
-  # Allows another GitHub Actions workflow, such as
-  # main-deploy.yaml, to call this workflow.
-  #
+  # REUSABLE WORKFLOW
   # --------------------------------------------------------
 
   workflow_call:
 
 
   # --------------------------------------------------------
-  # Manual workflow trigger
-  # --------------------------------------------------------
-  #
-  # Allows the workflow to be started manually from GitHub.
-  #
+  # MANUAL EXECUTION
   # --------------------------------------------------------
 
   workflow_dispatch:
@@ -329,14 +237,13 @@ on:
 # GITHUB ACTIONS PERMISSIONS
 # ==========================================================
 #
-# id-token: write
+# id-token:
 #
-# Required for GitHub OIDC authentication with AWS.
+#   Required for GitHub OIDC authentication.
 #
+# contents:
 #
-# contents: read
-#
-# Required to checkout the repository.
+#   Required by actions/checkout.
 #
 # ==========================================================
 
@@ -376,87 +283,58 @@ jobs:
     steps:
 
 
-      # ----------------------------------------------------
-      # 1. Checkout Repository
-      # ----------------------------------------------------
-      #
-      # Downloads the source code and Dockerfile required
-      # to build the application image.
-      #
-      # ----------------------------------------------------
+      # ====================================================
+      # 1. CHECKOUT REPOSITORY
+      # ====================================================
 
       - name: Checkout Repository
-
         uses: actions/checkout@v4
 
 
-      # ----------------------------------------------------
-      # 2. Validate Global Variables
-      # ----------------------------------------------------
+      # ====================================================
+      # 2. VALIDATE DEPLOYMENT CONFIGURATION
+      # ====================================================
       #
-      # Performs an early validation so the workflow fails
-      # before attempting AWS operations if a required
-      # variable is missing.
+      # Fail early before AWS authentication or Docker build
+      # if required configuration is missing.
       #
-      # ----------------------------------------------------
+      # ====================================================
 
       - name: Validate Deployment Configuration
-
         shell: bash
-
         run: |
-
           set -euo pipefail
 
           echo "================================================"
-          echo "DEPLOYMENT CONFIGURATION"
+          echo "VALIDATING DEPLOYMENT CONFIGURATION"
           echo "================================================"
 
-          echo "AWS Region:"
-          echo "$AWS_REGION"
-
-          echo ""
-
-          echo "Project:"
-          echo "$PROJECT_NAME"
-
-          echo ""
-
-          echo "Environment:"
-          echo "$ENVIRONMENT"
-
-          echo ""
-
-          echo "ECR Repository:"
-          echo "$ECR_REPOSITORY_NAME"
-
-          echo ""
-
-          echo "Docker Build Context:"
-          echo "$DOCKER_BUILD_CONTEXT"
-
-          echo ""
-
-          echo "Main CloudFormation Stack:"
-          echo "$MAIN_STACK_NAME"
-
-          echo ""
-
-          echo "ECS CloudFormation Stack:"
-          echo "$ECS_STACK_NAME"
-
-          echo ""
-
-          echo "ECS Template:"
-          echo "$ECS_TEMPLATE"
-
-          echo "================================================"
-
+          # ------------------------------------------------
+          # Validate AWS configuration
+          # ------------------------------------------------
 
           if [ -z "$AWS_REGION" ]; then
             echo "ERROR: AWS_REGION is empty."
+            echo "Set GitHub Repository Variable: AWS_REGION"
             exit 1
           fi
+
+          if [ -z "$AWS_ACCOUNT_ID" ]; then
+            echo "ERROR: AWS_ACCOUNT_ID is empty."
+            echo "Set GitHub Repository Variable: AWS_ACCOUNT_ID"
+            exit 1
+          fi
+
+          if [ -z "$AWS_ROLE_ARN" ]; then
+            echo "ERROR: AWS_ROLE_ARN is empty."
+            echo "Set GitHub Repository Variable: AWS_ROLE_ARN"
+            exit 1
+          fi
+
+
+          # ------------------------------------------------
+          # Validate project configuration
+          # ------------------------------------------------
 
           if [ -z "$PROJECT_NAME" ]; then
             echo "ERROR: PROJECT_NAME is empty."
@@ -473,302 +351,343 @@ jobs:
             exit 1
           fi
 
+
+          # ------------------------------------------------
+          # Validate Docker build context
+          # ------------------------------------------------
+
           if [ ! -d "$DOCKER_BUILD_CONTEXT" ]; then
-            echo "ERROR: Docker build directory was not found:"
+            echo "ERROR: Docker build context does not exist:"
             echo "$DOCKER_BUILD_CONTEXT"
             exit 1
           fi
 
+
+          # ------------------------------------------------
+          # Validate Dockerfile
+          # ------------------------------------------------
+
           if [ ! -f "$DOCKER_BUILD_CONTEXT/Dockerfile" ]; then
-            echo "ERROR: Dockerfile was not found:"
+            echo "ERROR: Dockerfile does not exist:"
             echo "$DOCKER_BUILD_CONTEXT/Dockerfile"
             exit 1
           fi
 
+
+          # ------------------------------------------------
+          # Validate ECS CloudFormation template
+          # ------------------------------------------------
+
           if [ ! -f "$ECS_TEMPLATE" ]; then
-            echo "ERROR: ECS CloudFormation template was not found:"
+            echo "ERROR: ECS CloudFormation template does not exist:"
             echo "$ECS_TEMPLATE"
             exit 1
           fi
 
+
+          # ------------------------------------------------
+          # Validate GITHUB_SHA
+          # ------------------------------------------------
+          #
+          # GITHUB_SHA is used as the immutable Docker image
+          # tag.
+          #
+          # ------------------------------------------------
+
+          if [ -z "${GITHUB_SHA:-}" ]; then
+            echo "ERROR: GITHUB_SHA is empty."
+            echo "Cannot create an immutable Docker image tag."
+            exit 1
+          fi
+
+
           echo ""
-          echo "Deployment configuration validation successful."
+          echo "Configuration validation successful."
+          echo ""
+          echo "AWS Region:              $AWS_REGION"
+          echo "AWS Account:             $AWS_ACCOUNT_ID"
+          echo "Project:                 $PROJECT_NAME"
+          echo "Environment:             $ENVIRONMENT"
+          echo "ECR Repository:          $ECR_REPOSITORY_NAME"
+          echo "Docker Context:          $DOCKER_BUILD_CONTEXT"
+          echo "Main Stack:              $MAIN_STACK_NAME"
+          echo "ECS Stack:               $ECS_STACK_NAME"
+          echo "ECS Template:            $ECS_TEMPLATE"
+          echo "Git Commit:              $GITHUB_SHA"
+
+          echo "================================================"
 
 
-      # ----------------------------------------------------
-      # 3. Configure AWS Credentials
-      # ----------------------------------------------------
+      # ====================================================
+      # 3. CONFIGURE AWS CREDENTIALS USING GITHUB OIDC
+      # ====================================================
       #
-      # GitHub Actions authenticates to AWS using GitHub OIDC.
+      # GitHub
+      #    |
+      #    v
+      # OIDC Token
+      #    |
+      #    v
+      # AWS IAM Role
+      #    |
+      #    v
+      # Temporary AWS Credentials
       #
-      # No long-lived AWS access key is required here.
-      #
-      # The IAM role is assumed through:
-      #
-      #   sts:AssumeRoleWithWebIdentity
-      #
-      #
-      # IMPORTANT:
-      #
-      # This uses your EXISTING GitHub Actions IAM role.
-      #
-      # We are NOT changing the IAM role or IAM policies.
-      #
-      # ----------------------------------------------------
+      # ====================================================
 
       - name: Configure AWS Credentials
-
         uses: aws-actions/configure-aws-credentials@v4
-
         with:
 
           aws-region: ${{ env.AWS_REGION }}
 
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
 
 
-      # ----------------------------------------------------
-      # 4. Verify AWS Identity
-      # ----------------------------------------------------
-      #
-      # Confirms that GitHub Actions successfully authenticated
-      # to the expected AWS account.
-      #
-      # ----------------------------------------------------
+      # ====================================================
+      # 4. VERIFY AWS IDENTITY
+      # ====================================================
 
       - name: Verify AWS Identity
-
         shell: bash
-
         run: |
-
           set -euo pipefail
 
-          echo "Verifying AWS identity..."
+          echo "================================================"
+          echo "VERIFYING AWS IDENTITY"
+          echo "================================================"
 
-          aws sts get-caller-identity
-
-          echo ""
-
-          echo "AWS authentication successful."
-
-
-      # ----------------------------------------------------
-      # 5. Login to Amazon ECR
-      # ----------------------------------------------------
-      #
-      # Authenticates Docker with Amazon ECR.
-      #
-      # The login action exposes the ECR registry through
-      # the step output:
-      #
-      #   steps.login-ecr.outputs.registry
-      #
-      # ----------------------------------------------------
-
-      - name: Login to Amazon ECR
-
-        id: login-ecr
-
-        uses: aws-actions/amazon-ecr-login@v2
-
-
-      # ----------------------------------------------------
-      # 6. Get AWS Account ID
-      # ----------------------------------------------------
-      #
-      # Retrieves the AWS account ID dynamically.
-      #
-      # This avoids hard-coding the account ID into the
-      # Docker image URI.
-      #
-      # ----------------------------------------------------
-
-      - name: Get AWS Account ID
-
-        id: aws-account
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          ACCOUNT_ID=$(aws sts get-caller-identity \
+          CALLER_ACCOUNT_ID=$(aws sts get-caller-identity \
             --query 'Account' \
             --output text)
 
-          if [ -z "$ACCOUNT_ID" ] || [ "$ACCOUNT_ID" = "None" ]; then
-            echo "ERROR: Unable to determine AWS account ID."
+
+          if [ -z "$CALLER_ACCOUNT_ID" ] || [ "$CALLER_ACCOUNT_ID" = "None" ]; then
+            echo "ERROR: Unable to determine authenticated AWS account."
             exit 1
           fi
 
-          echo "ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_OUTPUT"
 
-          echo "AWS Account ID:"
-          echo "$ACCOUNT_ID"
+          echo "Expected account:"
+          echo "$AWS_ACCOUNT_ID"
+
+          echo ""
+
+          echo "Authenticated account:"
+          echo "$CALLER_ACCOUNT_ID"
 
 
-      # ----------------------------------------------------
-      # 7. Verify ECR Repository Exists
-      # ----------------------------------------------------
+          if [ "$CALLER_ACCOUNT_ID" != "$AWS_ACCOUNT_ID" ]; then
+
+            echo ""
+            echo "ERROR: AWS account mismatch."
+            exit 1
+
+          fi
+
+
+          echo ""
+          echo "AWS identity verification successful."
+          echo "================================================"
+
+
+      # ====================================================
+      # 5. LOGIN TO AMAZON ECR
+      # ====================================================
       #
-      # The ECR repository is expected to have been created
-      # previously by the CloudFormation infrastructure phase.
+      # The ECR repository is NOT created here.
       #
-      # This workflow does NOT create the ECR repository.
+      # It must already exist because ecr.yaml owns the
+      # repository infrastructure.
       #
-      # ----------------------------------------------------
+      # ====================================================
 
-      - name: Verify ECR Repository
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
+
+      # ====================================================
+      # 6. VERIFY ECR REPOSITORY AND GET REAL URI
+      # ====================================================
+      #
+      # IMPORTANT:
+      #
+      # DO NOT manually construct:
+      #
+      #   <account>.dkr.ecr.<region>.amazonaws.com/<repo>
+      #
+      # Instead ask AWS for the authoritative repositoryUri.
+      #
+      # This also guarantees that the repository exists before
+      # the ECS deployment begins.
+      #
+      # ====================================================
+
+      - name: Verify ECR Repository and Get Repository URI
         id: ecr
-
         shell: bash
-
         run: |
-
           set -euo pipefail
 
-          echo "Checking ECR repository..."
+          echo "================================================"
+          echo "VERIFYING ECR REPOSITORY"
+          echo "================================================"
+
+          echo "Repository:"
+          echo "$ECR_REPOSITORY_NAME"
+
+
+          # ------------------------------------------------
+          # Query AWS for the real repository URI.
+          # ------------------------------------------------
 
           ECR_URI=$(aws ecr describe-repositories \
             --repository-names "$ECR_REPOSITORY_NAME" \
+            --region "$AWS_REGION" \
             --query 'repositories[0].repositoryUri' \
             --output text)
 
+
+          # ------------------------------------------------
+          # Validate ECR URI.
+          # ------------------------------------------------
+
           if [ -z "$ECR_URI" ] || [ "$ECR_URI" = "None" ]; then
-
-            echo "ERROR: ECR repository was not found."
-
-            echo ""
-            echo "Expected repository:"
-            echo "$ECR_REPOSITORY_NAME"
-
-            echo ""
-            echo "Make sure the ECR CloudFormation stack has"
-            echo "already created this repository."
-
+            echo "ERROR: ECR repository URI could not be retrieved."
+            echo "The ECR repository may not exist."
             exit 1
-
           fi
+
+
+          # ------------------------------------------------
+          # Export repository URI for later steps.
+          # ------------------------------------------------
 
           echo "ECR_URI=$ECR_URI" >> "$GITHUB_OUTPUT"
 
+
           echo ""
-          echo "ECR repository found:"
+          echo "ECR repository exists."
+          echo "Authoritative ECR URI:"
           echo "$ECR_URI"
 
+          echo "================================================"
 
-      # ----------------------------------------------------
-      # 8. Build Docker Image
-      # ----------------------------------------------------
+
+      # ====================================================
+      # 7. BUILD DOCKER IMAGE
+      # ====================================================
       #
-      # Dockerfile:
+      # The local Docker image uses GITHUB_SHA as its tag.
       #
-      #   docker/app/Dockerfile
+      # Example:
       #
-      # Docker build context:
+      # hybrid-iac-app:abc123...
       #
-      #   docker/app
-      #
-      #
-      # The image is tagged using the GitHub commit SHA.
-      #
-      # We intentionally do NOT create a "latest" deployment
-      # tag because the ECR repository should use immutable
-      # tags.
-      #
-      # ----------------------------------------------------
+      # ====================================================
 
       - name: Build Docker Image
-
-        working-directory: ${{ env.DOCKER_BUILD_CONTEXT }}
-
         shell: bash
-
         run: |
-
           set -euo pipefail
 
           echo "================================================"
-          echo "DOCKER BUILD"
+          echo "BUILDING DOCKER IMAGE"
           echo "================================================"
 
+          LOCAL_IMAGE="$DOCKER_IMAGE_NAME:$GITHUB_SHA"
+
           echo "Image:"
-          echo "$DOCKER_IMAGE_NAME:$GITHUB_SHA"
+          echo "$LOCAL_IMAGE"
 
           echo ""
 
           echo "Build context:"
           echo "$DOCKER_BUILD_CONTEXT"
 
-          echo "================================================"
+
+          # ------------------------------------------------
+          # Build Docker image.
+          # ------------------------------------------------
 
           docker build \
-            --tag "$DOCKER_IMAGE_NAME:$GITHUB_SHA" \
-            .
+            --tag "$LOCAL_IMAGE" \
+            "$DOCKER_BUILD_CONTEXT"
+
 
           echo ""
-          echo "Docker image successfully built."
+          echo "Docker image build successful."
+          echo "================================================"
 
 
-      # ----------------------------------------------------
-      # 9. Create Immutable ECR Image URI
-      # ----------------------------------------------------
+      # ====================================================
+      # 8. CREATE IMMUTABLE IMAGE URI
+      # ====================================================
       #
-      # The final image URI is:
+      # ECR repository URI comes from AWS.
       #
-      #   ECR repository URI + GitHub commit SHA
+      # Image tag comes from GITHUB_SHA.
       #
+      # Result:
       #
-      # Example:
+      #   <real-ecr-uri>:<github-sha>
       #
-      #   123456789012.dkr.ecr.us-east-1.amazonaws.com/
-      #   hybrid-iac-lab-dev-app:abc123...
-      #
-      # ----------------------------------------------------
+      # ====================================================
 
-      - name: Create ECR Image URI
-
+      - name: Create Immutable ECR Image URI
         id: image
-
         shell: bash
-
+        env:
+          ECR_URI: ${{ steps.ecr.outputs.ECR_URI }}
         run: |
-
           set -euo pipefail
 
-          IMAGE_URI="${{ steps.ecr.outputs.ECR_URI }}:${GITHUB_SHA}"
+
+          if [ -z "$ECR_URI" ]; then
+            echo "ERROR: ECR_URI is empty."
+            exit 1
+          fi
+
+
+          if [ -z "${GITHUB_SHA:-}" ]; then
+            echo "ERROR: GITHUB_SHA is empty."
+            exit 1
+          fi
+
+
+          IMAGE_URI="${ECR_URI}:${GITHUB_SHA}"
+
 
           echo "IMAGE_URI=$IMAGE_URI" >> "$GITHUB_OUTPUT"
 
-          echo "Docker image URI:"
+
+          echo "================================================"
+          echo "IMMUTABLE ECR IMAGE URI"
+          echo "================================================"
+
           echo "$IMAGE_URI"
 
+          echo "================================================"
 
-      # ----------------------------------------------------
-      # 10. Tag Docker Image for ECR
-      # ----------------------------------------------------
-      #
-      # Converts the local Docker image into the full ECR
-      # image name.
-      #
-      # ----------------------------------------------------
+
+      # ====================================================
+      # 9. TAG LOCAL IMAGE FOR ECR
+      # ====================================================
 
       - name: Tag Docker Image for ECR
-
         shell: bash
-
+        env:
+          ECR_IMAGE: ${{ steps.image.outputs.IMAGE_URI }}
         run: |
-
           set -euo pipefail
 
           LOCAL_IMAGE="$DOCKER_IMAGE_NAME:$GITHUB_SHA"
 
-          ECR_IMAGE="${{ steps.image.outputs.IMAGE_URI }}"
 
-          echo "Tagging Docker image..."
+          echo "================================================"
+          echo "TAGGING DOCKER IMAGE"
+          echo "================================================"
 
           echo "Local image:"
           echo "$LOCAL_IMAGE"
@@ -778,142 +697,104 @@ jobs:
           echo "ECR image:"
           echo "$ECR_IMAGE"
 
+
           docker tag \
             "$LOCAL_IMAGE" \
             "$ECR_IMAGE"
 
+
           echo ""
           echo "Docker image tagged successfully."
+          echo "================================================"
 
 
-      # ----------------------------------------------------
-      # 11. Push Docker Image to ECR
-      # ----------------------------------------------------
-      #
-      # IMPORTANT:
-      #
-      # This step happens BEFORE ECS deployment.
-      #
-      # Therefore the ECS service will reference an image
-      # that already exists in ECR.
-      #
-      # ----------------------------------------------------
+      # ====================================================
+      # 10. PUSH IMAGE TO ECR
+      # ====================================================
 
       - name: Push Docker Image to ECR
-
         shell: bash
-
+        env:
+          IMAGE_URI: ${{ steps.image.outputs.IMAGE_URI }}
         run: |
-
           set -euo pipefail
 
-          IMAGE_URI="${{ steps.image.outputs.IMAGE_URI }}"
-
           echo "================================================"
-          echo "ECR IMAGE PUSH"
+          echo "PUSHING DOCKER IMAGE TO ECR"
           echo "================================================"
 
-          echo "Pushing:"
-          echo "$IMAGE_URI"
-
-          echo "================================================"
-
-          docker push "$IMAGE_URI"
-
-          echo ""
-          echo "Docker image successfully pushed to ECR."
-
-          echo ""
           echo "Image:"
           echo "$IMAGE_URI"
 
 
-      # ----------------------------------------------------
-      # 12. Verify Image Exists in ECR
-      # ----------------------------------------------------
+          docker push "$IMAGE_URI"
+
+
+          echo ""
+          echo "Docker image successfully pushed to ECR."
+          echo "================================================"
+
+
+      # ====================================================
+      # 11. VERIFY ECR IMAGE
+      # ====================================================
       #
-      # Performs an additional verification before ECS
-      # deployment.
+      # Confirms that the exact GITHUB_SHA image was pushed.
       #
-      # This provides an explicit failure if the image cannot
-      # be found in ECR.
-      #
-      # ----------------------------------------------------
+      # ====================================================
 
       - name: Verify ECR Image
-
         shell: bash
-
         run: |
-
           set -euo pipefail
 
-          IMAGE_TAG="$GITHUB_SHA"
-
-          echo "Verifying ECR image..."
+          echo "================================================"
+          echo "VERIFYING ECR IMAGE"
+          echo "================================================"
 
           aws ecr describe-images \
             --repository-name "$ECR_REPOSITORY_NAME" \
-            --image-ids "imageTag=$IMAGE_TAG" \
+            --image-ids "imageTag=$GITHUB_SHA" \
+            --region "$AWS_REGION" \
             --query 'imageDetails[0].{Repository:repositoryName,Tag:imageTags[0],Digest:imageDigest}' \
             --output table
 
+
           echo ""
           echo "ECR image verification successful."
+          echo "================================================"
 
 
-      # ----------------------------------------------------
-      # 13. Get CloudFormation Root Stack Outputs
-      # ----------------------------------------------------
+      # ====================================================
+      # 12. GET MAIN CLOUDFORMATION NETWORK OUTPUTS
+      # ====================================================
       #
-      # The VPC and subnets were created earlier by the
-      # CloudFormation root stack.
-      #
-      #
-      # The root stack exposes:
+      # MainStack must expose these outputs:
       #
       #   VpcId
       #   PublicSubnet1Id
       #   PublicSubnet2Id
-      #   etc.
+      #   PrivateSubnet1Id
+      #   PrivateSubnet2Id
       #
-      #
-      # For ECS we need:
-      #
-      #   VpcId
-      #   PublicSubnet1Id
-      #   PublicSubnet2Id
-      #
-      #
-      # These values are NOT Terraform variables.
-      #
-      # They come from the already-created CloudFormation
-      # hierarchy.
-      #
-      # ----------------------------------------------------
+      # ====================================================
 
       - name: Get CloudFormation Network Outputs
-
         id: network
-
         shell: bash
-
         run: |
-
           set -euo pipefail
 
           echo "================================================"
-          echo "CLOUDFORMATION NETWORK OUTPUTS"
+          echo "GETTING CLOUDFORMATION NETWORK OUTPUTS"
           echo "================================================"
 
-          echo "Main stack:"
+          echo "Main Stack:"
           echo "$MAIN_STACK_NAME"
-
-          echo "================================================"
 
 
           # ------------------------------------------------
-          # Check whether the main stack exists.
+          # Verify MainStack exists.
           # ------------------------------------------------
 
           aws cloudformation describe-stacks \
@@ -923,7 +804,7 @@ jobs:
 
 
           # ------------------------------------------------
-          # Get VPC ID.
+          # Retrieve VPC ID.
           # ------------------------------------------------
 
           VPC_ID=$(aws cloudformation describe-stacks \
@@ -934,7 +815,7 @@ jobs:
 
 
           # ------------------------------------------------
-          # Get Public Subnet 1 ID.
+          # Retrieve public subnet 1.
           # ------------------------------------------------
 
           PUBLIC_SUBNET_1_ID=$(aws cloudformation describe-stacks \
@@ -945,7 +826,7 @@ jobs:
 
 
           # ------------------------------------------------
-          # Get Public Subnet 2 ID.
+          # Retrieve public subnet 2.
           # ------------------------------------------------
 
           PUBLIC_SUBNET_2_ID=$(aws cloudformation describe-stacks \
@@ -956,46 +837,51 @@ jobs:
 
 
           # ------------------------------------------------
-          # Validate VPC ID.
+          # Retrieve private subnet 1.
           # ------------------------------------------------
 
-          if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "None" ]; then
-
-            echo "ERROR: VpcId was not found in CloudFormation outputs."
-
-            exit 1
-
-          fi
+          PRIVATE_SUBNET_1_ID=$(aws cloudformation describe-stacks \
+            --stack-name "$MAIN_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "Stacks[0].Outputs[?OutputKey=='PrivateSubnet1Id'].OutputValue | [0]" \
+            --output text)
 
 
           # ------------------------------------------------
-          # Validate Public Subnet 1.
+          # Retrieve private subnet 2.
           # ------------------------------------------------
 
-          if [ -z "$PUBLIC_SUBNET_1_ID" ] || [ "$PUBLIC_SUBNET_1_ID" = "None" ]; then
-
-            echo "ERROR: PublicSubnet1Id was not found in CloudFormation outputs."
-
-            exit 1
-
-          fi
+          PRIVATE_SUBNET_2_ID=$(aws cloudformation describe-stacks \
+            --stack-name "$MAIN_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "Stacks[0].Outputs[?OutputKey=='PrivateSubnet2Id'].OutputValue | [0]" \
+            --output text)
 
 
           # ------------------------------------------------
-          # Validate Public Subnet 2.
+          # Validate all required outputs.
           # ------------------------------------------------
 
-          if [ -z "$PUBLIC_SUBNET_2_ID" ] || [ "$PUBLIC_SUBNET_2_ID" = "None" ]; then
+          for VALUE_NAME in \
+            VPC_ID \
+            PUBLIC_SUBNET_1_ID \
+            PUBLIC_SUBNET_2_ID \
+            PRIVATE_SUBNET_1_ID \
+            PRIVATE_SUBNET_2_ID
+          do
 
-            echo "ERROR: PublicSubnet2Id was not found in CloudFormation outputs."
+            VALUE="${!VALUE_NAME}"
 
-            exit 1
+            if [ -z "$VALUE" ] || [ "$VALUE" = "None" ]; then
+              echo "ERROR: $VALUE_NAME was not returned by MainStack."
+              exit 1
+            fi
 
-          fi
+          done
 
 
           # ------------------------------------------------
-          # Export outputs for later workflow steps.
+          # Export values for later steps.
           # ------------------------------------------------
 
           echo "VPC_ID=$VPC_ID" >> "$GITHUB_OUTPUT"
@@ -1004,126 +890,232 @@ jobs:
 
           echo "PUBLIC_SUBNET_2_ID=$PUBLIC_SUBNET_2_ID" >> "$GITHUB_OUTPUT"
 
+          echo "PRIVATE_SUBNET_1_ID=$PRIVATE_SUBNET_1_ID" >> "$GITHUB_OUTPUT"
+
+          echo "PRIVATE_SUBNET_2_ID=$PRIVATE_SUBNET_2_ID"
+
+
+          echo "PRIVATE_SUBNET_2_ID=$PRIVATE_SUBNET_2_ID" >> "$GITHUB_OUTPUT"
+
 
           echo ""
-          echo "CloudFormation network outputs retrieved successfully."
+          echo "Network outputs retrieved successfully."
 
-          echo ""
-          echo "VPC_ID:"
-          echo "$VPC_ID"
-
-          echo ""
-          echo "PUBLIC_SUBNET_1_ID:"
-          echo "$PUBLIC_SUBNET_1_ID"
-
-          echo ""
-          echo "PUBLIC_SUBNET_2_ID:"
-          echo "$PUBLIC_SUBNET_2_ID"
-
-
-      # ----------------------------------------------------
-      # 14. Deploy / Update ECS CloudFormation Stack
-      # ----------------------------------------------------
-      #
-      # This is the application deployment phase.
-      #
-      #
-      # The ECR image now exists because the previous steps
-      # successfully pushed it to ECR.
-      #
-      #
-      # The ECS CloudFormation template receives:
-      #
-      #   ProjectName
-      #   Environment
-      #   VpcId
-      #   PublicSubnet1Id
-      #   PublicSubnet2Id
-      #   EcrImageUri
-      #
-      #
-      # The image URI contains GITHUB_SHA, so ECS receives
-      # the exact image produced by this Git commit.
-      #
-      #
-      # If the ECS stack does not exist:
-      #
-      #   CloudFormation creates it.
-      #
-      #
-      # If the ECS stack already exists:
-      #
-      #   CloudFormation updates it.
-      #
-      # ----------------------------------------------------
-
-      - name: Deploy or Update ECS
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          IMAGE_URI="${{ steps.image.outputs.IMAGE_URI }}"
-
-          VPC_ID="${{ steps.network.outputs.VPC_ID }}"
-
-          PUBLIC_SUBNET_1_ID="${{ steps.network.outputs.PUBLIC_SUBNET_1_ID }}"
-
-          PUBLIC_SUBNET_2_ID="${{ steps.network.outputs.PUBLIC_SUBNET_2_ID }}"
-
+          echo "VPC:                  $VPC_ID"
+          echo "Public Subnet 1:      $PUBLIC_SUBNET_1_ID"
+          echo "Public Subnet 2:      $PUBLIC_SUBNET_2_ID"
+          echo "Private Subnet 1:     $PRIVATE_SUBNET_1_ID"
+          echo "Private Subnet 2:     $PRIVATE_SUBNET_2_ID"
 
           echo "================================================"
-          echo "ECS DEPLOYMENT"
+
+
+      # ====================================================
+      # 13. VALIDATE NETWORK RESOURCES
+      # ====================================================
+      #
+      # This validation does more than check whether the
+      # CloudFormation outputs are non-empty.
+      #
+      # It confirms that every subnet actually belongs to
+      # the expected VPC.
+      #
+      # ====================================================
+
+      - name: Validate Network Resources
+        shell: bash
+        env:
+          VPC_ID: ${{ steps.network.outputs.VPC_ID }}
+          PUBLIC_SUBNET_1_ID: ${{ steps.network.outputs.PUBLIC_SUBNET_1_ID }}
+          PUBLIC_SUBNET_2_ID: ${{ steps.network.outputs.PUBLIC_SUBNET_2_ID }}
+          PRIVATE_SUBNET_1_ID: ${{ steps.network.outputs.PRIVATE_SUBNET_1_ID }}
+          PRIVATE_SUBNET_2_ID: ${{ steps.network.outputs.PRIVATE_SUBNET_2_ID }}
+        run: |
+          set -euo pipefail
+
+          echo "================================================"
+          echo "VALIDATING NETWORK RESOURCES"
+          echo "================================================"
+
+
+          # ------------------------------------------------
+          # Verify VPC exists.
+          # ------------------------------------------------
+
+          aws ec2 describe-vpcs \
+            --vpc-ids "$VPC_ID" \
+            --region "$AWS_REGION" \
+            > /dev/null
+
+
+          # ------------------------------------------------
+          # Validate each subnet individually.
+          #
+          # This makes the validation defensive.
+          # ------------------------------------------------
+
+          for SUBNET_ID in \
+            "$PUBLIC_SUBNET_1_ID" \
+            "$PUBLIC_SUBNET_2_ID" \
+            "$PRIVATE_SUBNET_1_ID" \
+            "$PRIVATE_SUBNET_2_ID"
+          do
+
+            echo ""
+            echo "Checking subnet:"
+            echo "$SUBNET_ID"
+
+
+            SUBNET_VPC_ID=$(aws ec2 describe-subnets \
+              --subnet-ids "$SUBNET_ID" \
+              --region "$AWS_REGION" \
+              --query 'Subnets[0].VpcId' \
+              --output text)
+
+
+            if [ -z "$SUBNET_VPC_ID" ] || [ "$SUBNET_VPC_ID" = "None" ]; then
+              echo "ERROR: Unable to determine VPC for subnet $SUBNET_ID."
+              exit 1
+            fi
+
+
+            if [ "$SUBNET_VPC_ID" != "$VPC_ID" ]; then
+
+              echo ""
+              echo "ERROR: Subnet does not belong to expected VPC."
+
+              echo "Subnet:"
+              echo "$SUBNET_ID"
+
+              echo "Expected VPC:"
+              echo "$VPC_ID"
+
+              echo "Actual VPC:"
+              echo "$SUBNET_VPC_ID"
+
+              exit 1
+
+            fi
+
+
+            echo "Subnet belongs to expected VPC."
+
+          done
+
+
+          echo ""
+          echo "All ECS subnets belong to the expected VPC."
+          echo "Network validation successful."
+          echo "================================================"
+
+
+      # ====================================================
+      # 14. DEPLOY / UPDATE ECS CLOUDFORMATION STACK
+      # ====================================================
+      #
+      # IMPORTANT:
+      #
+      # ecs.yaml expects ONE image parameter:
+      #
+      #   EcrImageUri
+      #
+      # The complete image URI is produced by the previous
+      # image build/push step:
+      #
+      #   steps.image.outputs.IMAGE_URI
+      #
+      # Example:
+      #
+      #   537236558357.dkr.ecr.us-east-1.amazonaws.com/
+      #   hybridiaclab-dev-app:abc123
+      #
+      # This complete URI is passed directly to ecs.yaml.
+      #
+      # ====================================================
+
+      - name: Deploy or Update ECS
+        shell: bash
+
+        env:
+          # Complete ECR image URI including GITHUB_SHA tag.
+          ECR_IMAGE_URI: ${{ steps.image.outputs.IMAGE_URI }}
+
+          # Network outputs from the previous CloudFormation
+          # network lookup step.
+          VPC_ID: ${{ steps.network.outputs.VPC_ID }}
+          PUBLIC_SUBNET_1_ID: ${{ steps.network.outputs.PUBLIC_SUBNET_1_ID }}
+          PUBLIC_SUBNET_2_ID: ${{ steps.network.outputs.PUBLIC_SUBNET_2_ID }}
+          PRIVATE_SUBNET_1_ID: ${{ steps.network.outputs.PRIVATE_SUBNET_1_ID }}
+          PRIVATE_SUBNET_2_ID: ${{ steps.network.outputs.PRIVATE_SUBNET_2_ID }}
+
+        run: |
+          set -euo pipefail
+
+          echo "================================================"
+          echo "DEPLOYING ECS CLOUDFORMATION STACK"
           echo "================================================"
 
           echo "Project:"
           echo "$PROJECT_NAME"
 
           echo ""
-
           echo "Environment:"
           echo "$ENVIRONMENT"
 
           echo ""
-
           echo "ECS Stack:"
           echo "$ECS_STACK_NAME"
 
           echo ""
-
           echo "ECS Template:"
           echo "$ECS_TEMPLATE"
 
           echo ""
-
-          echo "ECR Image:"
-          echo "$IMAGE_URI"
+          echo "ECR Image URI:"
+          echo "$ECR_IMAGE_URI"
 
           echo ""
-
           echo "VPC:"
           echo "$VPC_ID"
 
           echo ""
-
           echo "Public Subnet 1:"
           echo "$PUBLIC_SUBNET_1_ID"
 
           echo ""
-
           echo "Public Subnet 2:"
           echo "$PUBLIC_SUBNET_2_ID"
 
-          echo "================================================"
+          echo ""
+          echo "Private Subnet 1:"
+          echo "$PRIVATE_SUBNET_1_ID"
+
+          echo ""
+          echo "Private Subnet 2:"
+          echo "$PRIVATE_SUBNET_2_ID"
 
 
           # ------------------------------------------------
-          # Deploy/update the ECS CloudFormation stack.
+          # Deploy or update ECS CloudFormation stack.
           #
-          # CloudFormation automatically determines whether
-          # this is a CREATE or UPDATE operation.
+          # ecs.yaml expects:
+          #
+          #   EcrImageUri
+          #
+          # The value is the COMPLETE Docker image URI:
+          #
+          #   ECR repository URI + GITHUB_SHA tag
+          #
+          # This matches:
+          #
+          #   Parameters:
+          #     EcrImageUri:
+          #
+          # and:
+          #
+          #   Image:
+          #     !Ref EcrImageUri
+          #
           # ------------------------------------------------
 
           aws cloudformation deploy \
@@ -1137,101 +1129,151 @@ jobs:
               "VpcId=$VPC_ID" \
               "PublicSubnet1Id=$PUBLIC_SUBNET_1_ID" \
               "PublicSubnet2Id=$PUBLIC_SUBNET_2_ID" \
-              "EcrImageUri=$IMAGE_URI"
-
+              "PrivateSubnet1Id=$PRIVATE_SUBNET_1_ID" \
+              "PrivateSubnet2Id=$PRIVATE_SUBNET_2_ID" \
+              "EcrImageUri=$ECR_IMAGE_URI"
 
           echo ""
-          echo "================================================"
-          echo "ECS DEPLOYMENT COMPLETED"
+          echo "ECS CloudFormation deployment completed."
           echo "================================================"
 
 
-      # ----------------------------------------------------
-      # 15. Verify ECS CloudFormation Stack
-      # ----------------------------------------------------
-      #
-      # Shows the final CloudFormation stack status after
-      # the ECS deployment.
-      #
-      # ----------------------------------------------------
+      # ====================================================
+      # 15. VERIFY ECS CLOUDFORMATION STACK
+      # ====================================================
 
       - name: Verify ECS CloudFormation Stack
-
         shell: bash
-
         run: |
-
           set -euo pipefail
 
-          echo "Checking ECS CloudFormation stack..."
+          echo "================================================"
+          echo "VERIFYING ECS CLOUDFORMATION STACK"
+          echo "================================================"
 
-          aws cloudformation describe-stacks \
+
+          STACK_STATUS=$(aws cloudformation describe-stacks \
             --stack-name "$ECS_STACK_NAME" \
             --region "$AWS_REGION" \
-            --query "Stacks[0].{StackName:StackName,Status:StackStatus}" \
-            --output table
+            --query 'Stacks[0].StackStatus' \
+            --output text)
+
+
+          echo "ECS Stack Status:"
+          echo "$STACK_STATUS"
+
+
+          case "$STACK_STATUS" in
+
+            CREATE_COMPLETE)
+
+              echo ""
+              echo "ECS stack creation completed successfully."
+
+              ;;
+
+
+            UPDATE_COMPLETE)
+
+              echo ""
+              echo "ECS stack update completed successfully."
+
+              ;;
+
+
+            *)
+
+              echo ""
+              echo "ERROR: ECS stack is not in a successful state."
+              echo "Current status: $STACK_STATUS"
+
+              exit 1
+
+              ;;
+
+          esac
+
 
           echo ""
-          echo "ECS CloudFormation stack verification completed."
+          echo "ECS CloudFormation verification successful."
+          echo "================================================"
 
 
-      # ----------------------------------------------------
-      # 16. Deployment Summary
-      # ----------------------------------------------------
-      #
-      # Final summary showing the exact image deployed.
-      #
-      # ----------------------------------------------------
+      # ====================================================
+      # 16. DEPLOYMENT SUMMARY
+      # ====================================================
 
       - name: Deployment Summary
-
         shell: bash
-
+        env:
+          ECR_REPOSITORY_URI: ${{ steps.ecr.outputs.ECR_URI }}
         run: |
-
           set -euo pipefail
 
           echo ""
           echo "================================================"
-          echo "DEPLOYMENT SUMMARY"
+          echo "HYBRID IaC DEPLOYMENT SUMMARY"
           echo "================================================"
 
+          echo ""
           echo "Project:"
           echo "$PROJECT_NAME"
 
           echo ""
-
           echo "Environment:"
           echo "$ENVIRONMENT"
 
           echo ""
+          echo "AWS Account:"
+          echo "$AWS_ACCOUNT_ID"
 
+          echo ""
           echo "AWS Region:"
           echo "$AWS_REGION"
 
           echo ""
-
           echo "Git Commit:"
           echo "$GITHUB_SHA"
 
           echo ""
+          echo "Docker Image Tag:"
+          echo "$GITHUB_SHA"
 
+          echo ""
           echo "ECR Repository:"
           echo "$ECR_REPOSITORY_NAME"
 
           echo ""
-
-          echo "ECR Image:"
-          echo "${{ steps.image.outputs.IMAGE_URI }}"
+          echo "ECR Repository URI:"
+          echo "$ECR_REPOSITORY_URI"
 
           echo ""
+          echo "ECS Image Parameters:"
+          echo "EcrRepositoryUri=$ECR_REPOSITORY_URI"
+          echo "ImageTag=$GITHUB_SHA"
 
-          echo "ECS Stack:"
+          echo ""
+          echo "Main CloudFormation Stack:"
+          echo "$MAIN_STACK_NAME"
+
+          echo ""
+          echo "ECS CloudFormation Stack:"
           echo "$ECS_STACK_NAME"
 
           echo ""
+          echo "ECS Template:"
+          echo "$ECS_TEMPLATE"
 
+          echo ""
           echo "Deployment:"
           echo "SUCCESS"
+
+          echo ""
+          echo "Docker image was built and pushed to ECR."
+          echo "ECS was deployed using:"
+          echo "  EcrRepositoryUri + ImageTag"
+
+          echo ""
+          echo "No 'latest' tag was used."
 
           echo "================================================"

@@ -400,6 +400,12 @@ CloudFormation-Validation-Diagnostic.txt
 # Ignore generated CloudFormation validation errors
 infrastructure/cloudformation/cloudformation-validation-errors.txt
 
+# ============================================================
+# DEPLOYMENT MONITORING OUTPUT
+# ============================================================
+
+deployment-logs/
+
 # =======================================================
 
 # END OF .gitignore
