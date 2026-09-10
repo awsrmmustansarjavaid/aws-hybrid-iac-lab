@@ -2,57 +2,153 @@
 # HYBRID TERRAFORM + CLOUDFORMATION LAB
 # Docker Compose Configuration
 # ==========================================================
+#
+# File:
+#   docker-compose.yml
+#
+# PURPOSE:
+#   Runs the same Docker application locally that is built
+#   and deployed by the GitHub Actions docker.yml workflow.
+#
+# IMPORTANT:
+#
+#   Docker Compose uses the SAME Dockerfile that is used by
+#   the CI/CD workflow:
+#
+#       docker/app/Dockerfile
+#
+#   This keeps local Docker testing aligned with the image
+#   that is eventually pushed to Amazon ECR and deployed
+#   to Amazon ECS Fargate.
+#
+# ==========================================================
+
+
+# ----------------------------------------------------------
+# 1. Application Services
+# ----------------------------------------------------------
+#
+# Define the containers that make up the local application.
+#
+# This lab currently has one application container:
+#
+#   app
+#
+# ----------------------------------------------------------
 
 services:
 
-  # --------------------------------------------------------
-  # Application Container
-  # --------------------------------------------------------
+
+  # ========================================================
+  # APPLICATION CONTAINER
+  # ========================================================
+  #
+  # This container runs the Nginx-based web application.
+  #
+  # The same Docker image configuration is used by:
+  #
+  #   Docker Compose
+  #       ↓
+  #   Local development/testing
+  #
+  #   docker.yml
+  #       ↓
+  #   GitHub Actions
+  #
+  #   Amazon ECR
+  #       ↓
+  #   Amazon ECS Fargate
+  #
+  # ========================================================
 
   app:
 
+
     # ------------------------------------------------------
-    # Build Configuration
+    # 2. Build Configuration
     # ------------------------------------------------------
-    # Build the Docker image using the Dockerfile located
-    # in the current directory.
+    #
+    # Build the Docker image using:
+    #
+    #   docker/app/Dockerfile
+    #
+    # Because this docker-compose.yml is located at the
+    # repository root, the build context is:
+    #
+    #   ./docker/app
+    #
+    # This is important because the Dockerfile contains:
+    #
+    #   COPY app/index.html /usr/share/nginx/html/index.html
+    #
+    # With docker/app as the build context, Docker can access
+    # the application files required by the Dockerfile.
+    #
     # ------------------------------------------------------
 
     build:
-      context: .
+      context: ./docker/app
       dockerfile: Dockerfile
 
 
     # ------------------------------------------------------
-    # Image Name
+    # 3. Local Image Name
     # ------------------------------------------------------
-    # Name that will be assigned to the built image.
+    #
+    # Name assigned to the locally built Docker image.
+    #
+    # IMPORTANT:
+    #
+    # This local image name is separate from the ECR image
+    # name used by GitHub Actions.
+    #
+    # GitHub Actions later tags the application image with
+    # the ECR repository URI before pushing it to AWS.
+    #
     # ------------------------------------------------------
 
     image: hybrid-iac-app:latest
 
 
     # ------------------------------------------------------
-    # Container Name
+    # 4. Container Name
     # ------------------------------------------------------
-    # Give our container a predictable name.
+    #
+    # Give the local container a predictable name.
+    #
+    # This makes commands such as:
+    #
+    #   docker exec hybrid-iac-app ...
+    #
+    # easier to use.
+    #
     # ------------------------------------------------------
 
     container_name: hybrid-iac-app
 
 
     # ------------------------------------------------------
-    # Port Mapping
+    # 5. Port Mapping
     # ------------------------------------------------------
     #
-    # Host machine       Container
-    #      8080     --->    80
+    # Map the local host port 8080 to container port 80.
     #
-    # Therefore:
+    # Host machine:
     #
-    # http://localhost:8080
+    #       8080
+    #         │
+    #         ▼
+    # Container:
     #
-    # will reach Nginx inside the container.
+    #        80
+    #         │
+    #         ▼
+    #       Nginx
+    #
+    # Therefore the application is available locally at:
+    #
+    #   http://localhost:8080
+    #
     # ------------------------------------------------------
 
     ports:
@@ -60,11 +156,163 @@ services:
 
 
     # ------------------------------------------------------
-    # Restart Policy
+    # 6. Container Health Check
     # ------------------------------------------------------
-    # Restart the container automatically if it stops.
     #
-    # This is useful for practicing container operations.
+    # Verify that Nginx is actually responding inside the
+    # running container.
+    #
+    # IMPORTANT:
+    #
+    # This intentionally matches the ECS health check:
+    #
+    #   curl -f http://localhost/
+    #
+    # Therefore local Docker Compose testing and ECS runtime
+    # health checking use the same application test.
+    #
+    # curl is available because docker/app/Dockerfile installs:
+    #
+    #   RUN apk add --no-cache curl
+    #
+    # ------------------------------------------------------
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "curl -f http://localhost/ || exit 1"
+
+      # Check the application every 30 seconds.
+      interval: 30s
+
+      # Give curl up to 10 seconds to receive a response.
+      timeout: 10s
+
+      # Require several consecutive failures before marking
+      # the container unhealthy.
+      retries: 3
+
+      # Allow Nginx some time to start before the first
+      # health check is performed.
+      start_period: 10s
+
+
+    # ------------------------------------------------------
+    # 7. Restart Policy
+    # ------------------------------------------------------
+    #
+    # Restart the container automatically unless it was
+    # intentionally stopped by the user.
+    #
+    # This is useful for local container and ECS-style
+    # operational testing.
+    #
     # ------------------------------------------------------
 
     restart: unless-stopped
+
+
+# ==========================================================
+# DOCKER COMPOSE / DOCKERFILE / GITHUB ACTIONS ALIGNMENT
+# ==========================================================
+#
+# The three components are now aligned:
+#
+#
+# 1. docker/app/Dockerfile
+# --------------------------------
+#
+#   Base image:
+#       nginx:alpine
+#
+#   curl:
+#       apk add --no-cache curl
+#
+#   Application:
+#       app/index.html
+#
+#   Container port:
+#       80
+#
+#   Startup:
+#       nginx -g "daemon off;"
+#
+#
+# 2. docker-compose.yml
+# --------------------------------
+#
+#   Build context:
+#       ./docker/app
+#
+#   Dockerfile:
+#       Dockerfile
+#
+#   Host port:
+#       8080
+#
+#   Container port:
+#       80
+#
+#   Health check:
+#       curl -f http://localhost/
+#
+#
+# 3. .github/workflows/docker.yml
+# --------------------------------
+#
+#   Build context:
+#       docker/app
+#
+#   Dockerfile:
+#       docker/app/Dockerfile
+#
+#   Curl verification:
+#       command -v curl
+#
+#   Image:
+#       Built from the same Dockerfile
+#
+#   ECR:
+#       Image is pushed to the ECS ECR repository
+#
+#
+# ==========================================================
+# LOCAL TEST FLOW
+# ==========================================================
+#
+# From the repository root:
+#
+#   docker compose build
+#
+# Then start the application:
+#
+#   docker compose up -d
+#
+# Check the running container:
+#
+#   docker compose ps
+#
+# Check the application in your browser:
+#
+#   http://localhost:8080
+#
+# Check curl manually inside the container:
+#
+#   docker exec hybrid-iac-app curl -f http://localhost/
+#
+# Check the Docker health status:
+#
+#   docker inspect \
+#     --format="{{.State.Health.Status}}" \
+#     hybrid-iac-app
+#
+# Expected health status:
+#
+#   healthy
+#
+# Stop the application:
+#
+#   docker compose down
+#
+# ==========================================================
+

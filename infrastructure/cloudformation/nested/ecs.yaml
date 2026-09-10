@@ -279,12 +279,24 @@ AWSTemplateFormatVersion: "2010-09-09"
 #
 # as a CloudFormation parameter.
 #
-# The previous template instead defined:
+# The previous ECS template expected two separate parameters:
 #
 #   EcrRepositoryUri
 #   ImageTag
 #
-# That did NOT match docker.yml.
+# That old ECS parameter design did NOT match the current
+# docker.yml deployment contract.
+#
+# IMPORTANT:
+#
+# EcrRepositoryUri is still used by ecr.yaml as the ECR
+# repository URI output.
+#
+# It is NOT an ECS parameter in this template.
+#
+# The ECS template now receives only the complete image URI:
+#
+#   EcrImageUri
 #
 # FINAL CONTRACT:
 #
@@ -303,17 +315,19 @@ AWSTemplateFormatVersion: "2010-09-09"
 # IMMUTABLE IMAGE TAGGING
 # ============================================================
 #
-# The image should NOT use:
-#
-#   latest
-#
-# Instead, GitHub Actions should use an immutable tag such as:
-#
-#   Git commit SHA
+# Instead, GitHub Actions should use an immutable tag such as
+# the Git commit SHA.
 #
 # Example:
 #
-#   abcdef1234567890
+#   9f4c2e7a8b1d6c5e4f3a2b1c0d9e8f7a6b5c4d3e
+#
+# The exact SHA length depends on how docker.yml constructs
+# the image tag.
+#
+# Example:
+#
+#   <GitCommitSHA>
 #
 # Docker image:
 #
@@ -334,41 +348,52 @@ AWSTemplateFormatVersion: "2010-09-09"
 # ECR OUTPUT NAME
 # ============================================================
 #
-# The ECR template should expose the repository URI using:
+# The ECR template exposes the repository URI using:
 #
-#   RepositoryUri
+#   EcrRepositoryUri
 #
 # This is the canonical ECR repository URI output.
 #
 # Example:
 #
-#   RepositoryUri =
+#   EcrRepositoryUri =
 #   537236558357.dkr.ecr.us-east-1.amazonaws.com/
 #   hybridiaclab-dev-app
 #
-# docker.yml can then append the immutable image tag and
-# construct:
+# docker.yml receives this repository URI and appends the
+# immutable image tag.
 #
-#   IMAGE_URI=<RepositoryUri>:<GitSHA>
+# Example:
 #
-# The final IMAGE_URI is passed to this ECS template as:
+#   IMAGE_URI=<EcrRepositoryUri>:<GitSHA>
+#
+# The complete IMAGE_URI is then passed to this ECS template
+# as:
 #
 #   EcrImageUri
 #
-#
 # ============================================================
-# ECR LIFECYCLE
+# FINAL ECR -> ECS IMAGE FLOW
 # ============================================================
-#
-# ECR lifecycle rules belong in:
 #
 #   ecr.yaml
+#       |
+#       +--> EcrRepositoryUri
+#                 |
+#                 v
+#          GitHub Actions / docker.yml
+#                 |
+#                 +--> :<GitSHA>
+#                 |
+#                 v
+#             EcrImageUri
+#                 |
+#                 v
+#              ecs.yaml
+#                 |
+#                 v
+#          TaskDefinition.Image
 #
-# They are intentionally NOT duplicated here.
-#
-# Recommended learning-lab policy:
-#
-#   Keep the newest 10 images.
 #
 #
 # ============================================================

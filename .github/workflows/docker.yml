@@ -622,7 +622,126 @@ jobs:
 
 
       # ====================================================
-      # 8. CREATE IMMUTABLE IMAGE URI
+      # 8. VERIFY CURL EXISTS IN DOCKER IMAGE
+      # ====================================================
+      #
+      # IMPORTANT:
+      #
+      # ecs.yaml uses:
+      #
+      #   HealthCheck:
+      #     Command:
+      #       - CMD-SHELL
+      #       - "curl -f http://localhost/ || exit 1"
+      #
+      # Therefore the FINAL Docker image must contain curl.
+      #
+      # This test runs inside the actual image that was built.
+      #
+      # The test intentionally happens BEFORE the image is
+      # tagged and pushed to ECR.
+      #
+      # ====================================================
+
+      - name: Verify curl Exists in Docker Image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "================================================"
+          echo "VERIFYING CURL INSIDE DOCKER IMAGE"
+          echo "================================================"
+
+          LOCAL_IMAGE="$DOCKER_IMAGE_NAME:$GITHUB_SHA"
+
+          echo "Docker image:"
+          echo "$LOCAL_IMAGE"
+
+          echo ""
+
+          # ------------------------------------------------
+          # Check whether curl exists inside the image.
+          #
+          # 'command -v curl' searches for the curl executable
+          # using the container's PATH.
+          # ------------------------------------------------
+
+          if ! docker run --rm \
+            "$LOCAL_IMAGE" \
+            sh -c 'command -v curl >/dev/null 2>&1'
+          then
+
+            echo ""
+            echo "ERROR: curl was NOT found inside the Docker image."
+            echo ""
+            echo "ECS health check requires:"
+            echo "  curl -f http://localhost/"
+            echo ""
+            echo "Update:"
+            echo "  docker/app/Dockerfile"
+            echo ""
+            echo "The image must contain curl before ECS deployment."
+
+            exit 1
+          fi
+
+          echo ""
+          echo "SUCCESS: curl exists inside the Docker image."
+
+          echo "================================================"
+
+      # ============================================================
+      # 9. RUN CONTAINER AND TEST ECS HEALTH CHECK
+      # ============================================================
+      #
+      # PURPOSE:
+      #   This performs the same HTTP health check that ECS will
+      #   execute inside the running container.
+      #
+      # ECS HEALTH CHECK:
+      #   curl -f http://localhost/ || exit 1
+      #
+      # WHY THIS TEST IS IMPORTANT:
+      #   The previous step only verifies that the curl executable
+      #   exists inside the Docker image.
+      #
+      #   This step goes further:
+      #
+      #     1. Starts the actual Docker image.
+      #     2. Waits for Nginx to start.
+      #     3. Executes curl against localhost.
+      #     4. Fails the GitHub Actions job if HTTP fails.
+      #
+      #   Therefore, we test the real container behavior before
+      #   pushing the image to ECR and deploying it to ECS.
+      #
+      # CLEANUP:
+      #   The trap automatically removes the temporary container
+      #   when this step finishes, including when the curl test fails.
+      #
+      # ============================================================
+      - name: Test container HTTP health check
+        run: |
+          # Start the image as a temporary background container.
+          docker run -d --name ecs-health-test "$LOCAL_IMAGE"
+
+          # Always remove the temporary container when this step exits.
+          # This prevents leftover containers on the GitHub runner.
+          trap 'docker rm -f ecs-health-test >/dev/null 2>&1 || true' EXIT
+
+          # Give Nginx a few seconds to start before testing HTTP.
+          sleep 5
+
+          # Run the same health check configured in ecs.yaml.
+          # -f makes curl return a failure exit code for HTTP errors.
+          docker exec ecs-health-test \
+            curl -f http://localhost/
+
+          # If curl succeeded, the Docker container is serving HTTP.
+          echo "SUCCESS: ECS health check passed."
+
+      # ====================================================
+      # 10. CREATE IMMUTABLE IMAGE URI
       # ====================================================
       #
       # ECR repository URI comes from AWS.
@@ -672,7 +791,7 @@ jobs:
 
 
       # ====================================================
-      # 9. TAG LOCAL IMAGE FOR ECR
+      # 11. TAG LOCAL IMAGE FOR ECR
       # ====================================================
 
       - name: Tag Docker Image for ECR
@@ -709,7 +828,7 @@ jobs:
 
 
       # ====================================================
-      # 10. PUSH IMAGE TO ECR
+      # 12. PUSH IMAGE TO ECR
       # ====================================================
 
       - name: Push Docker Image to ECR
@@ -736,7 +855,7 @@ jobs:
 
 
       # ====================================================
-      # 11. VERIFY ECR IMAGE
+      # 13. VERIFY ECR IMAGE
       # ====================================================
       #
       # Confirms that the exact GITHUB_SHA image was pushed.
@@ -766,7 +885,7 @@ jobs:
 
 
       # ====================================================
-      # 12. GET MAIN CLOUDFORMATION NETWORK OUTPUTS
+      # 14. GET MAIN CLOUDFORMATION NETWORK OUTPUTS
       # ====================================================
       #
       # MainStack must expose these outputs:
@@ -891,10 +1010,7 @@ jobs:
           echo "PUBLIC_SUBNET_2_ID=$PUBLIC_SUBNET_2_ID" >> "$GITHUB_OUTPUT"
 
           echo "PRIVATE_SUBNET_1_ID=$PRIVATE_SUBNET_1_ID" >> "$GITHUB_OUTPUT"
-
-          echo "PRIVATE_SUBNET_2_ID=$PRIVATE_SUBNET_2_ID"
-
-
+          
           echo "PRIVATE_SUBNET_2_ID=$PRIVATE_SUBNET_2_ID" >> "$GITHUB_OUTPUT"
 
 
@@ -911,7 +1027,7 @@ jobs:
 
 
       # ====================================================
-      # 13. VALIDATE NETWORK RESOURCES
+      # 15. VALIDATE NETWORK RESOURCES
       # ====================================================
       #
       # This validation does more than check whether the
@@ -1010,7 +1126,7 @@ jobs:
 
 
       # ====================================================
-      # 14. DEPLOY / UPDATE ECS CLOUDFORMATION STACK
+      # 16. DEPLOY / UPDATE ECS CLOUDFORMATION STACK
       # ====================================================
       #
       # IMPORTANT:
@@ -1139,7 +1255,7 @@ jobs:
 
 
       # ====================================================
-      # 15. VERIFY ECS CLOUDFORMATION STACK
+      # 17. VERIFY ECS CLOUDFORMATION STACK
       # ====================================================
 
       - name: Verify ECS CloudFormation Stack
@@ -1200,13 +1316,19 @@ jobs:
 
 
       # ====================================================
-      # 16. DEPLOYMENT SUMMARY
+      # 18. DEPLOYMENT SUMMARY
       # ====================================================
 
       - name: Deployment Summary
         shell: bash
         env:
-          ECR_REPOSITORY_URI: ${{ steps.ecr.outputs.ECR_URI }}
+
+          # ECR repository URI returned directly by AWS.
+          ECR_URI: ${{ steps.ecr.outputs.ECR_URI }}
+
+          # Complete immutable image URI:
+          # ECR repository URI + GITHUB_SHA.          
+          ECR_IMAGE_URI: ${{ steps.image.outputs.IMAGE_URI }}
         run: |
           set -euo pipefail
 
@@ -1245,12 +1367,11 @@ jobs:
 
           echo ""
           echo "ECR Repository URI:"
-          echo "$ECR_REPOSITORY_URI"
+          echo "$ECR_URI"
 
           echo ""
-          echo "ECS Image Parameters:"
-          echo "EcrRepositoryUri=$ECR_REPOSITORY_URI"
-          echo "ImageTag=$GITHUB_SHA"
+          echo "ECS Image Parameter:"
+          echo "EcrImageUri=$ECR_IMAGE_URI"           
 
           echo ""
           echo "Main CloudFormation Stack:"
@@ -1271,7 +1392,7 @@ jobs:
           echo ""
           echo "Docker image was built and pushed to ECR."
           echo "ECS was deployed using:"
-          echo "  EcrRepositoryUri + ImageTag"
+          echo "  EcrImageUri=$ECR_IMAGE_URI"
 
           echo ""
           echo "No 'latest' tag was used."
