@@ -684,21 +684,65 @@ Resources:
   # 10. RDS NESTED STACK
   # ==========================================================
   #
-  #
-  # Database username is passed into the RDS nested stack.
-  #
   # IMPORTANT:
   #
-  # The database password is NOT passed from Terraform.
+  # ============================================================
+  # STACK DEPENDENCY / RESOURCE RELATIONSHIP
+  # ============================================================
   #
-  # rds.yaml uses:
+  # VPCStack
+  #   |
+  #   +--------------------+
+  #   |                    |
+  #   v                    v
+  # EC2Stack             RDSStack
+  #   |                    |
+  #   |                    |
+  #   +---------+----------+
+  #             |
+  #             v
+  #    EC2RDSSecretsPolicy
   #
-  #   ManageMasterUserPassword: true
+  # Dependency details:
   #
-  # RDS generates and manages the master password through
-  # AWS Secrets Manager.
+  # 1. VPCStack provides the VPC and subnet resources required
+  #    by both EC2Stack and RDSStack.
   #
-  # ----------------------------------------------------------
+  # 2. EC2Stack creates the EC2 instance, security group,
+  #    IAM role, and instance profile.
+  #
+  # 3. RDSStack depends on VPCStack and EC2Stack because RDS
+  #    uses the VPC/subnets and the EC2 security group for
+  #    EC2-to-RDS access.
+  #
+  # 4. EC2RDSSecretsPolicy depends on both EC2Stack and RDSStack:
+  #
+  #    - EC2Stack provides the EC2 IAM role to which the policy
+  #      is attached.
+  #
+  #    - RDSStack provides the RDS Secrets Manager secret that
+  #      the EC2 role is allowed to read.
+  #
+  # 5. Therefore, the dependency flow is:
+  #
+  #       VPCStack
+  #       /      \
+  #      v        v
+  #   EC2Stack  RDSStack
+  #      \        /
+  #       \      /
+  #        v    v
+  #   EC2RDSSecretsPolicy
+  #
+  # IMPORTANT:
+  # This comment documents the resource relationships.
+  # The actual DependsOn and cross-stack references below
+  # control the CloudFormation deployment order.
+  #
+  # No additional dependency is required when the existing
+  # resource references already establish the relationship.
+  #
+  # ============================================================
 
   RDSStack:
     Type: AWS::CloudFormation::Stack
@@ -760,6 +804,179 @@ Resources:
         # ----------------------------------------------------
 
         DatabaseUsername: !Ref DatabaseUsername
+
+  # ==========================================================
+  # 11. EC2 -> RDS SECRETS MANAGER IAM POLICY
+  # ==========================================================
+  #
+  # Purpose:
+  #
+  # Grants the EC2 application role permission to retrieve the
+  # RDS master database secret from AWS Secrets Manager.
+  #
+  # IMPORTANT:
+  #
+  # The RDS password is generated and managed by Amazon RDS.
+  #
+  # The password is NOT stored in:
+  #
+  #   - Terraform
+  #   - main.yaml parameters
+  #   - ec2.yaml
+  #   - rds.yaml parameters
+  #   - GitHub Actions secrets
+  #   - source code
+  #
+  # Instead:
+  #
+  #   RDS
+  #      |
+  #      +--> Secrets Manager
+  #               |
+  #               +--> Database username/password
+  #
+  # The EC2 application receives permission to read that secret
+  # through its IAM role.
+  #
+  # Architecture:
+  #
+  #   EC2Stack
+  #      |
+  #      +--> EC2RoleName
+  #                 |
+  #                 v
+  #        EC2RDSSecretsPolicy
+  #                 |
+  #                 | secretsmanager:GetSecretValue
+  #                 v
+  #             RDSStack
+  #                 |
+  #                 +--> DatabaseSecretArn
+  #
+  # WHY THIS POLICY IS IN MAIN.YAML:
+  #
+  # EC2Stack and RDSStack are separate nested stacks.
+  #
+  # RDSStack already depends on EC2Stack because RDS uses the
+  # EC2 security group as the source for TCP 3306 access.
+  #
+  # Therefore we should NOT make EC2Stack depend on RDSStack.
+  #
+  # Doing that would create a circular dependency:
+  #
+  #   EC2Stack --> RDSStack
+  #       ^          |
+  #       |          |
+  #       +----------+
+  #
+  # Instead, the root stack acts as the integration point.
+  #
+  # This keeps the dependency graph one-way:
+  #
+  #   EC2Stack
+  #       |
+  #       v
+  #   RDSStack
+  #       |
+  #       v
+  #   EC2RDSSecretsPolicy
+  #
+  # The policy references outputs from both nested stacks but
+  # does not make EC2Stack depend on RDSStack.
+  #
+  # LEAST PRIVILEGE:
+  #
+  # Only the following permission is granted:
+  #
+  #   secretsmanager:GetSecretValue
+  #
+  # And it is restricted to the specific RDS-managed secret.
+  #
+  # We intentionally do NOT grant:
+  #
+  #   secretsmanager:*
+  #
+  # ==========================================================
+
+  EC2RDSSecretsPolicy:
+    Type: AWS::IAM::Policy
+
+    Properties:
+
+      # --------------------------------------------------------
+      # IAM policy name
+      # --------------------------------------------------------
+      #
+      # The name is generated from the project and environment
+      # so that the policy follows the same naming convention as
+      # the rest of the lab.
+      #
+      # Example:
+      #
+      #   hybridiaclab-dev-EC2-RDS-Secrets
+      #
+      # --------------------------------------------------------
+
+      PolicyName:
+        !Sub "${ProjectName}-${Environment}-EC2-RDS-Secrets"
+
+      # --------------------------------------------------------
+      # IAM role to which this policy is attached
+      # --------------------------------------------------------
+      #
+      # EC2Stack creates the EC2 IAM role.
+      #
+      # ec2.yaml exposes the role name through:
+      #
+      #   EC2RoleName
+      #
+      # The root stack consumes that nested-stack output here.
+      #
+      # This means the EC2 role remains owned by ec2.yaml while
+      # the cross-stack permission remains owned by main.yaml.
+      #
+      # --------------------------------------------------------
+
+      Roles:
+        - !GetAtt EC2Stack.Outputs.EC2RoleName
+
+      # --------------------------------------------------------
+      # IAM policy document
+      # --------------------------------------------------------
+      #
+      # This permission allows the EC2 application to retrieve
+      # the RDS master secret from AWS Secrets Manager.
+      #
+      # --------------------------------------------------------
+
+      PolicyDocument:
+
+        Version: "2012-10-17"
+
+        Statement:
+
+          # ----------------------------------------------------
+          # Allow EC2 application to read the RDS master secret
+          # ----------------------------------------------------
+
+          - Sid: ReadRDSMasterSecret
+
+            Effect: Allow
+
+            Action:
+              - secretsmanager:GetSecretValue
+
+            # --------------------------------------------------
+            # IMPORTANT:
+            #
+            # Restrict access to ONLY the secret created and
+            # managed by the RDS nested stack.
+            #
+            # No wildcard (*) is used here.
+            # --------------------------------------------------
+
+            Resource:
+              - !GetAtt RDSStack.Outputs.DatabaseSecretArn
 
 # ============================================================
 # OUTPUTS
@@ -936,6 +1153,21 @@ Outputs:
   RDSDatabaseSecretArn:
     Description: ARN of the RDS-managed Secrets Manager secret.
     Value: !GetAtt RDSStack.Outputs.DatabaseSecretArn  
+
+  # ----------------------------------------------------------
+  # EC2 application IAM role
+  # ----------------------------------------------------------
+  #
+  # Exposes the role created by the EC2 nested stack.
+  # This is useful for troubleshooting and validating that
+  # the Secrets Manager policy is attached to the expected
+  # runtime role.
+  #
+  # ----------------------------------------------------------
+
+  EC2RoleName:
+    Description: Name of the IAM role used by the EC2 application.
+    Value: !GetAtt EC2Stack.Outputs.EC2RoleName
 
   # ----------------------------------------------------------
   # EKS cluster name

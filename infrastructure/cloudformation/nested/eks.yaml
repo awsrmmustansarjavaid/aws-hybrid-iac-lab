@@ -12,12 +12,61 @@
 #   Creates an Amazon EKS Kubernetes cluster with an AWS
 #   managed node group.
 #
-# Resources created:
+# ============================================================
+# PROJECT NAMING STANDARD
+# ============================================================
 #
-#   1. EKS Cluster IAM Role
-#   2. EKS Node IAM Role
-#   3. EKS Kubernetes Cluster
-#   4. EKS Managed Node Group
+# IMPORTANT:
+#
+# This project uses ONE consistent project name across the
+# entire Hybrid IaC lab:
+#
+#   ProjectName = hybridiaclab
+#
+# The environment used by this lab is:
+#
+#   Environment = dev
+#
+# Therefore the standard resource naming pattern is:
+#
+#   hybridiaclab-dev-<ResourceName>
+#
+# Examples:
+#
+#   EKS Cluster:
+#     hybridiaclab-dev-EKS
+#
+#   EKS Node Group:
+#     hybridiaclab-dev-NodeGroup
+#
+#   EKS Cluster IAM Role:
+#     hybridiaclab-dev-EKSClusterRole
+#
+#   EKS Node IAM Role:
+#     hybridiaclab-dev-EKSNodeRole
+#
+# This naming convention MUST NOT be changed to:
+#
+#   HybridIaCLab
+#   Hybrid-IaC-Lab
+#   hybrid-iac-lab
+#
+# The Terraform project name is:
+#
+#   project_name = "hybridiaclab"
+#
+# The CloudFormation root stack therefore follows:
+#
+#   hybridiaclab-dev-MainStack
+#
+# ============================================================
+# RESOURCES CREATED
+# ============================================================
+#
+# 1. EKS Cluster IAM Role
+# 2. EKS Node IAM Role
+# 3. EKS Kubernetes Cluster
+# 4. EKS Managed Node Group
 #
 # ============================================================
 # ARCHITECTURE
@@ -60,11 +109,11 @@
 #
 # For cost control, use:
 #
-#   MinSize: 1
+#   MinSize:     1
 #   DesiredSize: 1
-#   MaxSize: 2
+#   MaxSize:     2
 #
-# and DELETE the stack when you finish practicing.
+# and DELETE the EKS stack when you finish practicing.
 #
 # ============================================================
 # KUBERNETES VERSION
@@ -72,11 +121,18 @@
 #
 # This lab uses:
 #
-#   Version: "1.33"
+#   KubernetesVersion = 1.33
 #
-# If your AWS region/account does not support this Kubernetes
-# version, replace it with an EKS-supported version available
-# in your region.
+# The Kubernetes version is defined as a CloudFormation
+# parameter rather than being hard-coded in the EKS resource.
+#
+# Default:
+#
+#   1.33
+#
+# If your AWS region/account does not support this version,
+# deploy the stack with another EKS-supported version by
+# overriding the KubernetesVersion parameter.
 #
 # ============================================================
 # NETWORK DESIGN
@@ -94,7 +150,7 @@
 #
 # Nodes do not receive public IP addresses.
 #
-# They therefore need suitable outbound connectivity through
+# They therefore require suitable outbound connectivity through
 # the VPC, normally using a NAT Gateway, VPC endpoints, or
 # another appropriate network design.
 #
@@ -102,7 +158,9 @@
 # AWS CLI / KUBECTL LAB COMMANDS
 # ============================================================
 #
-# Run these commands from:
+# These commands are examples for working with this EKS stack.
+#
+# Run CloudFormation commands from:
 #
 #   infrastructure/cloudformation/
 #
@@ -163,13 +221,19 @@
 # 8. DEPLOY EKS STACK
 # ============================================================
 #
+# The ProjectName and Environment values MUST follow the
+# project's standard naming convention:
+#
+#   ProjectName = hybridiaclab
+#   Environment = dev
+#
 # Example:
 #
 # aws cloudformation deploy `
 #   --template-file nested/eks.yaml `
-#   --stack-name HybridIaCLab-EKS `
+#   --stack-name hybridiaclab-dev-EKS `
 #   --parameter-overrides `
-#     ProjectName=HybridIaCLab `
+#     ProjectName=hybridiaclab `
 #     Environment=dev `
 #     VpcId=vpc-xxxxxxxxxxxxxxxxx `
 #     PrivateSubnet1Id=subnet-xxxxxxxxxxxxxxxxx `
@@ -182,7 +246,7 @@
 # ============================================================
 #
 # aws cloudformation describe-stacks `
-#   --stack-name HybridIaCLab-EKS `
+#   --stack-name hybridiaclab-dev-EKS `
 #   --region us-east-1
 #
 # ============================================================
@@ -190,7 +254,7 @@
 # ============================================================
 #
 # aws cloudformation describe-stack-events `
-#   --stack-name HybridIaCLab-EKS `
+#   --stack-name hybridiaclab-dev-EKS `
 #   --region us-east-1
 #
 # ============================================================
@@ -208,8 +272,18 @@
 # 12. DESCRIBE EKS CLUSTER
 # ============================================================
 #
+# The cluster name is generated from:
+#
+#   ${ProjectName}-${Environment}-EKS
+#
+# With the lab values:
+#
+#   hybridiaclab-dev-EKS
+#
+# ============================================================
+#
 # aws eks describe-cluster `
-#   --name HybridIaCLab-dev-EKS `
+#   --name hybridiaclab-dev-EKS `
 #   --region us-east-1
 #
 # ============================================================
@@ -217,7 +291,7 @@
 # ============================================================
 #
 # aws eks describe-cluster `
-#   --name HybridIaCLab-dev-EKS `
+#   --name hybridiaclab-dev-EKS `
 #   --query "cluster.{Name:name,Status:status,Version:version,Endpoint:endpoint}" `
 #   --output table `
 #   --region us-east-1
@@ -231,7 +305,7 @@
 # ============================================================
 #
 # aws eks list-nodegroups `
-#   --cluster-name HybridIaCLab-dev-EKS `
+#   --cluster-name hybridiaclab-dev-EKS `
 #   --region us-east-1
 #
 # ============================================================
@@ -239,8 +313,8 @@
 # ============================================================
 #
 # aws eks describe-nodegroup `
-#   --cluster-name HybridIaCLab-dev-EKS `
-#   --nodegroup-name HybridIaCLab-dev-NodeGroup `
+#   --cluster-name hybridiaclab-dev-EKS `
+#   --nodegroup-name hybridiaclab-dev-NodeGroup `
 #   --region us-east-1
 #
 # ============================================================
@@ -248,8 +322,8 @@
 # ============================================================
 #
 # aws eks describe-nodegroup `
-#   --cluster-name HybridIaCLab-dev-EKS `
-#   --nodegroup-name HybridIaCLab-dev-NodeGroup `
+#   --cluster-name hybridiaclab-dev-EKS `
+#   --nodegroup-name hybridiaclab-dev-NodeGroup `
 #   --query "nodegroup.{Status:status,Desired:scalingConfig.desiredSize,Min:scalingConfig.minSize,Max:scalingConfig.maxSize}" `
 #   --output table `
 #   --region us-east-1
@@ -272,7 +346,7 @@
 #
 # aws eks update-kubeconfig `
 #   --region us-east-1 `
-#   --name HybridIaCLab-dev-EKS
+#   --name hybridiaclab-dev-EKS
 #
 # ============================================================
 # 19. CHECK CURRENT KUBECTL CONTEXT
@@ -400,7 +474,7 @@
 # ============================================================
 #
 # aws eks list-addons `
-#   --cluster-name HybridIaCLab-dev-EKS `
+#   --cluster-name hybridiaclab-dev-EKS `
 #   --region us-east-1
 #
 # ============================================================
@@ -408,7 +482,7 @@
 # ============================================================
 #
 # aws eks describe-addon `
-#   --cluster-name HybridIaCLab-dev-EKS `
+#   --cluster-name hybridiaclab-dev-EKS `
 #   --addon-name vpc-cni `
 #   --region us-east-1
 #
@@ -421,14 +495,14 @@
 # ============================================================
 #
 # aws iam get-role `
-#   --role-name HybridIaCLab-dev-EKSClusterRole
+#   --role-name hybridiaclab-dev-EKSClusterRole
 #
 # ============================================================
 # 38. CHECK NODE ROLE
 # ============================================================
 #
 # aws iam get-role `
-#   --role-name HybridIaCLab-dev-EKSNodeRole
+#   --role-name hybridiaclab-dev-EKSNodeRole
 #
 # ============================================================
 # NETWORK TROUBLESHOOTING
@@ -471,8 +545,8 @@
 #
 # IMPORTANT:
 #
-# Delete Kubernetes workloads before deleting the cluster if
-# they created external AWS resources such as Load Balancers.
+# Delete Kubernetes workloads before deleting the EKS cluster
+# if they created external AWS resources such as Load Balancers.
 #
 # ============================================================
 # 39. DELETE TEST WORKLOAD
@@ -487,7 +561,7 @@
 # ============================================================
 #
 # aws cloudformation delete-stack `
-#   --stack-name HybridIaCLab-EKS `
+#   --stack-name hybridiaclab-dev-EKS `
 #   --region us-east-1
 #
 # ============================================================
@@ -495,7 +569,7 @@
 # ============================================================
 #
 # aws cloudformation describe-stack-events `
-#   --stack-name HybridIaCLab-EKS `
+#   --stack-name hybridiaclab-dev-EKS `
 #   --region us-east-1
 #
 # ============================================================
@@ -516,20 +590,64 @@ Description: >
 Parameters:
 
   # ----------------------------------------------------------
-  # Project name
+  # PROJECT NAME
+  # ----------------------------------------------------------
+  #
+  # IMPORTANT:
+  #
+  # This value MUST match the Terraform project name:
+  #
+  #   project_name = "hybridiaclab"
+  #
+  # It is also used as the prefix for EKS resources.
+  #
+  # Example:
+  #
+  #   hybridiaclab-dev-EKS
+  #
   # ----------------------------------------------------------
 
   ProjectName:
     Type: String
-    Description: Project name
+    Default: "hybridiaclab"
+    Description: >
+      Project name. Must match the Terraform project name
+      "hybridiaclab".
 
   # ----------------------------------------------------------
-  # Environment
+  # ENVIRONMENT
+  # ----------------------------------------------------------
+  #
+  # Current lab environment:
+  #
+  #   dev
+  #
+  # Resource names therefore follow:
+  #
+  #   hybridiaclab-dev-<ResourceName>
+  #
   # ----------------------------------------------------------
 
   Environment:
     Type: String
+    Default: "dev"
     Description: Deployment environment
+
+  # ----------------------------------------------------------
+  # KUBERNETES VERSION
+  # ----------------------------------------------------------
+  #
+  # Kubernetes version used by the EKS control plane.
+  #
+  # Keeping this as a parameter makes the template easier
+  # to maintain when AWS EKS introduces newer versions.
+  #
+  # ----------------------------------------------------------
+
+  KubernetesVersion:
+    Type: String
+    Default: "1.33"
+    Description: EKS Kubernetes version
 
   # ----------------------------------------------------------
   # VPC
@@ -568,6 +686,10 @@ Resources:
   # Allows the Amazon EKS service to manage AWS resources
   # required by the Kubernetes control plane.
   #
+  # Generated name:
+  #
+  #   hybridiaclab-dev-EKSClusterRole
+  #
   # ==========================================================
 
   EKSClusterRole:
@@ -576,7 +698,7 @@ Resources:
     Properties:
 
       # ------------------------------------------------------
-      # IAM role name
+      # IAM ROLE NAME
       # ------------------------------------------------------
 
       RoleName: !Sub "${ProjectName}-${Environment}-EKSClusterRole"
@@ -605,6 +727,11 @@ Resources:
       # ------------------------------------------------------
       # MANAGED IAM POLICY
       # ------------------------------------------------------
+      #
+      # Provides the permissions required by the EKS
+      # control plane.
+      #
+      # ------------------------------------------------------
 
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
@@ -615,6 +742,10 @@ Resources:
   #
   # IAM role assumed by the EC2 worker nodes.
   #
+  # Generated name:
+  #
+  #   hybridiaclab-dev-EKSNodeRole
+  #
   # ==========================================================
 
   EKSNodeRole:
@@ -623,7 +754,7 @@ Resources:
     Properties:
 
       # ------------------------------------------------------
-      # IAM role name
+      # IAM ROLE NAME
       # ------------------------------------------------------
 
       RoleName: !Sub "${ProjectName}-${Environment}-EKSNodeRole"
@@ -670,6 +801,14 @@ Resources:
   # ==========================================================
   # EKS CLUSTER
   # ==========================================================
+  #
+  # Creates the Amazon EKS Kubernetes control plane.
+  #
+  # Generated cluster name:
+  #
+  #   hybridiaclab-dev-EKS
+  #
+  # ==========================================================
 
   EKSCluster:
     Type: AWS::EKS::Cluster
@@ -677,19 +816,29 @@ Resources:
     Properties:
 
       # ------------------------------------------------------
-      # Cluster name
+      # CLUSTER NAME
+      # ------------------------------------------------------
+      #
+      # Standard project naming:
+      #
+      #   <ProjectName>-<Environment>-EKS
+      #
+      # With the lab values:
+      #
+      #   hybridiaclab-dev-EKS
+      #
       # ------------------------------------------------------
 
       Name: !Sub "${ProjectName}-${Environment}-EKS"
 
       # ------------------------------------------------------
-      # Kubernetes version
+      # KUBERNETES VERSION
       # ------------------------------------------------------
 
-      Version: "1.33"
+      Version: !Ref KubernetesVersion
 
       # ------------------------------------------------------
-      # EKS cluster IAM role
+      # EKS CLUSTER IAM ROLE
       # ------------------------------------------------------
 
       RoleArn: !GetAtt EKSClusterRole.Arn
@@ -708,6 +857,11 @@ Resources:
 
         # ----------------------------------------------------
         # PRIVATE SUBNETS
+        # ----------------------------------------------------
+        #
+        # The EKS control plane uses these subnets and the
+        # managed node group will also use these subnets.
+        #
         # ----------------------------------------------------
 
         SubnetIds:
@@ -728,6 +882,8 @@ Resources:
         #   Allows resources inside the VPC to communicate
         #   with the Kubernetes API endpoint privately.
         #
+        # Both are enabled for this learning lab.
+        #
         # ----------------------------------------------------
 
         EndpointPublicAccess: true
@@ -738,6 +894,7 @@ Resources:
       # ======================================================
 
       Tags:
+
         - Key: Project
           Value: !Ref ProjectName
 
@@ -750,6 +907,10 @@ Resources:
   #
   # AWS manages the lifecycle of the EC2 worker nodes.
   #
+  # Generated node group name:
+  #
+  #   hybridiaclab-dev-NodeGroup
+  #
   # ==========================================================
 
   EKSNodeGroup:
@@ -761,25 +922,37 @@ Resources:
     Properties:
 
       # ------------------------------------------------------
-      # EKS cluster
+      # EKS CLUSTER
       # ------------------------------------------------------
 
       ClusterName: !Ref EKSCluster
 
       # ------------------------------------------------------
-      # Node group name
+      # NODE GROUP NAME
+      # ------------------------------------------------------
+      #
+      # Standard project naming:
+      #
+      #   <ProjectName>-<Environment>-NodeGroup
+      #
       # ------------------------------------------------------
 
       NodegroupName: !Sub "${ProjectName}-${Environment}-NodeGroup"
 
       # ------------------------------------------------------
-      # Worker node IAM role
+      # WORKER NODE IAM ROLE
       # ------------------------------------------------------
 
       NodeRole: !GetAtt EKSNodeRole.Arn
 
       # ------------------------------------------------------
       # PRIVATE SUBNETS
+      # ------------------------------------------------------
+      #
+      # Worker nodes are deployed into private subnets.
+      #
+      # They do not receive public IP addresses.
+      #
       # ------------------------------------------------------
 
       Subnets:
@@ -791,8 +964,9 @@ Resources:
       # ------------------------------------------------------
       #
       # t3.medium is intentionally used for this Kubernetes
-      # learning lab because Kubernetes components and workloads
-      # require more resources than a minimal EC2 web server.
+      # learning lab because Kubernetes components and
+      # workloads require more resources than a minimal
+      # EC2 web server.
       #
       # ------------------------------------------------------
 
@@ -838,6 +1012,12 @@ Outputs:
   # ==========================================================
   # CLUSTER NAME
   # ==========================================================
+  #
+  # Expected:
+  #
+  #   hybridiaclab-dev-EKS
+  #
+  # ==========================================================
 
   ClusterName:
     Description: EKS cluster name
@@ -853,6 +1033,12 @@ Outputs:
 
   # ==========================================================
   # NODE GROUP NAME
+  # ==========================================================
+  #
+  # Expected:
+  #
+  #   hybridiaclab-dev-NodeGroup
+  #
   # ==========================================================
 
   NodeGroupName:

@@ -1,72 +1,432 @@
 # ==========================================================
 # HYBRID TERRAFORM + CLOUDFORMATION AWS LAB
-# Kubernetes / Amazon EKS Deployment Workflow
+# KUBERNETES / AMAZON EKS DEPLOYMENT WORKFLOW
 # ==========================================================
 #
-# This workflow is responsible for deploying Kubernetes
-# resources INSIDE the EKS cluster.
+# File:
+#   .github/workflows/kubernetes.yml
+#
+# Purpose:
+#   Deploys Kubernetes application resources INTO the
+#   Amazon EKS cluster created by CloudFormation.
+#
+# ==========================================================
+# ARCHITECTURE
+# ==========================================================
+#
+# Terraform
+#     |
+#     | IAM + supporting infrastructure
+#     v
+# CloudFormation
+#     |
+#     | Creates EKS + ECR infrastructure
+#     v
+# Amazon EKS
+#     |
+#     | Kubernetes API
+#     v
+# Kubernetes
+#     |
+#     +--> Namespace
+#     +--> ConfigMap
+#     +--> Deployment
+#     +--> Service
+#
+# ECR IMAGE FLOW
+# ==========================================================
+#
+# CloudFormation ECR
+#     |
+#     | EcrRepositoryUri
+#     v
+# GitHub Actions
+#     |
+#     | ECR_IMAGE_URI
+#     | ECR_IMAGE_TAG = github.sha
+#     v
+# ECR_IMAGE_URI:ECR_IMAGE_TAG
+#     |
+#     v
+# Kubernetes Deployment
+#     |
+#     v
+# EKS Pod
+#
+# Example:
+#
+#   123456789012.dkr.ecr.us-east-1.amazonaws.com/
+#   hybridiaclab-dev-app:abcdef123456
 #
 # IMPORTANT:
 #
-# CloudFormation creates the EKS infrastructure.
+# The ECR URI is NOT hardcoded.
 #
-# Kubernetes manages the applications running inside EKS.
+# The URI is obtained from the CloudFormation output:
 #
-# Therefore:
+#   EcrRepositoryUri
 #
-# CloudFormation
-#       |
-#       v
-#      EKS
-#       |
-#       v
-# Kubernetes
-#       |
-#       +--> Namespace
-#       +--> ConfigMap
-#       +--> Deployment
-#       +--> Service
+# created by:
+#
+#   infrastructure/cloudformation/nested/ecr.yaml
+#
+# ==========================================================
+# IMPORTANT ARCHITECTURE RULE
+# ==========================================================
+#
+# CloudFormation:
+#
+#   Creates and manages AWS infrastructure.
+#
+# Kubernetes:
+#
+#   Creates and manages application resources INSIDE EKS.
+#
+# Therefore this workflow does NOT create the EKS cluster.
+#
+# This workflow only:
+#
+#   1. Authenticates to AWS using GitHub OIDC
+#   2. Retrieves the ECR repository URI
+#   3. Verifies the ECR image exists
+#   4. Verifies the EKS cluster
+#   5. Configures kubectl
+#   6. Creates/updates Kubernetes resources
+#   7. Updates the application to the immutable Git SHA image
+#   8. Verifies the Kubernetes rollout
+#
+# ==========================================================
+# GLOBAL PROJECT CONFIGURATION
+# ==========================================================
+#
+# Project:
+#
+#   hybridiaclab
+#
+# Environment:
+#
+#   dev
+#
+# EKS Cluster:
+#
+#   hybridiaclab-dev-EKS
+#
+# EKS Node Group:
+#
+#   hybridiaclab-dev-NodeGroup
+#
+# Kubernetes Namespace:
+#
+#   hybridiaclab
+#
+# ECR Repository:
+#
+#   hybridiaclab-dev-app
+#
+# Main CloudFormation Stack:
+#
+#   hybridiaclab-dev-MainStack
 #
 # ==========================================================
 
 name: Kubernetes Deployment
 
+# ==========================================================
+# GLOBAL VARIABLES
+# ==========================================================
+
+env:
+
+  # --------------------------------------------------------
+  # PROJECT NAME
+  # --------------------------------------------------------
+  #
+  # Must match the Terraform/CloudFormation project name.
+  #
+  # --------------------------------------------------------
+
+  PROJECT_NAME: "hybridiaclab"
+
+  # --------------------------------------------------------
+  # DEPLOYMENT ENVIRONMENT
+  # --------------------------------------------------------
+  #
+  # Current lab environment.
+  #
+  # --------------------------------------------------------
+
+  ENVIRONMENT: "dev"
+
+  # --------------------------------------------------------
+  # AWS REGION
+  # --------------------------------------------------------
+  #
+  # Stored as a GitHub repository/environment variable.
+  #
+  # GitHub variable:
+  #
+  #   AWS_REGION
+  #
+  # Example:
+  #
+  #   us-east-1
+  #
+  # --------------------------------------------------------
+
+  AWS_REGION: ${{ vars.AWS_REGION }}
+
+  # --------------------------------------------------------
+  # CLOUDFORMATION MAIN STACK
+  # --------------------------------------------------------
+  #
+  # This is the root CloudFormation stack that manages
+  # the infrastructure layers for the lab.
+  #
+  # The workflow reads the ECR repository URI from the
+  # CloudFormation output:
+  #
+  #   EcrRepositoryUri
+  #
+  # IMPORTANT:
+  #
+  # main.yaml must expose the nested ECR output at the
+  # parent stack level.
+  #
+  # --------------------------------------------------------
+
+  MAIN_STACK_NAME: "hybridiaclab-dev-MainStack"
+
+  # --------------------------------------------------------
+  # EKS CLUSTER NAME
+  # --------------------------------------------------------
+  #
+  # CloudFormation EKS cluster:
+  #
+  #   hybridiaclab-dev-EKS
+  #
+  # --------------------------------------------------------
+
+  EKS_CLUSTER_NAME: "hybridiaclab-dev-EKS"
+
+  # --------------------------------------------------------
+  # EKS NODE GROUP NAME
+  # --------------------------------------------------------
+  #
+  # CloudFormation managed node group:
+  #
+  #   hybridiaclab-dev-NodeGroup
+  #
+  # --------------------------------------------------------
+
+  EKS_NODE_GROUP_NAME: "hybridiaclab-dev-NodeGroup"
+
+  # --------------------------------------------------------
+  # KUBERNETES NAMESPACE
+  # --------------------------------------------------------
+  #
+  # All application resources should use this namespace.
+  #
+  #   hybridiaclab
+  #
+  # --------------------------------------------------------
+
+  K8S_NAMESPACE: "hybridiaclab"
+
+  # --------------------------------------------------------
+  # KUBERNETES MANIFEST DIRECTORY
+  # --------------------------------------------------------
+  #
+  # Location of Kubernetes manifests.
+  #
+  # --------------------------------------------------------
+
+  K8S_MANIFEST_DIR: "kubernetes"
+
+  # --------------------------------------------------------
+  # KUBERNETES NAMESPACE MANIFEST
+  # --------------------------------------------------------
+
+  K8S_NAMESPACE_FILE: "kubernetes/namespace.yaml"
+
+  # --------------------------------------------------------
+  # KUBERNETES CONFIGMAP MANIFEST
+  # --------------------------------------------------------
+
+  K8S_CONFIGMAP_FILE: "kubernetes/configmap.yaml"
+
+  # --------------------------------------------------------
+  # KUBERNETES DEPLOYMENT MANIFEST
+  # --------------------------------------------------------
+  #
+  # IMPORTANT:
+  #
+  # This manifest should contain:
+  #
+  #   image: ${ECR_FULL_IMAGE}
+  #
+  # The workflow substitutes the actual ECR URI and
+  # immutable Git SHA before sending the manifest to
+  # Kubernetes.
+  #
+  # --------------------------------------------------------
+
+  K8S_DEPLOYMENT_FILE: "kubernetes/deployment.yaml"
+
+  # --------------------------------------------------------
+  # KUBERNETES SERVICE MANIFEST
+  # --------------------------------------------------------
+
+  K8S_SERVICE_FILE: "kubernetes/service.yaml"
+
+  # --------------------------------------------------------
+  # ECR REPOSITORY NAME
+  # --------------------------------------------------------
+  #
+  # This MUST match:
+  #
+  #   infrastructure/cloudformation/nested/ecr.yaml
+  #
+  # ecr.yaml creates:
+  #
+  #   ${ProjectName}-${Environment}-app
+  #
+  # Therefore the final repository is:
+  #
+  #   hybridiaclab-dev-app
+  #
+  # --------------------------------------------------------
+
+  ECR_REPOSITORY_NAME: "hybridiaclab-dev-app"
+
+  # --------------------------------------------------------
+  # ECR IMAGE TAG
+  # --------------------------------------------------------
+  #
+  # Use the Git commit SHA as an immutable image tag.
+  #
+  # This MUST match the image tag pushed by the Docker
+  # workflow.
+  #
+  # Example:
+  #
+  #   abcdef1234567890...
+  #
+  # We intentionally do NOT use:
+  #
+  #   latest
+  #
+  # because immutable SHA tags make deployments predictable.
+  #
+  # --------------------------------------------------------
+
+  ECR_IMAGE_TAG: "${{ github.sha }}"
+
+  # --------------------------------------------------------
+  # ECR IMAGE URI
+  # --------------------------------------------------------
+  #
+  # IMPORTANT:
+  #
+  # Keep this variable GLOBAL.
+  #
+  # The initial value is intentionally empty because the
+  # actual ECR URI is generated by AWS.
+  #
+  # The workflow later retrieves:
+  #
+  #   EcrRepositoryUri
+  #
+  # from CloudFormation and updates this variable through
+  # GITHUB_ENV.
+  #
+  # Example runtime value:
+  #
+  #   123456789012.dkr.ecr.us-east-1.amazonaws.com/
+  #   hybridiaclab-dev-app
+  #
+  # DO NOT hardcode:
+  #
+  #   AWS account ID
+  #   ECR registry URL
+  #   ECR repository URI
+  #
+  # --------------------------------------------------------
+
+  ECR_IMAGE_URI: ""
+
+  # --------------------------------------------------------
+  # FULL ECR IMAGE
+  # --------------------------------------------------------
+  #
+  # This represents:
+  #
+  #   ECR_IMAGE_URI:ECR_IMAGE_TAG
+  #
+  # It is populated after ECR_IMAGE_URI is retrieved.
+  #
+  # Example:
+  #
+  #   123456789012.dkr.ecr.us-east-1.amazonaws.com/
+  #   hybridiaclab-dev-app:abcdef123456
+  #
+  # --------------------------------------------------------
+
+  ECR_FULL_IMAGE: ""
 
 # ==========================================================
-# TRIGGERS
+# WORKFLOW TRIGGERS
 # ==========================================================
 
 on:
 
   # --------------------------------------------------------
-  # Allows main-deploy.yaml to call this workflow.
+  # REUSABLE WORKFLOW
+  # --------------------------------------------------------
+  #
+  # Allows another GitHub Actions workflow to call this
+  # Kubernetes deployment workflow.
+  #
   # --------------------------------------------------------
 
   workflow_call:
 
   # --------------------------------------------------------
-  # Allows manual execution.
+  # MANUAL EXECUTION
+  # --------------------------------------------------------
+  #
+  # Allows manual execution from GitHub Actions.
+  #
   # --------------------------------------------------------
 
   workflow_dispatch:
 
-
 # ==========================================================
-# PERMISSIONS
+# GITHUB ACTIONS PERMISSIONS
+# ==========================================================
+#
+# id-token:
+#
+#   Required for GitHub OIDC authentication to AWS.
+#
+# contents:
+#
+#   Required by actions/checkout.
+#
 # ==========================================================
 
 permissions:
-
   id-token: write
-
   contents: read
 
-
 # ==========================================================
-# JOB
+# JOBS
 # ==========================================================
 
 jobs:
+
+  # ========================================================
+  # KUBERNETES DEPLOYMENT JOB
+  # ========================================================
 
   kubernetes:
 
@@ -74,136 +434,583 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    # ======================================================
+    # JOB STEPS
+    # ======================================================
+
     steps:
 
       # ----------------------------------------------------
-      # 1. Checkout repository
+      # 1. CHECKOUT REPOSITORY
+      # ----------------------------------------------------
+      #
+      # Downloads the repository so the Kubernetes manifests
+      # are available to the workflow.
+      #
       # ----------------------------------------------------
 
       - name: Checkout Repository
-
         uses: actions/checkout@v4
 
-
       # ----------------------------------------------------
-      # 2. Configure AWS
+      # 2. CONFIGURE AWS CREDENTIALS
+      # ----------------------------------------------------
+      #
+      # GitHub Actions authenticates to AWS using GitHub OIDC.
+      #
+      # No long-lived AWS access keys are required.
+      #
+      # AWS_ROLE_ARN:
+      #
+      #   IAM role trusted by the GitHub OIDC provider.
+      #
       # ----------------------------------------------------
 
       - name: Configure AWS Credentials
-
         uses: aws-actions/configure-aws-credentials@v4
 
         with:
-
-          aws-region: ${{ vars.AWS_REGION }}
-
+          aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
+      # ----------------------------------------------------
+      # 3. VERIFY AWS IDENTITY
+      # ----------------------------------------------------
+      #
+      # Confirms which AWS IAM role GitHub Actions is using.
+      #
+      # This is useful when troubleshooting OIDC/IAM issues.
+      #
+      # ----------------------------------------------------
+
+      - name: Verify AWS Identity
+        run: |
+          aws sts get-caller-identity
 
       # ----------------------------------------------------
-      # 3. Install kubectl
+      # 4. GET ECR REPOSITORY URI FROM CLOUDFORMATION
+      # ----------------------------------------------------
+      #
+      # IMPORTANT:
+      #
+      # ecr.yaml exposes:
+      #
+      #   EcrRepositoryUri
+      #
+      # The URI is generated by AWS and must NOT be manually
+      # constructed from:
+      #
+      #   account ID
+      #   region
+      #   repository name
+      #
+      # The retrieved value is written to GITHUB_ENV so that
+      # subsequent workflow steps can use:
+      #
+      #   ECR_IMAGE_URI
+      #
+      # ----------------------------------------------------
+
+      - name: Get ECR Repository URI
+        shell: bash
+        run: |
+
+          echo "=================================================="
+          echo "GET ECR REPOSITORY URI"
+          echo "=================================================="
+
+          ECR_URI=$(aws cloudformation describe-stacks \
+            --stack-name "${MAIN_STACK_NAME}" \
+            --region "${AWS_REGION}" \
+            --query "Stacks[0].Outputs[?OutputKey=='EcrRepositoryUri'].OutputValue" \
+            --output text)
+
+          if [ -z "$ECR_URI" ] || [ "$ECR_URI" = "None" ]; then
+            echo "ERROR: EcrRepositoryUri was not found."
+            echo ""
+            echo "CloudFormation stack:"
+            echo "${MAIN_STACK_NAME}"
+            echo ""
+            echo "Expected output:"
+            echo "EcrRepositoryUri"
+            echo ""
+            echo "Make sure main.yaml exposes the nested"
+            echo "ECR stack output at the MainStack level."
+            exit 1
+          fi
+
+          # Update the global GitHub Actions environment.
+          echo "ECR_IMAGE_URI=$ECR_URI" >> "$GITHUB_ENV"
+
+          # Build the complete immutable image reference.
+          ECR_FULL_IMAGE="${ECR_URI}:${ECR_IMAGE_TAG}"
+
+          echo "ECR_FULL_IMAGE=$ECR_FULL_IMAGE" >> "$GITHUB_ENV"
+
+          echo ""
+          echo "ECR Repository Name:"
+          echo "${ECR_REPOSITORY_NAME}"
+
+          echo ""
+          echo "ECR Repository URI:"
+          echo "${ECR_URI}"
+
+          echo ""
+          echo "ECR Image Tag:"
+          echo "${ECR_IMAGE_TAG}"
+
+          echo ""
+          echo "Full ECR Image:"
+          echo "${ECR_FULL_IMAGE}"
+
+      # ----------------------------------------------------
+      # 5. VERIFY ECR IMAGE EXISTS
+      # ----------------------------------------------------
+      #
+      # The Docker workflow should push the image before this
+      # Kubernetes workflow deploys it.
+      #
+      # Because the image uses github.sha as its tag, this
+      # step verifies that the exact image for this commit
+      # exists in ECR.
+      #
+      # ----------------------------------------------------
+
+      - name: Verify ECR Image
+        shell: bash
+        run: |
+
+          echo "=================================================="
+          echo "VERIFY ECR IMAGE"
+          echo "=================================================="
+
+          echo "Repository:"
+          echo "${ECR_REPOSITORY_NAME}"
+
+          echo ""
+          echo "Image tag:"
+          echo "${ECR_IMAGE_TAG}"
+
+          aws ecr describe-images \
+            --repository-name "${ECR_REPOSITORY_NAME}" \
+            --image-ids imageTag="${ECR_IMAGE_TAG}" \
+            --region "${AWS_REGION}" \
+            --query "imageDetails[0].{ImageDigest:imageDigest,Tags:imageTags}" \
+            --output table
+
+      # ----------------------------------------------------
+      # 6. VERIFY EKS CLUSTER
+      # ----------------------------------------------------
+      #
+      # Confirms that the EKS cluster created by CloudFormation
+      # exists and is available.
+      #
+      # ----------------------------------------------------
+
+      - name: Verify EKS Cluster
+        run: |
+
+          echo "=================================================="
+          echo "VERIFY EKS CLUSTER"
+          echo "=================================================="
+
+          aws eks describe-cluster \
+            --name "${EKS_CLUSTER_NAME}" \
+            --region "${AWS_REGION}" \
+            --query "cluster.{Name:name,Status:status,Version:version}" \
+            --output table
+
+      # ----------------------------------------------------
+      # 7. INSTALL KUBECTL
+      # ----------------------------------------------------
+      #
+      # kubectl is the Kubernetes CLI used to communicate
+      # with the EKS Kubernetes API.
+      #
       # ----------------------------------------------------
 
       - name: Install kubectl
-
         uses: azure/setup-kubectl@v4
 
         with:
-
           version: latest
 
-
       # ----------------------------------------------------
-      # 4. Configure kubectl for EKS
+      # 8. CONFIGURE KUBECTL FOR EKS
       # ----------------------------------------------------
       #
-      # This connects kubectl to our EKS cluster.
+      # Creates/updates kubeconfig for the EKS cluster.
       #
       # ----------------------------------------------------
 
       - name: Configure kubectl
-
         run: |
 
-          aws eks update-kubeconfig \
-            --region ${{ vars.AWS_REGION }} \
-            --name HybridIaCLab-dev-eks
+          echo "=================================================="
+          echo "CONFIGURE KUBECTL"
+          echo "=================================================="
 
+          aws eks update-kubeconfig \
+            --region "${AWS_REGION}" \
+            --name "${EKS_CLUSTER_NAME}"
 
       # ----------------------------------------------------
-      # 5. Verify EKS connection
+      # 9. VERIFY KUBERNETES CONNECTION
+      # ----------------------------------------------------
+      #
+      # Confirms that GitHub Actions can communicate with
+      # the Kubernetes API.
+      #
       # ----------------------------------------------------
 
       - name: Verify Kubernetes Connection
-
         run: |
 
+          echo "=================================================="
+          echo "VERIFY KUBERNETES CONNECTION"
+          echo "=================================================="
+
+          kubectl config current-context
+
+          echo ""
+          echo "Kubernetes Nodes:"
           kubectl get nodes
 
-
       # ----------------------------------------------------
-      # 6. Create Namespace
+      # 10. CREATE / UPDATE NAMESPACE
+      # ----------------------------------------------------
+      #
+      # Creates the application namespace if it does not
+      # already exist.
+      #
+      # Expected namespace:
+      #
+      #   hybridiaclab
+      #
       # ----------------------------------------------------
 
       - name: Deploy Namespace
-
         run: |
 
-          kubectl apply \
-            -f kubernetes/namespace.yaml
+          echo "=================================================="
+          echo "DEPLOY NAMESPACE"
+          echo "=================================================="
 
+          kubectl apply \
+            -f "${K8S_NAMESPACE_FILE}"
 
       # ----------------------------------------------------
-      # 7. Deploy ConfigMap
+      # 11. DEPLOY CONFIGMAP
+      # ----------------------------------------------------
+      #
+      # Creates/updates application configuration.
+      #
       # ----------------------------------------------------
 
       - name: Deploy ConfigMap
-
         run: |
 
-          kubectl apply \
-            -f kubernetes/configmap.yaml
+          echo "=================================================="
+          echo "DEPLOY CONFIGMAP"
+          echo "=================================================="
 
+          kubectl apply \
+            -f "${K8S_CONFIGMAP_FILE}"
 
       # ----------------------------------------------------
-      # 8. Deploy Application
+      # 12. DEPLOY APPLICATION
+      # ----------------------------------------------------
+      #
+      # IMPORTANT:
+      #
+      # deployment.yaml should contain:
+      #
+      #   image: ${ECR_FULL_IMAGE}
+      #
+      # The workflow substitutes:
+      #
+      #   ${ECR_FULL_IMAGE}
+      #
+      # with:
+      #
+      #   ECR_IMAGE_URI:ECR_IMAGE_TAG
+      #
+      # before Kubernetes receives the manifest.
+      #
+      # This keeps the actual AWS ECR URI OUT of the
+      # Kubernetes manifest.
+      #
       # ----------------------------------------------------
 
       - name: Deploy Application
-
+        shell: bash
         run: |
 
-          kubectl apply \
-            -f kubernetes/deployment.yaml
+          echo "=================================================="
+          echo "DEPLOY APPLICATION"
+          echo "=================================================="
 
+          echo "ECR Image:"
+          echo "${ECR_FULL_IMAGE}"
+
+          echo ""
+          echo "Kubernetes Namespace:"
+          echo "${K8S_NAMESPACE}"
+
+          # envsubst replaces ${ECR_FULL_IMAGE} in the
+          # Kubernetes manifest before kubectl applies it.
+          #
+          # The original deployment.yaml file is NOT modified.
+          #
+          envsubst '${ECR_FULL_IMAGE}' < "${K8S_DEPLOYMENT_FILE}" | \
+            kubectl apply -f -
 
       # ----------------------------------------------------
-      # 9. Deploy Service
+      # 13. DEPLOY SERVICE
+      # ----------------------------------------------------
+      #
+      # Creates/updates the Kubernetes Service.
+      #
       # ----------------------------------------------------
 
       - name: Deploy Service
-
         run: |
+
+          echo "=================================================="
+          echo "DEPLOY SERVICE"
+          echo "=================================================="
 
           kubectl apply \
-            -f kubernetes/service.yaml
-
+            -f "${K8S_SERVICE_FILE}"
 
       # ----------------------------------------------------
-      # 10. Check Kubernetes Resources
+      # 14. VERIFY DEPLOYMENT
+      # ----------------------------------------------------
+      #
+      # Displays the deployed Kubernetes resources.
+      #
       # ----------------------------------------------------
 
-      - name: Verify Deployment
-
+      - name: Verify Kubernetes Resources
         run: |
 
-          kubectl get namespace
+          echo "=================================================="
+          echo "PROJECT"
+          echo "=================================================="
+
+          echo "Project: ${PROJECT_NAME}"
+          echo "Environment: ${ENVIRONMENT}"
+          echo "AWS Region: ${AWS_REGION}"
+
+          echo ""
+          echo "=================================================="
+          echo "ECR"
+          echo "=================================================="
+
+          echo "Repository: ${ECR_REPOSITORY_NAME}"
+          echo "Repository URI: ${ECR_IMAGE_URI}"
+          echo "Image Tag: ${ECR_IMAGE_TAG}"
+          echo "Full Image: ${ECR_FULL_IMAGE}"
+
+          echo ""
+          echo "=================================================="
+          echo "EKS"
+          echo "=================================================="
+
+          echo "EKS Cluster: ${EKS_CLUSTER_NAME}"
+          echo "EKS Node Group: ${EKS_NODE_GROUP_NAME}"
+
+          echo ""
+          echo "=================================================="
+          echo "KUBERNETES"
+          echo "=================================================="
+
+          echo "Namespace: ${K8S_NAMESPACE}"
+
+          echo ""
+          echo "=================================================="
+          echo "NAMESPACES"
+          echo "=================================================="
+
+          kubectl get namespaces
+
+          echo ""
+          echo "=================================================="
+          echo "DEPLOYMENTS"
+          echo "=================================================="
 
           kubectl get deployments \
-            -n hybrid-iac
+            -n "${K8S_NAMESPACE}"
+
+          echo ""
+          echo "=================================================="
+          echo "PODS"
+          echo "=================================================="
 
           kubectl get pods \
-            -n hybrid-iac
+            -n "${K8S_NAMESPACE}" \
+            -o wide
+
+          echo ""
+          echo "=================================================="
+          echo "SERVICES"
+          echo "=================================================="
 
           kubectl get services \
-            -n hybrid-iac
+            -n "${K8S_NAMESPACE}"
+
+      # ----------------------------------------------------
+      # 15. VERIFY ROLLOUT
+      # ----------------------------------------------------
+      #
+      # Waits for the Kubernetes Deployment to complete its
+      # rollout.
+      #
+      # IMPORTANT:
+      #
+      # The Deployment name is discovered from the namespace
+      # so this workflow does not hardcode an application
+      # Deployment name.
+      #
+      # ----------------------------------------------------
+
+      - name: Verify Deployment Rollout
+        shell: bash
+        run: |
+
+          echo "=================================================="
+          echo "VERIFY DEPLOYMENT ROLLOUT"
+          echo "=================================================="
+
+          DEPLOYMENT_COUNT=$(kubectl get deployments \
+            -n "${K8S_NAMESPACE}" \
+            --no-headers 2>/dev/null | wc -l)
+
+          if [ "${DEPLOYMENT_COUNT}" -eq 0 ]; then
+            echo "ERROR: No Kubernetes Deployment found."
+            exit 1
+          fi
+
+          echo "Deployment(s) found:"
+          kubectl get deployments \
+            -n "${K8S_NAMESPACE}"
+
+          echo ""
+          echo "Waiting for rollout..."
+
+          while read -r DEPLOYMENT_NAME; do
+
+            if [ -n "${DEPLOYMENT_NAME}" ]; then
+
+              echo ""
+              echo "Checking deployment:"
+              echo "${DEPLOYMENT_NAME}"
+
+              kubectl rollout status \
+                deployment/"${DEPLOYMENT_NAME}" \
+                -n "${K8S_NAMESPACE}" \
+                --timeout=180s
+
+            fi
+
+          done < <(
+            kubectl get deployments \
+              -n "${K8S_NAMESPACE}" \
+              -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'
+          )
+
+          echo ""
+          echo "=================================================="
+          echo "ROLLOUT SUCCESSFUL"
+          echo "=================================================="
+
+          echo "Application image:"
+          echo "${ECR_FULL_IMAGE}"
+
+# ==========================================================
+# FINAL NAMING STANDARD
+# ==========================================================
+#
+# Project:
+#
+#   hybridiaclab
+#
+# Environment:
+#
+#   dev
+#
+# Main CloudFormation Stack:
+#
+#   hybridiaclab-dev-MainStack
+#
+# EKS Cluster:
+#
+#   hybridiaclab-dev-EKS
+#
+# EKS Node Group:
+#
+#   hybridiaclab-dev-NodeGroup
+#
+# Kubernetes Namespace:
+#
+#   hybridiaclab
+#
+# ECR Repository:
+#
+#   hybridiaclab-dev-app
+#
+# ECS Stack:
+#
+#   hybridiaclab-dev-ECS
+#
+# ==========================================================
+# KUBERNETES MANIFEST REQUIREMENTS
+# ==========================================================
+#
+# The following manifests should use:
+#
+#   namespace: hybridiaclab
+#
+# Files:
+#
+#   kubernetes/namespace.yaml
+#   kubernetes/configmap.yaml
+#   kubernetes/deployment.yaml
+#   kubernetes/service.yaml
+#
+# ==========================================================
+# DEPLOYMENT IMAGE REQUIREMENT
+# ==========================================================
+#
+# deployment.yaml should NOT contain a hardcoded ECR URI.
+#
+# Use:
+#
+#   image: ${ECR_FULL_IMAGE}
+#
+# GitHub Actions will replace it at deployment time with:
+#
+#   ${ECR_IMAGE_URI}:${ECR_IMAGE_TAG}
+#
+# Example:
+#
+#   123456789012.dkr.ecr.us-east-1.amazonaws.com/
+#   hybridiaclab-dev-app:abcdef123456
+#
+# ==========================================================
+# IMPORTANT
+# ==========================================================
+#
+# Kubernetes must NOT contain old project names such as:
+#
+#   hybrid-iac
+#   HybridIaCLab
+#
+# The current project naming standard is:
+#
+#   hybridiaclab
+#
+# ==========================================================
+# END OF WORKFLOW
+# ==========================================================
+

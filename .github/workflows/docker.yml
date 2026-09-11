@@ -722,23 +722,62 @@ jobs:
       # ============================================================
       - name: Test container HTTP health check
         run: |
+
+          set -euo pipefail
+
+          # ------------------------------------------------
+          # Re-create the local Docker image reference.
+          #
+          # Shell variables do NOT persist between GitHub
+          # Actions steps, so LOCAL_IMAGE must be defined
+          # again in this step.
+          # ------------------------------------------------
+
+          LOCAL_IMAGE="$DOCKER_IMAGE_NAME:$GITHUB_SHA"
+
+          echo "================================================"
+          echo "TESTING CONTAINER HTTP HEALTH CHECK"
+          echo "================================================"
+
+          # --------------------------------------------------------
           # Start the image as a temporary background container.
+          # --------------------------------------------------------
+
           docker run -d --name ecs-health-test "$LOCAL_IMAGE"
 
-          # Always remove the temporary container when this step exits.
-          # This prevents leftover containers on the GitHub runner.
+          echo ""          
+
+          # --------------------------------------------------------
+          # Always remove the temporary container when this step
+          # exits, including when the health check fails.
+          # --------------------------------------------------------
+
           trap 'docker rm -f ecs-health-test >/dev/null 2>&1 || true' EXIT
 
-          # Give Nginx a few seconds to start before testing HTTP.
+          # --------------------------------------------------------
+          # Give Nginx a few seconds to start.
+          # --------------------------------------------------------
           sleep 5
 
-          # Run the same health check configured in ecs.yaml.
-          # -f makes curl return a failure exit code for HTTP errors.
+          # --------------------------------------------------------
+          # Execute the same health check configured in ecs.yaml.
+          #
+          # ECS:
+          #
+          # curl -f http://localhost/ || exit 1
+          #
+          # --------------------------------------------------------
           docker exec ecs-health-test \
             curl -f http://localhost/
 
+          echo ""
+
+          # --------------------------------------------------------
           # If curl succeeded, the Docker container is serving HTTP.
+          # --------------------------------------------------------
           echo "SUCCESS: ECS health check passed."
+
+          echo "================================================"
 
       # ====================================================
       # 10. CREATE IMMUTABLE IMAGE URI
