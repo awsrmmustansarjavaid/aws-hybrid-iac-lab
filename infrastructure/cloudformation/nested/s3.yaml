@@ -10,9 +10,10 @@ AWSTemplateFormatVersion: "2010-09-09"
 # Purpose:
 #   Creates the application's S3 storage layer.
 #
-# Resources created:
+# Configuration provided:
 #
 #   - S3 application bucket
+#   - S3 object ownership enforcement
 #   - Server-side encryption
 #   - S3 versioning
 #   - Public access blocking
@@ -20,7 +21,9 @@ AWSTemplateFormatVersion: "2010-09-09"
 #
 # Security model:
 #
-#   The bucket is PRIVATE.
+#   The bucket is intended to remain PRIVATE.
+#
+#   S3 object ACLs are disabled through BucketOwnerEnforced.
 #
 #   Public ACLs and public bucket policies are blocked.
 #
@@ -104,7 +107,49 @@ Resources:
 
     Properties:
 
+      # --------------------------------------------------------
+      # BUCKET NAME
+      # --------------------------------------------------------
+      #
+      # Naming convention:
+      #
+      #   <ProjectName>-<Environment>-s3-<Purpose>
+      #
+      # Example:
+      #
+      #   hybridiaclab-dev-s3-application
+      #
+      # --------------------------------------------------------
 
+      BucketName: !Sub "${ProjectName}-${Environment}-s3-application"
+
+      # --------------------------------------------------------
+      # OBJECT OWNERSHIP
+      # --------------------------------------------------------
+      #
+      # Disables S3 object ACLs and ensures that the bucket owner
+      # owns all objects stored in the bucket.
+      #
+      # BucketOwnerEnforced:
+      #
+      #   - Disables ACL-based access control.
+      #   - Ensures the bucket owner owns uploaded objects.
+      #   - Simplifies S3 permission management.
+      #   - Helps avoid object ownership problems when objects
+      #     are uploaded by other AWS services or accounts.
+      #
+      # Access to the bucket should therefore be controlled
+      # through IAM policies and S3 bucket policies rather than
+      # object ACLs.
+      #
+      # --------------------------------------------------------
+
+      OwnershipControls:
+
+        Rules:
+
+          - ObjectOwnership: BucketOwnerEnforced
+      
       # --------------------------------------------------------
       # BUCKET ENCRYPTION
       # --------------------------------------------------------
@@ -130,7 +175,7 @@ Resources:
       # PUBLIC ACCESS BLOCK
       # --------------------------------------------------------
       #
-      # These four settings prevent accidental public access.
+      # These four settings help prevent accidental public access.
       #
       # BlockPublicAcls:
       #
@@ -182,6 +227,14 @@ Resources:
       #   - Deployment safety
       #   - CI/CD artifact management
       #
+      # Important:
+      #
+      #   Versioning is not a backup solution.
+      #
+      #   It helps recover previous object versions but does not
+      #   replace a dedicated backup or replication strategy.
+      #
+      # --------------------------------------------------------
       VersioningConfiguration:
 
         Status: Enabled

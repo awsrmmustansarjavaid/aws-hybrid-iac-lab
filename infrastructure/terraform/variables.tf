@@ -656,11 +656,6 @@ variable "github_ci_cd_combined_policy_name" {
 # IMPORTANT
 # ============================================================
 #
-# Variables WITHOUT defaults:
-#
-#   ami_id
-#   database_password
-#
 #
 # These values should normally be supplied through:
 #

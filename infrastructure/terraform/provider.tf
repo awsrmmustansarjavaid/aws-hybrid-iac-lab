@@ -118,7 +118,7 @@ provider "aws" {
       #
       # Example:
       #
-      #     HybridIaCLab
+      #     hybridiaclab
       # ----------------------------------------------------
 
       Project = var.project_name

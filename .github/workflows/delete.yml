@@ -1,21 +1,169 @@
 # ==========================================================
-# HYBRID TERRAFORM + CLOUDFORMATION AWS LAB
-# Infrastructure Deletion Workflow
+# HYBRID TERRAFORM + CLOUDFORMATION AWS DEVOPS LAB
+# COMPLETE INFRASTRUCTURE DELETION WORKFLOW
 # ==========================================================
 #
-# WARNING:
+# File:
+#   .github/workflows/delete.yml
+#
+# Purpose:
+#
+#   Safely and completely remove the AWS infrastructure
+#   created by this Hybrid Terraform + CloudFormation lab.
+#
+# ==========================================================
+#
+# ARCHITECTURE
+# ==========================================================
+#
+# Deployment:
+#
+#   GitHub
+#      |
+#      v
+#   GitHub OIDC
+#      |
+#      v
+#   AWS IAM Role
+#      |
+#      v
+#   Terraform
+#      |
+#      v
+#   Main CloudFormation Stack
+#      |
+#      +--> VPC
+#      +--> EC2
+#      +--> S3
+#      +--> RDS
+#      +--> ECR
+#      +--> EKS
+#      +--> supporting AWS resources
+#
+# Separate application stacks:
+#
+#   Docker Workflow
+#      |
+#      v
+#   ECS CloudFormation Stack
+#      |
+#      +--> ALB
+#      +--> ECS Cluster
+#      +--> ECS Service
+#      +--> ECS Tasks
+#      +--> Security Groups
+#
+# Kubernetes Workflow:
+#
+#   EKS
+#      |
+#      +--> Namespace
+#      +--> ConfigMap
+#      +--> Deployment
+#      +--> Service
+#      +--> Pods
+#      +--> possible AWS Load Balancers
+#
+# ==========================================================
+# DELETION ORDER
+# ==========================================================
+#
+# The deletion workflow intentionally follows this order:
+#
+#   1. Validate configuration
+#
+#   2. Authenticate to AWS using GitHub OIDC
+#
+#   3. Verify AWS account and IAM role
+#
+#   4. Detect current infrastructure
+#
+#   5. Clean Kubernetes application resources
+#
+#   6. Remove Kubernetes-created AWS load balancers
+#
+#   7. Delete the independent ECS CloudFormation stack
+#
+#   8. Remove ECR images
+#
+#   9. Terraform init
+#
+#  10. Display Terraform state
+#
+#  11. Terraform destroy
+#
+#  12. Verify Main CloudFormation stack deletion
+#
+#  13. Verify major AWS resources are gone
+#
+#  14. Optionally delete the Terraform backend bucket
+#
+# ==========================================================
+#
+# IMPORTANT
+# ==========================================================
 #
 # THIS WORKFLOW DELETES AWS INFRASTRUCTURE.
 #
-# It should NEVER run automatically on push.
+# It must NEVER run automatically on:
 #
-# It must be started manually from:
+#   push
 #
-# GitHub
-#   -> Actions
-#   -> Delete Infrastructure
-#   -> Run workflow
+#   pull_request
 #
+# It is intentionally restricted to:
+#
+#   workflow_dispatch
+#
+# ==========================================================
+#
+# IMPORTANT OWNERSHIP RULE
+# ==========================================================
+#
+# Terraform owns:
+#
+#   Main CloudFormation Stack
+#
+# CloudFormation owns resources inside MainStack.
+#
+# ECS is a separate CloudFormation stack and therefore must
+# be deleted explicitly before Terraform destroys MainStack.
+#
+# Kubernetes owns resources INSIDE the EKS cluster.
+#
+# ==========================================================
+#
+# TERRAFORM STATE BACKEND
+# ==========================================================
+#
+# The Terraform S3 backend is used during terraform destroy.
+#
+# Therefore:
+#
+#   DO NOT delete the Terraform state bucket before
+#   terraform destroy has completed.
+#
+# The backend can optionally be deleted at the very end.
+#
+# ==========================================================
+#
+# FINAL DELETION SAFETY
+# ==========================================================
+#
+# The workflow requires the user to type:
+#
+#   DESTROY
+#
+# into the manual workflow input.
+#
+# This prevents accidental execution of the destructive
+# workflow from the GitHub Actions UI.
+#
+# ==========================================================
+
+
+# ==========================================================
+# WORKFLOW NAME
 # ==========================================================
 
 name: Delete Infrastructure
@@ -29,9 +177,158 @@ on:
 
   workflow_dispatch:
 
+    inputs:
+
+      # ----------------------------------------------------
+      # Mandatory destruction confirmation.
+      # ----------------------------------------------------
+
+      confirm_destroy:
+
+        description: "Type DESTROY to confirm complete infrastructure deletion."
+
+        required: true
+
+        type: string
+
+
+      # ----------------------------------------------------
+      # Optional Terraform backend deletion.
+      #
+      # Default:
+      #   false
+      #
+      # Keeping this false means the Terraform state bucket
+      # remains available for the next deployment.
+      #
+      # Set to true only when the entire lab environment,
+      # including the Terraform backend, should be removed.
+      # ----------------------------------------------------
+
+      delete_terraform_backend:
+
+        description: "Delete the Terraform S3 state bucket after Terraform destroy."
+
+        required: true
+
+        default: false
+
+        type: boolean
+
 
 # ==========================================================
-# PERMISSIONS
+# GLOBAL ENVIRONMENT
+# ==========================================================
+
+env:
+
+  # --------------------------------------------------------
+  # AWS
+  # --------------------------------------------------------
+
+  AWS_REGION: "us-east-1"
+
+  AWS_EXPECTED_ROLE_NAME: "aws-hybrid-iac-lab-GitHubActions"
+
+  AWS_ROLE_SESSION_NAME: "GitHubActions-Delete"
+
+  AWS_OIDC_AUDIENCE: "sts.amazonaws.com"
+
+
+  # --------------------------------------------------------
+  # PROJECT
+  # --------------------------------------------------------
+
+  PROJECT_NAME: "hybridiaclab"
+
+  ENVIRONMENT: "dev"
+
+
+  # --------------------------------------------------------
+  # MAIN CLOUDFORMATION STACK
+  # --------------------------------------------------------
+
+  MAIN_STACK_NAME: "hybridiaclab-dev-MainStack"
+
+
+  # --------------------------------------------------------
+  # ECS CLOUDFORMATION STACK
+  #
+  # ECS is independently deployed and therefore must be
+  # explicitly deleted.
+  # --------------------------------------------------------
+
+  ECS_STACK_NAME: "hybridiaclab-dev-ECSStack"
+
+
+  # --------------------------------------------------------
+  # EKS CLUSTER
+  # --------------------------------------------------------
+
+  EKS_CLUSTER_NAME: "hybridiaclab-dev-EKS"
+
+  EKS_NODE_GROUP_NAME: "hybridiaclab-dev-NodeGroup"
+
+
+  # --------------------------------------------------------
+  # KUBERNETES
+  # --------------------------------------------------------
+
+  K8S_NAMESPACE: "hybridiaclab"
+
+
+  # --------------------------------------------------------
+  # ECR
+  # --------------------------------------------------------
+
+  ECR_REPOSITORY_NAME: "hybridiaclab-dev-app"
+
+
+  # --------------------------------------------------------
+  # TERRAFORM
+  # --------------------------------------------------------
+
+  TF_WORKING_DIRECTORY: "infrastructure/terraform"
+
+  TF_VERSION: "latest"
+
+  TF_PLAN_FILE: "tfplan"
+
+
+  # --------------------------------------------------------
+  # TERRAFORM S3 BACKEND
+  # --------------------------------------------------------
+
+  TF_STATE_BUCKET: "aws-hybrid-iac-lab-terraform-state-537236558357"
+
+  TF_STATE_REGION: "us-east-1"
+
+  TF_STATE_KEY: "aws-hybrid-iac-lab/terraform.tfstate"
+
+
+# ==========================================================
+# CONCURRENCY
+# ==========================================================
+#
+# Prevent deployment and deletion workflows from modifying
+# the same infrastructure simultaneously.
+#
+# cancel-in-progress is intentionally false.
+#
+# A running infrastructure operation must not be silently
+# cancelled in the middle of destruction.
+#
+# ==========================================================
+
+concurrency:
+
+  group: "terraform-destroy-${{ github.repository }}"
+
+  cancel-in-progress: false
+
+
+# ==========================================================
+# GITHUB ACTIONS PERMISSIONS
 # ==========================================================
 
 permissions:
@@ -53,81 +350,1804 @@ jobs:
 
     runs-on: ubuntu-latest
 
+
+    # ======================================================
+    # JOB ENVIRONMENT
+    # ======================================================
+
+    env:
+
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+
+
+    # ======================================================
+    # STEPS
+    # ======================================================
+
     steps:
 
-      # ----------------------------------------------------
-      # 1. Checkout repository
-      # ----------------------------------------------------
+
+      # ====================================================
+      # 1. CHECKOUT REPOSITORY
+      # ====================================================
 
       - name: Checkout Repository
 
         uses: actions/checkout@v4
 
 
-      # ----------------------------------------------------
-      # 2. Configure AWS
-      # ----------------------------------------------------
+      # ====================================================
+      # 2. VALIDATE DESTRUCTION CONFIRMATION
+      # ====================================================
+      #
+      # The workflow refuses to continue unless the user
+      # explicitly enters:
+      #
+      #   DESTROY
+      #
+      # ====================================================
+
+      - name: Validate Destruction Confirmation
+
+        shell: bash
+
+        env:
+
+          CONFIRM_DESTROY: ${{ inputs.confirm_destroy }}
+
+        run: |
+
+          set -euo pipefail
+
+          echo "================================================"
+          echo "VALIDATING DESTRUCTION CONFIRMATION"
+          echo "================================================"
+
+          if [ "$CONFIRM_DESTROY" != "DESTROY" ]; then
+
+            echo ""
+            echo "ERROR: Destruction confirmation failed."
+            echo ""
+            echo "You must enter exactly:"
+            echo ""
+            echo "DESTROY"
+            echo ""
+
+            exit 1
+
+          fi
+
+          echo ""
+          echo "Destruction confirmation accepted."
+          echo "================================================"
+
+
+      # ====================================================
+      # 3. VALIDATE DEPLOYMENT CONFIGURATION
+      # ====================================================
+
+      - name: Validate Deployment Configuration
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "================================================"
+          echo "VALIDATING DELETE WORKFLOW CONFIGURATION"
+          echo "================================================"
+
+
+          # ------------------------------------------------
+          # AWS account
+          # ------------------------------------------------
+
+          if [ -z "${AWS_ACCOUNT_ID:-}" ]; then
+
+            echo "ERROR: AWS_ACCOUNT_ID is empty."
+
+            echo "Configure GitHub Repository Variable:"
+            echo "AWS_ACCOUNT_ID"
+
+            exit 1
+
+          fi
+
+
+          if ! [[ "$AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]; then
+
+            echo "ERROR: AWS_ACCOUNT_ID must contain exactly 12 digits."
+
+            exit 1
+
+          fi
+
+
+          # ------------------------------------------------
+          # AWS role
+          # ------------------------------------------------
+
+          if [ -z "${AWS_ROLE_ARN:-}" ]; then
+
+            echo "ERROR: AWS_ROLE_ARN is empty."
+
+            echo "Configure GitHub Repository Variable:"
+            echo "AWS_ROLE_ARN"
+
+            exit 1
+
+          fi
+
+
+          # ------------------------------------------------
+          # Validate role ARN.
+          # ------------------------------------------------
+
+          EXPECTED_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${AWS_EXPECTED_ROLE_NAME}"
+
+          if [ "$AWS_ROLE_ARN" != "$EXPECTED_ROLE_ARN" ]; then
+
+            echo ""
+            echo "ERROR: AWS_ROLE_ARN does not match the expected role."
+
+            echo ""
+            echo "Expected:"
+            echo "$EXPECTED_ROLE_ARN"
+
+            echo ""
+            echo "Received:"
+            echo "$AWS_ROLE_ARN"
+
+            exit 1
+
+          fi
+
+
+          # ------------------------------------------------
+          # Validate region.
+          # ------------------------------------------------
+
+          if [ -z "$AWS_REGION" ]; then
+
+            echo "ERROR: AWS_REGION is empty."
+
+            exit 1
+
+          fi
+
+
+          # ------------------------------------------------
+          # Validate project naming.
+          # ------------------------------------------------
+
+          if [ -z "$PROJECT_NAME" ]; then
+
+            echo "ERROR: PROJECT_NAME is empty."
+
+            exit 1
+
+          fi
+
+
+          if [ -z "$ENVIRONMENT" ]; then
+
+            echo "ERROR: ENVIRONMENT is empty."
+
+            exit 1
+
+          fi
+
+
+          # ------------------------------------------------
+          # Validate Terraform directory.
+          # ------------------------------------------------
+
+          if [ ! -d "$TF_WORKING_DIRECTORY" ]; then
+
+            echo "ERROR: Terraform directory does not exist:"
+            echo "$TF_WORKING_DIRECTORY"
+
+            exit 1
+
+          fi
+
+
+          # ------------------------------------------------
+          # Validate Terraform configuration files.
+          # ------------------------------------------------
+
+          if ! find "$TF_WORKING_DIRECTORY" \
+            -maxdepth 1 \
+            -type f \
+            -name "*.tf" \
+            | grep -q .; then
+
+            echo "ERROR: No Terraform files were found."
+
+            exit 1
+
+          fi
+
+
+          # ------------------------------------------------
+          # Validate required commands.
+          # ------------------------------------------------
+
+          for COMMAND in aws jq curl; do
+
+            if ! command -v "$COMMAND" >/dev/null 2>&1; then
+
+              echo "ERROR: Required command not found: $COMMAND"
+
+              exit 1
+
+            fi
+
+          done
+
+
+          # ------------------------------------------------
+          # Ensure long-lived AWS credentials are not being
+          # used.
+          # ------------------------------------------------
+
+          if [ -n "${AWS_ACCESS_KEY_ID:-}" ] || \
+             [ -n "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+
+            echo ""
+            echo "ERROR: Long-lived AWS credentials detected."
+
+            echo "This workflow must authenticate using GitHub OIDC."
+
+            exit 1
+
+          fi
+
+
+          # ------------------------------------------------
+          # Verify GitHub OIDC runtime variables.
+          # ------------------------------------------------
+
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ] || \
+             [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+
+            echo ""
+            echo "ERROR: GitHub OIDC runtime variables are unavailable."
+
+            exit 1
+
+          fi
+
+
+          echo ""
+          echo "Configuration validation successful."
+
+          echo ""
+          echo "Project:              $PROJECT_NAME"
+          echo "Environment:          $ENVIRONMENT"
+          echo "AWS Region:           $AWS_REGION"
+          echo "AWS Account:          $AWS_ACCOUNT_ID"
+          echo "AWS Role:             $AWS_ROLE_ARN"
+          echo "Main Stack:           $MAIN_STACK_NAME"
+          echo "ECS Stack:            $ECS_STACK_NAME"
+          echo "EKS Cluster:          $EKS_CLUSTER_NAME"
+          echo "ECR Repository:       $ECR_REPOSITORY_NAME"
+          echo "Kubernetes Namespace: $K8S_NAMESPACE"
+          echo "Terraform Directory:  $TF_WORKING_DIRECTORY"
+          echo "State Bucket:         $TF_STATE_BUCKET"
+
+          echo "================================================"
+
+
+      # ====================================================
+      # 4. DIAGNOSE GITHUB OIDC CLAIMS
+      # ====================================================
+      #
+      # This is intentionally similar to terraform.yml.
+      #
+      # The actual JWT is NEVER printed.
+      #
+      # ====================================================
+
+      - name: Verify GitHub OIDC Configuration
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "================================================"
+          echo "VERIFYING GITHUB OIDC CONFIGURATION"
+          echo "================================================"
+
+
+          OIDC_TOKEN_RESPONSE=$(curl \
+            --fail \
+            --silent \
+            --show-error \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AWS_OIDC_AUDIENCE}")
+
+
+          OIDC_TOKEN=$(echo "$OIDC_TOKEN_RESPONSE" | jq -r '.value')
+
+
+          if [ -z "$OIDC_TOKEN" ] || [ "$OIDC_TOKEN" = "null" ]; then
+
+            echo "ERROR: GitHub OIDC token was not returned."
+
+            exit 1
+
+          fi
+
+
+          OIDC_PAYLOAD=$(echo "$OIDC_TOKEN" | cut -d '.' -f2)
+
+
+          # ------------------------------------------------
+          # Decode JWT payload safely.
+          # ------------------------------------------------
+
+          OIDC_PAYLOAD=$(printf '%s' "$OIDC_PAYLOAD" | tr '_-' '/+')
+
+
+          case $((${#OIDC_PAYLOAD} % 4)) in
+
+            2)
+              OIDC_PAYLOAD="${OIDC_PAYLOAD}=="
+              ;;
+
+            3)
+              OIDC_PAYLOAD="${OIDC_PAYLOAD}="
+              ;;
+
+          esac
+
+
+          CLAIMS=$(printf '%s' "$OIDC_PAYLOAD" | base64 -d 2>/dev/null)
+
+
+          ISSUER=$(echo "$CLAIMS" | jq -r '.iss // empty')
+
+          AUDIENCE=$(echo "$CLAIMS" | jq -r '.aud // empty')
+
+          SUBJECT=$(echo "$CLAIMS" | jq -r '.sub // empty')
+
+          REPOSITORY=$(echo "$CLAIMS" | jq -r '.repository // empty')
+
+
+          echo ""
+          echo "OIDC Issuer:"
+          echo "$ISSUER"
+
+          echo ""
+          echo "OIDC Audience:"
+          echo "$AUDIENCE"
+
+          echo ""
+          echo "OIDC Subject:"
+          echo "$SUBJECT"
+
+          echo ""
+          echo "OIDC Repository:"
+          echo "$REPOSITORY"
+
+
+          if [ "$ISSUER" != "https://token.actions.githubusercontent.com" ]; then
+
+            echo "ERROR: Unexpected OIDC issuer."
+
+            exit 1
+
+          fi
+
+
+          if [ "$AUDIENCE" != "$AWS_OIDC_AUDIENCE" ]; then
+
+            echo "ERROR: Unexpected OIDC audience."
+
+            exit 1
+
+          fi
+
+
+          if [ "$REPOSITORY" != "awsrmmustansarjavaid/aws-hybrid-iac-lab" ]; then
+
+            echo "ERROR: Unexpected GitHub repository."
+
+            exit 1
+
+          fi
+
+
+          echo ""
+          echo "GitHub OIDC validation successful."
+
+          echo "================================================"
+
+
+      # ====================================================
+      # 5. CONFIGURE AWS CREDENTIALS
+      # ====================================================
+      #
+      # Uses exactly the same OIDC authentication model as
+      # terraform.yml.
+      #
+      # ====================================================
 
       - name: Configure AWS Credentials
 
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v5.1.1
 
         with:
 
-          aws-region: ${{ vars.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
 
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+
+          role-session-name: ${{ env.AWS_ROLE_SESSION_NAME }}
+
+          audience: ${{ env.AWS_OIDC_AUDIENCE }}
+
+          allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
 
 
-      # ----------------------------------------------------
-      # 3. Setup Terraform
-      # ----------------------------------------------------
+      # ====================================================
+      # 6. VERIFY AWS IDENTITY
+      # ====================================================
+
+      - name: Verify AWS Identity
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "================================================"
+          echo "VERIFYING AWS IDENTITY"
+          echo "================================================"
+
+
+          IDENTITY=$(aws sts get-caller-identity)
+
+          CALLER_ACCOUNT=$(echo "$IDENTITY" | jq -r '.Account')
+
+          CALLER_ARN=$(echo "$IDENTITY" | jq -r '.Arn')
+
+
+          echo ""
+          echo "AWS Account:"
+          echo "$CALLER_ACCOUNT"
+
+          echo ""
+          echo "AWS ARN:"
+          echo "$CALLER_ARN"
+
+
+          if [ "$CALLER_ACCOUNT" != "$AWS_ACCOUNT_ID" ]; then
+
+            echo ""
+            echo "ERROR: AWS account mismatch."
+
+            echo "Expected:"
+            echo "$AWS_ACCOUNT_ID"
+
+            echo "Actual:"
+            echo "$CALLER_ACCOUNT"
+
+            exit 1
+
+          fi
+
+
+          if [[ "$CALLER_ARN" != *"$AWS_EXPECTED_ROLE_NAME"* ]]; then
+
+            echo ""
+            echo "ERROR: Unexpected IAM role."
+
+            exit 1
+
+          fi
+
+
+          echo ""
+          echo "AWS identity verification successful."
+
+          echo "================================================"
+
+
+      # ====================================================
+      # 7. INSTALL TERRAFORM
+      # ====================================================
 
       - name: Setup Terraform
 
         uses: hashicorp/setup-terraform@v3
 
+        with:
 
-      # ----------------------------------------------------
-      # 4. Terraform Init
-      # ----------------------------------------------------
+          terraform_version: ${{ env.TF_VERSION }}
+
+
+      # ====================================================
+      # 8. INITIALIZE TERRAFORM
+      # ====================================================
+      #
+      # This MUST happen before terraform destroy.
+      #
+      # The state bucket is deliberately preserved at this
+      # stage.
+      #
+      # ====================================================
 
       - name: Terraform Init
 
-        working-directory: infrastructure/terraform
+        working-directory: ${{ env.TF_WORKING_DIRECTORY }}
 
-        run: terraform init
+        run: |
+
+          set -euo pipefail
+
+          echo "================================================"
+          echo "INITIALIZING TERRAFORM"
+          echo "================================================"
 
 
-      # ----------------------------------------------------
-      # 5. Show Terraform Resources
-      # ----------------------------------------------------
+          terraform init \
+            -input=false \
+            -reconfigure \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=${TF_STATE_KEY}" \
+            -backend-config="region=${TF_STATE_REGION}"
+
+
+          echo ""
+          echo "Terraform initialization successful."
+
+          echo "================================================"
+
+
+      # ====================================================
+      # 9. SHOW TERRAFORM STATE
+      # ====================================================
       #
-      # This gives us visibility before destruction.
+      # This is informational only.
       #
-      # ----------------------------------------------------
-
-      - name: Terraform State List
-
-        working-directory: infrastructure/terraform
-
-        run: terraform state list
-
-
-      # ----------------------------------------------------
-      # 6. Terraform Destroy
-      # ----------------------------------------------------
+      # It gives visibility into resources Terraform currently
+      # believes it manages.
       #
-      # This will destroy resources managed by Terraform.
+      # ====================================================
+
+      - name: Terraform State List Before Destroy
+
+        working-directory: ${{ env.TF_WORKING_DIRECTORY }}
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "================================================"
+          echo "TERRAFORM STATE BEFORE DESTROY"
+          echo "================================================"
+
+
+          if terraform state list > /tmp/terraform-state.txt 2>/tmp/terraform-state-error.txt; then
+
+            if [ -s /tmp/terraform-state.txt ]; then
+
+              echo ""
+              cat /tmp/terraform-state.txt
+
+            else
+
+              echo ""
+              echo "Terraform state contains no managed resources."
+
+            fi
+
+          else
+
+            echo ""
+            echo "WARNING: Unable to read Terraform state."
+
+            cat /tmp/terraform-state-error.txt || true
+
+          fi
+
+
+          echo "================================================"
+
+
+      # ====================================================
+      # 10. SHOW MAIN CLOUDFORMATION STACK STATUS
+      # ====================================================
       #
-      # Because Terraform manages the main CloudFormation
-      # stack, deleting the stack also removes the nested
-      # CloudFormation resources.
+      # This step does not fail when the stack does not exist.
       #
-      # ----------------------------------------------------
+      # ====================================================
+
+      - name: Check Main CloudFormation Stack
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "================================================"
+          echo "CHECKING MAIN CLOUDFORMATION STACK"
+          echo "================================================"
+
+
+          if aws cloudformation describe-stacks \
+            --stack-name "$MAIN_STACK_NAME" \
+            --region "$AWS_REGION" \
+            >/tmp/main-stack.json 2>/tmp/main-stack-error.txt; then
+
+            aws cloudformation describe-stacks \
+              --stack-name "$MAIN_STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query 'Stacks[0].{StackName:StackName,Status:StackStatus}' \
+              --output table
+
+          else
+
+            echo ""
+            echo "Main CloudFormation stack does not currently exist."
+
+          fi
+
+
+          echo "================================================"
+
+
+      # ====================================================
+      # 11. CLEAN KUBERNETES APPLICATION RESOURCES
+      # ====================================================
+      #
+      # This MUST happen before deleting the EKS cluster.
+      #
+      # Kubernetes Services may create AWS load balancers.
+      #
+      # Removing them while the Kubernetes API is still
+      # available gives Kubernetes controllers an opportunity
+      # to clean their AWS resources.
+      #
+      # ====================================================
+
+      - name: Cleanup Kubernetes Resources
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "================================================"
+          echo "CLEANING KUBERNETES RESOURCES"
+          echo "================================================"
+
+
+          # ------------------------------------------------
+          # Determine whether EKS exists.
+          # ------------------------------------------------
+
+          if ! aws eks describe-cluster \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION" \
+            >/dev/null 2>&1; then
+
+            echo ""
+            echo "EKS cluster does not exist."
+            echo "Skipping Kubernetes cleanup."
+
+            exit 0
+
+          fi
+
+
+          # ------------------------------------------------
+          # Get EKS status.
+          # ------------------------------------------------
+
+          EKS_STATUS=$(aws eks describe-cluster \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION" \
+            --query 'cluster.status' \
+            --output text)
+
+
+          echo ""
+          echo "EKS Cluster:"
+          echo "$EKS_CLUSTER_NAME"
+
+          echo ""
+          echo "EKS Status:"
+          echo "$EKS_STATUS"
+
+
+          if [ "$EKS_STATUS" != "ACTIVE" ]; then
+
+            echo ""
+            echo "EKS cluster is not ACTIVE."
+            echo "Kubernetes API cleanup will be skipped."
+
+            exit 0
+
+          fi
+
+
+          # ------------------------------------------------
+          # Configure kubeconfig.
+          # ------------------------------------------------
+
+          aws eks update-kubeconfig \
+            --region "$AWS_REGION" \
+            --name "$EKS_CLUSTER_NAME"
+
+
+          # ------------------------------------------------
+          # Verify Kubernetes connectivity.
+          # ------------------------------------------------
+
+          if ! kubectl cluster-info >/dev/null 2>&1; then
+
+            echo ""
+            echo "WARNING: Kubernetes API is unavailable."
+            echo "Skipping Kubernetes application cleanup."
+
+            exit 0
+
+          fi
+
+
+          # ------------------------------------------------
+          # Show resources before deletion.
+          # ------------------------------------------------
+
+          echo ""
+          echo "Resources currently in namespace:"
+          kubectl get all \
+            -n "$K8S_NAMESPACE" \
+            -o wide \
+            || true
+
+
+          # ------------------------------------------------
+          # Delete Service FIRST.
+          #
+          # This is especially important because a Service
+          # of type LoadBalancer can create an AWS load
+          # balancer.
+          # ------------------------------------------------
+
+          if kubectl get namespace "$K8S_NAMESPACE" \
+            >/dev/null 2>&1; then
+
+            echo ""
+            echo "Deleting Kubernetes Services..."
+
+            kubectl delete service \
+              --all \
+              -n "$K8S_NAMESPACE" \
+              --ignore-not-found=true \
+              --wait=true \
+              || true
+
+
+            echo ""
+            echo "Deleting Kubernetes Deployments..."
+
+            kubectl delete deployment \
+              --all \
+              -n "$K8S_NAMESPACE" \
+              --ignore-not-found=true \
+              --wait=true \
+              || true
+
+
+            echo ""
+            echo "Deleting Kubernetes ConfigMaps..."
+
+            kubectl delete configmap \
+              --all \
+              -n "$K8S_NAMESPACE" \
+              --ignore-not-found=true \
+              --wait=true \
+              || true
+
+
+            echo ""
+            echo "Deleting remaining namespaced resources..."
+
+            kubectl delete all \
+              --all \
+              -n "$K8S_NAMESPACE" \
+              --ignore-not-found=true \
+              --wait=true \
+              || true
+
+
+            # ------------------------------------------------
+            # Delete namespace last.
+            # ------------------------------------------------
+
+            echo ""
+            echo "Deleting Kubernetes namespace..."
+
+            kubectl delete namespace \
+              "$K8S_NAMESPACE" \
+              --ignore-not-found=true \
+              --wait=true \
+              || true
+
+          else
+
+            echo ""
+            echo "Kubernetes namespace does not exist."
+
+          fi
+
+
+          echo ""
+          echo "Kubernetes cleanup completed."
+
+          echo "================================================"
+
+
+      # ====================================================
+      # 12. WAIT FOR KUBERNETES LOAD BALANCER CLEANUP
+      # ====================================================
+      #
+      # Gives AWS/Kubernetes controllers time to finish
+      # removing load balancers generated by Kubernetes
+      # Services.
+      #
+      # ====================================================
+
+      - name: Wait For Kubernetes AWS Resource Cleanup
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "================================================"
+          echo "WAITING FOR KUBERNETES AWS RESOURCE CLEANUP"
+          echo "================================================"
+
+
+          echo ""
+          echo "Waiting 30 seconds for Kubernetes controllers..."
+
+          sleep 30
+
+
+          echo ""
+          echo "Kubernetes controller cleanup wait completed."
+
+          echo "================================================"
+
+
+      # ====================================================
+      # 13. DELETE ECS CLOUDFORMATION STACK
+      # ====================================================
+      #
+      # ECS is independently deployed by docker.yml.
+      #
+      # Therefore Terraform destroy of MainStack does NOT
+      # automatically remove this ECS stack.
+      #
+      # This step explicitly deletes:
+      #
+      #   ECS Cluster
+      #   ECS Service
+      #   ECS Tasks
+      #   ALB
+      #   Target Group
+      #   ECS Security Groups
+      #   ECS Task Execution Role
+      #   supporting ECS resources
+      #
+      # ====================================================
+
+      - name: Delete ECS CloudFormation Stack
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "================================================"
+          echo "DELETING ECS CLOUDFORMATION STACK"
+          echo "================================================"
+
+
+          if ! aws cloudformation describe-stacks \
+            --stack-name "$ECS_STACK_NAME" \
+            --region "$AWS_REGION" \
+            >/dev/null 2>&1; then
+
+            echo ""
+            echo "ECS CloudFormation stack does not exist."
+
+            exit 0
+
+          fi
+
+
+          ECS_STATUS=$(aws cloudformation describe-stacks \
+            --stack-name "$ECS_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].StackStatus' \
+            --output text)
+
+
+          echo ""
+          echo "ECS Stack:"
+          echo "$ECS_STACK_NAME"
+
+          echo ""
+          echo "Current Status:"
+          echo "$ECS_STATUS"
+
+
+          # ------------------------------------------------
+          # Prevent attempting to delete an already-deleted
+          # stack.
+          # ------------------------------------------------
+
+          case "$ECS_STATUS" in
+
+            DELETE_COMPLETE)
+
+              echo ""
+              echo "ECS stack is already deleted."
+
+              exit 0
+
+              ;;
+
+
+            DELETE_IN_PROGRESS)
+
+              echo ""
+              echo "ECS stack deletion is already in progress."
+
+              ;;
+
+
+            *)
+
+              echo ""
+              echo "Starting ECS stack deletion..."
+
+              aws cloudformation delete-stack \
+                --stack-name "$ECS_STACK_NAME" \
+                --region "$AWS_REGION"
+
+              ;;
+
+          esac
+
+
+          # ------------------------------------------------
+          # Wait for deletion.
+          # ------------------------------------------------
+
+          aws cloudformation wait stack-delete-complete \
+            --stack-name "$ECS_STACK_NAME" \
+            --region "$AWS_REGION"
+
+
+          echo ""
+          echo "ECS CloudFormation stack deleted successfully."
+
+          echo "================================================"
+
+
+      # ====================================================
+      # 14. CLEAN ECR IMAGES
+      # ====================================================
+      #
+      # ECR repositories can fail CloudFormation deletion
+      # when images still exist.
+      #
+      # Therefore all images are removed before MainStack
+      # destruction.
+      #
+      # The repository itself remains under CloudFormation
+      # ownership until Terraform destroys MainStack.
+      #
+      # ====================================================
+
+      - name: Delete ECR Images
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "================================================"
+          echo "CLEANING ECR IMAGES"
+          echo "================================================"
+
+
+          if ! aws ecr describe-repositories \
+            --repository-names "$ECR_REPOSITORY_NAME" \
+            --region "$AWS_REGION" \
+            >/dev/null 2>&1; then
+
+            echo ""
+            echo "ECR repository does not exist."
+
+            exit 0
+
+          fi
+
+
+          echo ""
+          echo "ECR Repository:"
+          echo "$ECR_REPOSITORY_NAME"
+
+
+          # ------------------------------------------------
+          # Check image count.
+          # ------------------------------------------------
+
+          IMAGE_COUNT=$(aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY_NAME" \
+            --region "$AWS_REGION" \
+            --query 'length(imageDetails)' \
+            --output text)
+
+
+          if [ "$IMAGE_COUNT" = "0" ] || [ "$IMAGE_COUNT" = "None" ]; then
+
+            echo ""
+            echo "No ECR images found."
+
+            exit 0
+
+          fi
+
+
+          echo ""
+          echo "Images found:"
+          echo "$IMAGE_COUNT"
+
+
+          # ------------------------------------------------
+          # Delete all images.
+          #
+          # AWS CLI handles the repository image identifiers.
+          # ------------------------------------------------
+
+          aws ecr batch-delete-image \
+            --repository-name "$ECR_REPOSITORY_NAME" \
+            --region "$AWS_REGION" \
+            --image-ids "$(
+              aws ecr list-images \
+                --repository-name "$ECR_REPOSITORY_NAME" \
+                --region "$AWS_REGION" \
+                --query 'imageIds[*]' \
+                --output json
+            )"
+
+
+          echo ""
+          echo "ECR image cleanup completed."
+
+          echo "================================================"
+
+
+      # ====================================================
+      # 15. VERIFY ECR IS EMPTY
+      # ====================================================
+
+      - name: Verify ECR Image Cleanup
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "================================================"
+          echo "VERIFYING ECR IMAGE CLEANUP"
+          echo "================================================"
+
+
+          if ! aws ecr describe-repositories \
+            --repository-names "$ECR_REPOSITORY_NAME" \
+            --region "$AWS_REGION" \
+            >/dev/null 2>&1; then
+
+            echo ""
+            echo "ECR repository no longer exists."
+
+            exit 0
+
+          fi
+
+
+          REMAINING_IMAGES=$(aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY_NAME" \
+            --region "$AWS_REGION" \
+            --query 'length(imageDetails)' \
+            --output text)
+
+
+          echo ""
+          echo "Remaining ECR images:"
+          echo "$REMAINING_IMAGES"
+
+
+          if [ "$REMAINING_IMAGES" != "0" ]; then
+
+            echo ""
+            echo "ERROR: ECR repository still contains images."
+
+            exit 1
+
+          fi
+
+
+          echo ""
+          echo "ECR repository is empty."
+
+          echo "================================================"
+
+
+      # ====================================================
+      # 16. TERRAFORM DESTROY
+      # ====================================================
+      #
+      # This is the primary infrastructure destruction step.
+      #
+      # Terraform destroys:
+      #
+      #   aws_cloudformation_stack.main
+      #
+      # Deleting MainStack then causes CloudFormation to
+      # remove its nested infrastructure.
+      #
+      # ====================================================
 
       - name: Terraform Destroy
 
-        working-directory: infrastructure/terraform
+        working-directory: ${{ env.TF_WORKING_DIRECTORY }}
 
-        run: terraform destroy -auto-approve
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "================================================"
+          echo "STARTING TERRAFORM DESTROY"
+          echo "================================================"
+
+
+          echo ""
+          echo "Project:"
+          echo "$PROJECT_NAME"
+
+          echo ""
+          echo "Environment:"
+          echo "$ENVIRONMENT"
+
+          echo ""
+          echo "Main CloudFormation Stack:"
+          echo "$MAIN_STACK_NAME"
+
+          echo ""
+          echo "Terraform State Bucket:"
+          echo "$TF_STATE_BUCKET"
+
+          echo ""
+          echo "Terraform State Key:"
+          echo "$TF_STATE_KEY"
+
+
+          # ------------------------------------------------
+          # Destroy everything managed by Terraform.
+          #
+          # -auto-approve is intentional because the manual
+          # workflow already requires the explicit DESTROY
+          # confirmation input.
+          # ------------------------------------------------
+
+          terraform destroy \
+            -input=false \
+            -auto-approve
+
+
+          echo ""
+          echo "Terraform destroy completed."
+
+          echo "================================================"
+
+
+      # ====================================================
+      # 17. VERIFY TERRAFORM STATE
+      # ====================================================
+      #
+      # Terraform should no longer have managed resources.
+      #
+      # ====================================================
+
+      - name: Verify Terraform State After Destroy
+
+        working-directory: ${{ env.TF_WORKING_DIRECTORY }}
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "================================================"
+          echo "VERIFYING TERRAFORM STATE AFTER DESTROY"
+          echo "================================================"
+
+
+          if terraform state list > /tmp/terraform-state-after.txt 2>/tmp/terraform-state-after-error.txt; then
+
+            if [ -s /tmp/terraform-state-after.txt ]; then
+
+              echo ""
+              echo "WARNING: Terraform still contains resources:"
+
+              cat /tmp/terraform-state-after.txt
+
+            else
+
+              echo ""
+              echo "Terraform state is empty."
+
+            fi
+
+          else
+
+            echo ""
+            echo "Terraform state is no longer available."
+
+          fi
+
+
+          echo "================================================"
+
+
+      # ====================================================
+      # 18. VERIFY MAIN CLOUDFORMATION STACK DELETION
+      # ====================================================
+
+      - name: Verify Main CloudFormation Stack Deletion
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "================================================"
+          echo "VERIFYING MAIN CLOUDFORMATION STACK DELETION"
+          echo "================================================"
+
+
+          if aws cloudformation describe-stacks \
+            --stack-name "$MAIN_STACK_NAME" \
+            --region "$AWS_REGION" \
+            >/dev/null 2>&1; then
+
+            STACK_STATUS=$(aws cloudformation describe-stacks \
+              --stack-name "$MAIN_STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query 'Stacks[0].StackStatus' \
+              --output text)
+
+
+            echo ""
+            echo "ERROR: MainStack still exists."
+
+            echo "Stack status:"
+            echo "$STACK_STATUS"
+
+            exit 1
+
+          fi
+
+
+          echo ""
+          echo "Main CloudFormation stack no longer exists."
+
+          echo "================================================"
+
+
+      # ====================================================
+      # 19. VERIFY ECS STACK IS GONE
+      # ====================================================
+
+      - name: Verify ECS Stack Deletion
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "================================================"
+          echo "VERIFYING ECS STACK DELETION"
+          echo "================================================"
+
+
+          if aws cloudformation describe-stacks \
+            --stack-name "$ECS_STACK_NAME" \
+            --region "$AWS_REGION" \
+            >/dev/null 2>&1; then
+
+            echo ""
+            echo "ERROR: ECS stack still exists."
+
+            exit 1
+
+          fi
+
+
+          echo ""
+          echo "ECS stack no longer exists."
+
+          echo "================================================"
+
+
+      # ====================================================
+      # 20. VERIFY ECR REPOSITORY DELETION
+      # ====================================================
+      #
+      # The repository should normally be deleted by the
+      # CloudFormation MainStack.
+      #
+      # ====================================================
+
+      - name: Verify ECR Repository Deletion
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "================================================"
+          echo "VERIFYING ECR REPOSITORY DELETION"
+          echo "================================================"
+
+
+          if aws ecr describe-repositories \
+            --repository-names "$ECR_REPOSITORY_NAME" \
+            --region "$AWS_REGION" \
+            >/dev/null 2>&1; then
+
+            echo ""
+            echo "WARNING: ECR repository still exists."
+
+            echo ""
+            echo "Attempting explicit repository deletion..."
+
+            aws ecr delete-repository \
+              --repository-name "$ECR_REPOSITORY_NAME" \
+              --region "$AWS_REGION" \
+              --force
+
+
+            echo ""
+            echo "ECR repository deleted."
+
+          else
+
+            echo ""
+            echo "ECR repository no longer exists."
+
+          fi
+
+
+          echo "================================================"
+
+
+      # ====================================================
+      # 21. VERIFY EKS CLUSTER DELETION
+      # ====================================================
+      #
+      # EKS is owned by CloudFormation/MainStack.
+      #
+      # This verification confirms the cluster has gone away.
+      #
+      # ====================================================
+
+      - name: Verify EKS Cluster Deletion
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "================================================"
+          echo "VERIFYING EKS CLUSTER DELETION"
+          echo "================================================"
+
+
+          if aws eks describe-cluster \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION" \
+            >/dev/null 2>&1; then
+
+            echo ""
+            echo "ERROR: EKS cluster still exists."
+
+            aws eks describe-cluster \
+              --name "$EKS_CLUSTER_NAME" \
+              --region "$AWS_REGION" \
+              --query 'cluster.{Name:name,Status:status}' \
+              --output table
+
+            exit 1
+
+          fi
+
+
+          echo ""
+          echo "EKS cluster no longer exists."
+
+          echo "================================================"
+
+
+      # ====================================================
+      # 22. OPTIONAL TERRAFORM BACKEND DELETION
+      # ====================================================
+      #
+      # This happens ONLY after terraform destroy.
+      #
+      # This step deletes:
+      #
+      #   Terraform state objects
+      #   Object versions
+      #   Delete markers
+      #   Terraform state bucket
+      #
+      # IMPORTANT:
+      #
+      # If the backend is deleted, the next deployment must
+      # recreate/bootstrap the Terraform state bucket.
+      #
+      # ====================================================
+
+      - name: Optionally Delete Terraform Backend
+
+        if: ${{ inputs.delete_terraform_backend == true }}
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "================================================"
+          echo "DELETING TERRAFORM BACKEND"
+          echo "================================================"
+
+
+          echo ""
+          echo "Terraform state bucket:"
+          echo "$TF_STATE_BUCKET"
+
+
+          # ------------------------------------------------
+          # Verify bucket exists.
+          # ------------------------------------------------
+
+          if ! aws s3api head-bucket \
+            --bucket "$TF_STATE_BUCKET" \
+            --region "$TF_STATE_REGION" \
+            >/dev/null 2>&1; then
+
+            echo ""
+            echo "Terraform state bucket does not exist."
+
+            exit 0
+
+          fi
+
+
+          # ------------------------------------------------
+          # Delete all object versions.
+          #
+          # Versioning is enabled on the lab state bucket,
+          # therefore simple 'aws s3 rm' is not sufficient.
+          # ------------------------------------------------
+
+          echo ""
+          echo "Deleting all object versions and delete markers..."
+
+
+          while true; do
+
+            OBJECT_VERSIONS=$(aws s3api list-object-versions \
+              --bucket "$TF_STATE_BUCKET" \
+              --region "$TF_STATE_REGION" \
+              --output json)
+
+
+            VERSION_COUNT=$(echo "$OBJECT_VERSIONS" | jq '
+              (
+                (.Versions // []) +
+                (.DeleteMarkers // [])
+              ) | length
+            ')
+
+
+            if [ "$VERSION_COUNT" -eq 0 ]; then
+
+              break
+
+            fi
+
+
+            echo "$OBJECT_VERSIONS" \
+              | jq -c '
+                  [
+                    (.Versions // [])[],
+                    (.DeleteMarkers // [])[]
+                  ]
+                  | {
+                      Objects: map({
+                        Key: .Key,
+                        VersionId: .VersionId
+                      })
+                    }
+                ' \
+              > /tmp/delete-object-versions.json
+
+
+            aws s3api delete-objects \
+              --bucket "$TF_STATE_BUCKET" \
+              --region "$TF_STATE_REGION" \
+              --delete file:///tmp/delete-object-versions.json \
+              >/dev/null
+
+          done
+
+
+          # ------------------------------------------------
+          # Verify bucket is empty.
+          # ------------------------------------------------
+
+          REMAINING_OBJECTS=$(aws s3api list-objects-v2 \
+            --bucket "$TF_STATE_BUCKET" \
+            --region "$TF_STATE_REGION" \
+            --query 'KeyCount' \
+            --output text 2>/dev/null || echo "0")
+
+
+          if [ "$REMAINING_OBJECTS" != "0" ]; then
+
+            echo ""
+            echo "ERROR: Terraform state bucket still contains objects."
+
+            exit 1
+
+          fi
+
+
+          # ------------------------------------------------
+          # Delete bucket.
+          # ------------------------------------------------
+
+          aws s3api delete-bucket \
+            --bucket "$TF_STATE_BUCKET" \
+            --region "$TF_STATE_REGION"
+
+
+          echo ""
+          echo "Terraform state bucket deleted successfully."
+
+          echo "================================================"
+
+
+      # ====================================================
+      # 23. FINAL AWS RESOURCE VERIFICATION
+      # ====================================================
+
+      - name: Final Infrastructure Verification
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo ""
+          echo "=========================================================="
+          echo "FINAL HYBRID IaC INFRASTRUCTURE DELETION VERIFICATION"
+          echo "=========================================================="
+
+
+          echo ""
+          echo "Project:"
+          echo "$PROJECT_NAME"
+
+
+          echo ""
+          echo "Environment:"
+          echo "$ENVIRONMENT"
+
+
+          echo ""
+          echo "AWS Account:"
+          echo "$AWS_ACCOUNT_ID"
+
+
+          echo ""
+          echo "AWS Region:"
+          echo "$AWS_REGION"
+
+
+          echo ""
+          echo "Main CloudFormation Stack:"
+          echo "$MAIN_STACK_NAME"
+
+
+          echo ""
+          echo "ECS CloudFormation Stack:"
+          echo "$ECS_STACK_NAME"
+
+
+          echo ""
+          echo "EKS Cluster:"
+          echo "$EKS_CLUSTER_NAME"
+
+
+          echo ""
+          echo "ECR Repository:"
+          echo "$ECR_REPOSITORY_NAME"
+
+
+          echo ""
+          echo "----------------------------------------------------------"
+          echo "VERIFICATION RESULTS"
+          echo "----------------------------------------------------------"
+
+
+          # ------------------------------------------------
+          # MainStack
+          # ------------------------------------------------
+
+          if aws cloudformation describe-stacks \
+            --stack-name "$MAIN_STACK_NAME" \
+            --region "$AWS_REGION" \
+            >/dev/null 2>&1; then
+
+            echo "FAIL: Main CloudFormation stack still exists."
+
+            exit 1
+
+          else
+
+            echo "PASS: Main CloudFormation stack deleted."
+
+          fi
+
+
+          # ------------------------------------------------
+          # ECS stack
+          # ------------------------------------------------
+
+          if aws cloudformation describe-stacks \
+            --stack-name "$ECS_STACK_NAME" \
+            --region "$AWS_REGION" \
+            >/dev/null 2>&1; then
+
+            echo "FAIL: ECS CloudFormation stack still exists."
+
+            exit 1
+
+          else
+
+            echo "PASS: ECS CloudFormation stack deleted."
+
+          fi
+
+
+          # ------------------------------------------------
+          # EKS
+          # ------------------------------------------------
+
+          if aws eks describe-cluster \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION" \
+            >/dev/null 2>&1; then
+
+            echo "FAIL: EKS cluster still exists."
+
+            exit 1
+
+          else
+
+            echo "PASS: EKS cluster deleted."
+
+          fi
+
+
+          # ------------------------------------------------
+          # ECR
+          # ------------------------------------------------
+
+          if aws ecr describe-repositories \
+            --repository-names "$ECR_REPOSITORY_NAME" \
+            --region "$AWS_REGION" \
+            >/dev/null 2>&1; then
+
+            echo "WARNING: ECR repository still exists."
+
+          else
+
+            echo "PASS: ECR repository deleted."
+
+          fi
+
+
+          # ------------------------------------------------
+          # Terraform backend
+          # ------------------------------------------------
+
+          if [ "${{ inputs.delete_terraform_backend }}" = "true" ]; then
+
+            if aws s3api head-bucket \
+              --bucket "$TF_STATE_BUCKET" \
+              --region "$TF_STATE_REGION" \
+              >/dev/null 2>&1; then
+
+              echo "FAIL: Terraform backend bucket still exists."
+
+              exit 1
+
+            else
+
+              echo "PASS: Terraform backend bucket deleted."
+
+            fi
+
+          else
+
+            echo "INFO: Terraform backend bucket intentionally preserved."
+
+          fi
+
+
+          echo ""
+          echo "----------------------------------------------------------"
+          echo "INFRASTRUCTURE DELETION COMPLETED"
+          echo "----------------------------------------------------------"
+
+
+          echo ""
+          echo "The Hybrid IaC AWS infrastructure deletion workflow"
+          echo "completed successfully."
+
+
+          echo ""
+          echo "No automatic deployment was triggered."
+
+
+          echo ""
+          echo "=========================================================="

@@ -331,6 +331,35 @@ Parameters:
     Description: >
       Deployment environment used for AWS resource naming.
 
+  # ============================================================
+  # DYNAMODB ORDERS TABLE PARAMETERS
+  # ============================================================
+  #
+  # These parameters provide the Lambda function with the name
+  # and ARN of the DynamoDB Orders table.
+  #
+  # OrdersTableName:
+  #   Used by the Lambda function to identify the DynamoDB table
+  #   at runtime.
+  #
+  # OrdersTableArn:
+  #   Used by IAM policies to restrict Lambda permissions to the
+  #   specific DynamoDB Orders table instead of allowing access
+  #   to all DynamoDB tables.
+  #
+  # ============================================================
+
+  OrdersTableName:
+    Type: String
+    Description: >
+      Name of the DynamoDB Orders table used by the Lambda function.
+
+  OrdersTableArn:
+    Type: String
+    Description: >
+      ARN of the DynamoDB Orders table used to restrict Lambda IAM
+      permissions to the application table.    
+
 # ============================================================
 # RESOURCES
 # ============================================================
@@ -433,6 +462,8 @@ Resources:
       #   Query
       #   Scan
       #
+      # 
+      #
       # ========================================================
 
       Policies:
@@ -462,31 +493,22 @@ Resources:
                   - dynamodb:Query
 
                   # Scan table data.
-                  - dynamodb:Scan
+                  - dynamodb:Scan                 
 
                 # ------------------------------------------------
-                # LAB-LEVEL PERMISSION
+                # LEAST-PRIVILEGE TABLE ACCESS
                 # ------------------------------------------------
                 #
-                # "*" allows access to DynamoDB resources in the
-                # account.
+                # Lambda access is restricted to the specific
+                # DynamoDB Orders table ARN supplied by the parent
+                # CloudFormation stack.
                 #
-                # This is intentionally broad for this learning
-                # lab so the Lambda template remains independent
-                # of a specific DynamoDB table name.
-                #
-                # Production recommendation:
-                #
-                # Restrict Resource to the exact DynamoDB table
-                # ARN(s) required by the application.
-                #
-                # Example:
-                #
-                # arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/Orders
+                # This avoids granting Lambda access to unrelated
+                # DynamoDB tables.
                 #
                 # ------------------------------------------------
 
-                Resource: "*"
+                Resource: !Ref OrdersTableArn
 
   # ==========================================================
   # APPLICATION LAMBDA FUNCTION
@@ -576,6 +598,34 @@ Resources:
 
       MemorySize: 256
 
+      # --------------------------------------------------------
+      # DYNAMODB ORDERS TABLE ENVIRONMENT
+      # --------------------------------------------------------
+
+      Environment:
+
+        Variables:
+
+          # ========================================================
+          # DYNAMODB ORDERS TABLE ENVIRONMENT VARIABLE
+          # ========================================================
+          #
+          # Provides the DynamoDB Orders table name to the Lambda
+          # function through an environment variable.
+          #
+          # The value is populated from the CloudFormation
+          # OrdersTableName parameter.
+          #
+          # Lambda code can access this value using:
+          #   process.env.ORDERS_TABLE_NAME   # Node.js
+          #   os.environ["ORDERS_TABLE_NAME"] # Python
+          #
+          # This avoids hard-coding the DynamoDB table name inside
+          # the Lambda application code.
+          #
+          # ========================================================
+          ORDERS_TABLE_NAME: !Ref OrdersTableName
+
       # ========================================================
       # INLINE APPLICATION CODE
       # ========================================================
@@ -590,6 +640,31 @@ Resources:
 
         ZipFile: !Sub |
           import json
+          import os
+          import uuid
+          from datetime import datetime, timezone
+
+          import boto3
+
+
+          # ------------------------------------------------
+          # DYNAMODB TABLE
+          # ------------------------------------------------
+          #
+          # The table name is provided through the Lambda
+          # environment variable.
+          #
+          # CloudFormation sets this value from:
+          #
+          #   OrdersTableName
+          #
+          # ------------------------------------------------
+
+          dynamodb = boto3.resource("dynamodb")
+
+          table = dynamodb.Table(
+              os.environ["ORDERS_TABLE_NAME"]
+          )
 
 
           def handler(event, context):
@@ -597,38 +672,113 @@ Resources:
               # ------------------------------------------------
               # LOG THE INCOMING EVENT
               # ------------------------------------------------
-              #
-              # The event is visible in CloudWatch Logs.
-              #
-              # This is useful when testing Lambda directly or
-              # when Lambda is invoked through API Gateway.
-              #
-              # ------------------------------------------------
 
               print("Received event:")
               print(json.dumps(event))
 
 
               # ------------------------------------------------
-              # API GATEWAY COMPATIBLE RESPONSE
+              # READ REQUEST BODY
               # ------------------------------------------------
               #
-              # API Gateway can return this response directly to
-              # the client.
+              # API Gateway normally sends the request body as
+              # a string inside event["body"].
+              #
+              # Direct Lambda testing can also provide a normal
+              # dictionary.
               #
               # ------------------------------------------------
 
+              body = event.get("body", event)
+
+              if isinstance(body, str):
+                  body = json.loads(body)
+
+
+              # ------------------------------------------------
+              # READ ORDER DATA
+              # ------------------------------------------------
+
+              item = body.get("item")
+
+              quantity = body.get("quantity")
+
+
+              # ------------------------------------------------
+              # BASIC VALIDATION
+              # ------------------------------------------------
+
+              if not item or quantity is None:
+
+                  return {
+                      "statusCode": 400,
+                      "headers": {
+                          "Content-Type": "application/json"
+                      },
+                      "body": json.dumps({
+                          "message": "item and quantity are required"
+                      })
+                  }
+
+
+              # ------------------------------------------------
+              # GENERATE ORDER ID
+              # ------------------------------------------------
+              #
+              # DynamoDB uses OrderId as the partition key.
+              #
+              # ------------------------------------------------
+
+              order_id = str(uuid.uuid4())
+
+
+              # ------------------------------------------------
+              # CREATE ORDER RECORD
+              # ------------------------------------------------
+
+              order = {
+
+                  "OrderId": order_id,
+
+                  "Item": item,
+
+                  "Quantity": quantity,
+
+                  "CreatedAt": datetime.now(
+                      timezone.utc
+                  ).isoformat()
+              }
+
+
+              # ------------------------------------------------
+              # WRITE ORDER TO DYNAMODB
+              # ------------------------------------------------
+
+              table.put_item(
+                  Item=order
+              )
+
+
+              # ------------------------------------------------
+              # RETURN SUCCESS RESPONSE
+              # ------------------------------------------------
+
               return {
-                  "statusCode": 200,
+
+                  "statusCode": 201,
+
                   "headers": {
                       "Content-Type": "application/json"
                   },
+
                   "body": json.dumps({
-                      "message": "Hello from hybridiaclab Lambda",
-                      "project": "${ProjectName}",
-                      "environment": "${Environment}"
+
+                      "message": "Order created successfully",
+
+                      "order": order
+
                   })
-              }
+              }              
 
 # ============================================================
 # OUTPUTS

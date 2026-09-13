@@ -81,7 +81,7 @@ variable "state_bucket_name" {
 variable "project_name" {
   description = "Project name."
   type        = string
-  default     = "HybridIaCLab"
+  default     = "hybridiaclab"
 }
 
 variable "environment" {
@@ -323,8 +323,8 @@ You don't need another GitHub variable for the Terraform backend bucket because 
 
 You currently have AWS resources from the failed GitHub Actions run:
 
-HybridIaCLab-dev-CloudFormationExecutionRole
-HybridIaCLab-dev-CloudFormationPermissions
+hybridiaclab-dev-CloudFormationExecutionRole
+hybridiaclab-dev-CloudFormationPermissions
 hybridiaclab-dev-cfn-templates-235c07a804ed70725b36022638
 
 and zero Terraform state.

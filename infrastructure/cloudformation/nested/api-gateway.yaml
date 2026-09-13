@@ -64,11 +64,11 @@
 #
 # aws cloudformation deploy \
 #   --template-file api-gateway.yaml \
-#   --stack-name HybridIaCLab-API \
+#   --stack-name hybridiaclab-API \
 #   --parameter-overrides \
-#   ProjectName=HybridIaCLab \
+#   ProjectName=hybridiaclab \
 #   Environment=dev \
-#   LambdaFunctionArn=arn:aws:lambda:us-east-1:123456789012:function:HybridIaCLab-dev-Lambda \
+#   LambdaFunctionArn=arn:aws:lambda:us-east-1:123456789012:function:hybridiaclab-dev-Lambda \
 #   --capabilities CAPABILITY_NAMED_IAM \
 #   --region us-east-1
 #
@@ -105,7 +105,7 @@
 # ============================================================
 #
 # aws cloudformation describe-stacks \
-#   --stack-name HybridIaCLab-API \
+#   --stack-name hybridiaclab-API \
 #   --region us-east-1
 #
 #
@@ -114,7 +114,7 @@
 # ============================================================
 #
 # aws cloudformation describe-stack-events \
-#   --stack-name HybridIaCLab-API \
+#   --stack-name hybridiaclab-API \
 #   --region us-east-1
 #
 #
@@ -123,7 +123,7 @@
 # ============================================================
 #
 # aws cloudformation describe-stacks \
-#   --stack-name HybridIaCLab-API \
+#   --stack-name hybridiaclab-API \
 #   --query "Stacks[0].Outputs" \
 #   --output table \
 #   --region us-east-1
@@ -199,7 +199,7 @@
 # ============================================================
 #
 # aws cloudformation delete-stack \
-#   --stack-name HybridIaCLab-API \
+#   --stack-name hybridiaclab-API \
 #   --region us-east-1
 #
 #
@@ -226,7 +226,7 @@ Parameters:
   #
   # Example:
   #
-  #   HybridIaCLab
+  #   hybridiaclab
   #
   # Used for API Gateway naming and resource identification.
   #
@@ -293,7 +293,7 @@ Resources:
   #
   # Example API name:
   #
-  #   HybridIaCLab-dev-API
+  #   hybridiaclab-dev-API
   #
   # ==========================================================
 

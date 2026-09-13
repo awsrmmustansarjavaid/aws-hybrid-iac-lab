@@ -158,7 +158,7 @@ resource "aws_cloudformation_stack" "main" {
   #
   # Example:
   #
-  #   HybridIaCLab-dev-MainStack
+  #   hybridiaclab-dev-MainStack
   #
   # ==========================================================
 

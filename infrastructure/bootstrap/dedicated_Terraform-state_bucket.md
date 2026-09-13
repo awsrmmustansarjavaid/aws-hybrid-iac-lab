@@ -212,7 +212,7 @@ Run:
 ```
 terraform -chdir="infrastructure/terraform" import `
   aws_iam_role.cloudformation_execution `
-  "HybridIaCLab-dev-CloudFormationExecutionRole"
+  "hybridiaclab-dev-CloudFormationExecutionRole"
 ```
 
 Expected:
@@ -228,7 +228,7 @@ Run:
 ```
 terraform -chdir="infrastructure/terraform" import `
   aws_iam_role_policy.cloudformation_lab_permissions `
-  "HybridIaCLab-dev-CloudFormationExecutionRole:HybridIaCLab-dev-CloudFormationPermissions"
+  "hybridiaclab-dev-CloudFormationExecutionRole:hybridiaclab-dev-CloudFormationPermissions"
 ```
 
 Expected:
@@ -331,7 +331,7 @@ terraform apply
 and do not delete:
 
 ```
-HybridIaCLab-dev-CloudFormationExecutionRole
+hybridiaclab-dev-CloudFormationExecutionRole
 ```
 
 or:

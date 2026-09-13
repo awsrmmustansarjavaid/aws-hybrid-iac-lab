@@ -1,0 +1,109 @@
+# ==========================================================
+# HYBRID TERRAFORM + CLOUDFORMATION AWS LAB
+# KUBERNETES CONFIGMAP
+# ==========================================================
+#
+# File:
+#   kubernetes/configmap.yaml
+#
+# Purpose:
+#   Stores non-sensitive configuration values used by the
+#   Kubernetes application.
+#
+# Namespace:
+#   hybridiaclab
+#
+# IMPORTANT:
+#
+#   ConfigMap is intended ONLY for non-sensitive configuration.
+#
+#   DO NOT store:
+#
+#     - Passwords
+#     - AWS access keys
+#     - Database passwords
+#     - API secrets
+#     - Tokens
+#     - Private keys
+#
+# Sensitive values should use Kubernetes Secrets or an
+# appropriate AWS secret-management solution.
+#
+# ==========================================================
+# CONFIGURATION FLOW
+# ==========================================================
+#
+# ConfigMap
+#     |
+#     | environment variables
+#     v
+# Deployment
+#     |
+#     v
+# Kubernetes Pod
+#
+# ==========================================================
+
+apiVersion: v1
+
+# ----------------------------------------------------------
+# Kubernetes resource type
+# ----------------------------------------------------------
+kind: ConfigMap
+
+metadata:
+
+  # --------------------------------------------------------
+  # ConfigMap name
+  # --------------------------------------------------------
+  name: hybridiaclab-config
+
+  # --------------------------------------------------------
+  # Namespace
+  #
+  # Must match namespace.yaml.
+  # --------------------------------------------------------
+  namespace: hybridiaclab
+
+  labels:
+
+    # Application identifier
+    app.kubernetes.io/name: hybridiaclab
+
+    # Project identifier
+    app.kubernetes.io/part-of: hybridiaclab
+
+    # Environment identifier
+    app.kubernetes.io/environment: dev
+
+    # Resource management
+    app.kubernetes.io/managed-by: kubernetes
+
+data:
+
+  # --------------------------------------------------------
+  # Application environment
+  # --------------------------------------------------------
+  #
+  # This is a normal non-sensitive configuration value.
+  #
+  # --------------------------------------------------------
+  APP_ENV: "dev"
+
+  # --------------------------------------------------------
+  # Application name
+  # --------------------------------------------------------
+  APPLICATION_NAME: "hybridiaclab"
+
+  # --------------------------------------------------------
+  # Application environment / deployment identifier
+  # --------------------------------------------------------
+  ENVIRONMENT: "dev"
+
+  # --------------------------------------------------------
+  # AWS region
+  #
+  # This is not a secret.
+  # --------------------------------------------------------
+  AWS_REGION: "us-east-1"
+

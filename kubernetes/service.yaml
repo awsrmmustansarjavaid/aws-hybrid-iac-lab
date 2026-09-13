@@ -1,0 +1,147 @@
+# ==========================================================
+# HYBRID TERRAFORM + CLOUDFORMATION AWS LAB
+# KUBERNETES SERVICE
+# ==========================================================
+#
+# File:
+#   kubernetes/service.yaml
+#
+# Purpose:
+#   Exposes the Kubernetes application deployed in EKS.
+#
+# ==========================================================
+# TRAFFIC FLOW
+# ==========================================================
+#
+# Internet
+#    |
+#    v
+# AWS Load Balancer
+#    |
+#    v
+# Kubernetes Service
+#    |
+#    | TCP 80
+#    v
+# Kubernetes Pod
+#    |
+#    v
+# Application Container
+#
+# ==========================================================
+# SERVICE TYPE
+# ==========================================================
+#
+# LoadBalancer is used so that Kubernetes asks AWS/EKS to
+# provision an external load-balancing endpoint.
+#
+# After deployment, use:
+#
+#   kubectl get service -n hybridiaclab
+#
+# to retrieve the external address.
+#
+# The EXTERNAL-IP field may initially show:
+#
+#   <pending>
+#
+# while AWS provisions the load balancer.
+#
+# ==========================================================
+# IMPORTANT
+# ==========================================================
+#
+# The Service selector MUST match the labels used by the
+# Deployment Pod:
+#
+#   app: hybridiaclab-app
+#
+# ==========================================================
+
+apiVersion: v1
+
+# ----------------------------------------------------------
+# Kubernetes resource type
+# ----------------------------------------------------------
+kind: Service
+
+metadata:
+
+  # --------------------------------------------------------
+  # Service name
+  # --------------------------------------------------------
+  name: hybridiaclab-service
+
+  # --------------------------------------------------------
+  # Namespace
+  # --------------------------------------------------------
+  namespace: hybridiaclab
+
+  labels:
+
+    # Application name
+    app.kubernetes.io/name: hybridiaclab
+
+    # Component
+    app.kubernetes.io/component: service
+
+    # Project
+    app.kubernetes.io/part-of: hybridiaclab
+
+    # Environment
+    app.kubernetes.io/environment: dev
+
+    # Management platform
+    app.kubernetes.io/managed-by: kubernetes
+
+spec:
+
+  # --------------------------------------------------------
+  # Service type
+  #
+  # LoadBalancer allows AWS/EKS to provision an external
+  # load-balancing endpoint.
+  # --------------------------------------------------------
+  type: LoadBalancer
+
+  # --------------------------------------------------------
+  # Service selector
+  #
+  # This MUST match the Pod label in deployment.yaml:
+  #
+  #   app: hybridiaclab-app
+  #
+  # Kubernetes uses this selector to determine which Pods
+  # receive traffic.
+  # --------------------------------------------------------
+  selector:
+
+    app: hybridiaclab-app
+
+  # --------------------------------------------------------
+  # Service ports
+  # --------------------------------------------------------
+  ports:
+
+    - name: http
+
+      # ------------------------------------------------------
+      # Port exposed by the Kubernetes Service
+      # ------------------------------------------------------
+      port: 80
+
+      # ------------------------------------------------------
+      # Port on the target Pod
+      #
+      # This matches:
+      #
+      #   containerPort: 80
+      #
+      # in deployment.yaml.
+      # ------------------------------------------------------
+      targetPort: http
+
+      # ------------------------------------------------------
+      # TCP protocol
+      # ------------------------------------------------------
+      protocol: TCP

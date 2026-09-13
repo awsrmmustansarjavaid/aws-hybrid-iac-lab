@@ -25,7 +25,7 @@
 #
 # Our global local.name_prefix may contain uppercase letters:
 #
-#   HybridIaCLab-dev
+#   hybridiaclab-dev
 #
 # Therefore we convert the prefix to lowercase specifically
 # for the S3 bucket.
@@ -57,7 +57,7 @@
 #
 # which converts:
 #
-#   HybridIaCLab-dev
+#   hybridiaclab-dev
 #
 # into:
 #
@@ -86,7 +86,7 @@ resource "aws_s3_bucket" "cloudformation_templates" {
   #
   # local.name_prefix:
   #
-  #   HybridIaCLab-dev
+  #   hybridiaclab-dev
   #
   # becomes:
   #

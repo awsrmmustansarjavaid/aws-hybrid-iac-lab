@@ -79,7 +79,7 @@ output "cloudformation_stack_name" {
   #
   # Example:
   #
-  # HybridIaCLab-dev-MainStack
+  # hybridiaclab-dev-MainStack
   #
   value = aws_cloudformation_stack.main.name
 }

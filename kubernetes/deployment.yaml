@@ -1,0 +1,343 @@
+# ==========================================================
+# HYBRID TERRAFORM + CLOUDFORMATION AWS LAB
+# KUBERNETES DEPLOYMENT
+# ==========================================================
+#
+# File:
+#   kubernetes/deployment.yaml
+#
+# Purpose:
+#   Deploys the application container into the Amazon EKS
+#   cluster.
+#
+# ==========================================================
+# IMAGE FLOW
+# ==========================================================
+#
+# GitHub
+#   |
+#   | github.sha
+#   v
+# Docker Build
+#   |
+#   v
+# Amazon ECR
+#   |
+#   | ECR image
+#   v
+# GitHub Kubernetes Workflow
+#   |
+#   | envsubst
+#   v
+# deployment.yaml
+#   |
+#   | ${ECR_FULL_IMAGE}
+#   v
+# Actual ECR image
+#   |
+#   v
+# Kubernetes Deployment
+#   |
+#   v
+# EKS Pod
+#
+# ==========================================================
+# IMPORTANT IMAGE RULE
+# ==========================================================
+#
+# DO NOT hardcode the ECR URI here.
+#
+# Correct:
+#
+#   image: ${ECR_FULL_IMAGE}
+#
+# The GitHub Actions workflow replaces this variable with:
+#
+#   ${ECR_REPOSITORY_URI}:${ECR_IMAGE_TAG}
+#
+# where:
+#
+#   ECR_IMAGE_TAG = github.sha
+#
+# This gives the deployment an immutable image reference.
+#
+# Example after rendering:
+#
+#   image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/
+#          hybridiaclab-dev-app:abcdef1234567890
+#
+# ==========================================================
+# DEPLOYMENT STRATEGY
+# ==========================================================
+#
+# Kubernetes Deployment provides:
+#
+#   - Pod management
+#   - Desired replica count
+#   - Rolling updates
+#   - Self-healing
+#   - Container restart
+#   - Rollout status
+#
+# ==========================================================
+
+apiVersion: apps/v1
+
+# ----------------------------------------------------------
+# Kubernetes resource type
+# ----------------------------------------------------------
+kind: Deployment
+
+metadata:
+
+  # --------------------------------------------------------
+  # Deployment name
+  # --------------------------------------------------------
+  name: hybridiaclab-app
+
+  # --------------------------------------------------------
+  # Namespace
+  # --------------------------------------------------------
+  namespace: hybridiaclab
+
+  labels:
+
+    # Application name
+    app.kubernetes.io/name: hybridiaclab
+
+    # Component
+    app.kubernetes.io/component: application
+
+    # Project
+    app.kubernetes.io/part-of: hybridiaclab
+
+    # Environment
+    app.kubernetes.io/environment: dev
+
+    # Management platform
+    app.kubernetes.io/managed-by: kubernetes
+
+spec:
+
+  # --------------------------------------------------------
+  # Number of application Pods
+  #
+  # One replica is appropriate for this small lab.
+  #
+  # This can later be increased to 2 or more when you want
+  # to demonstrate Kubernetes high availability and rolling
+  # updates.
+  # --------------------------------------------------------
+  replicas: 1
+
+  # --------------------------------------------------------
+  # Deployment update strategy
+  #
+  # RollingUpdate allows Kubernetes to update the application
+  # without immediately deleting the existing Pod.
+  # --------------------------------------------------------
+  strategy:
+
+    type: RollingUpdate
+
+    rollingUpdate:
+
+      # ------------------------------------------------------
+      # Maximum additional Pods during an update.
+      # ------------------------------------------------------
+      maxSurge: 1
+
+      # ------------------------------------------------------
+      # Maximum unavailable Pods during an update.
+      # ------------------------------------------------------
+      maxUnavailable: 0
+
+  # --------------------------------------------------------
+  # Selector
+  #
+  # IMPORTANT:
+  #
+  # These labels MUST match the Pod template labels below.
+  # --------------------------------------------------------
+  selector:
+
+    matchLabels:
+      app: hybridiaclab-app
+
+  # --------------------------------------------------------
+  # Pod template
+  # --------------------------------------------------------
+  template:
+
+    metadata:
+
+      labels:
+
+        # ----------------------------------------------------
+        # Application selector label
+        #
+        # This MUST match:
+        #
+        #   spec.selector.matchLabels
+        #
+        # and the Service selector.
+        # ----------------------------------------------------
+        app: hybridiaclab-app
+
+        # Additional Kubernetes application metadata
+        app.kubernetes.io/name: hybridiaclab
+
+        app.kubernetes.io/component: application
+
+    spec:
+
+      # ------------------------------------------------------
+      # Container definition
+      # ------------------------------------------------------
+      containers:
+
+        - name: hybridiaclab-app
+
+          # --------------------------------------------------
+          # ECR image
+          #
+          # DO NOT replace this with a hardcoded AWS ECR URI.
+          #
+          # GitHub Actions performs:
+          #
+          #   envsubst '${ECR_FULL_IMAGE}'
+          #
+          # before applying this manifest.
+          # --------------------------------------------------
+          image: ${ECR_FULL_IMAGE}
+
+          # --------------------------------------------------
+          # Image pull policy
+          #
+          # The Git SHA tag is immutable, therefore Kubernetes
+          # does not need to repeatedly pull the image when the
+          # Pod is restarted.
+          # --------------------------------------------------
+          imagePullPolicy: IfNotPresent
+
+          # --------------------------------------------------
+          # Container port
+          #
+          # The application container is expected to listen
+          # on TCP port 80.
+          #
+          # The Kubernetes Service below forwards traffic to
+          # this port.
+          # --------------------------------------------------
+          ports:
+
+            - name: http
+              containerPort: 80
+              protocol: TCP
+
+          # --------------------------------------------------
+          # Environment configuration
+          #
+          # Values are loaded from the ConfigMap.
+          #
+          # ConfigMap contains only non-sensitive settings.
+          # --------------------------------------------------
+          envFrom:
+
+            - configMapRef:
+                name: hybridiaclab-config
+
+          # --------------------------------------------------
+          # Resource requests
+          #
+          # These values help Kubernetes scheduler determine
+          # how much CPU and memory the Pod requires.
+          #
+          # The values are intentionally small for this lab.
+          # --------------------------------------------------
+          resources:
+
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          # --------------------------------------------------
+          # Startup probe
+          #
+          # Gives the application time to start before
+          # Kubernetes considers it unhealthy.
+          #
+          # IMPORTANT:
+          #
+          # The container must expose HTTP on port 80 and
+          # provide a working "/" endpoint.
+          # --------------------------------------------------
+          startupProbe:
+
+            httpGet:
+              path: /
+              port: http
+
+            # Number of seconds before the first probe
+            initialDelaySeconds: 10
+
+            # Probe every 10 seconds
+            periodSeconds: 10
+
+            # Allow up to 30 failed probes during startup
+            failureThreshold: 30
+
+          # --------------------------------------------------
+          # Readiness probe
+          #
+          # Determines whether the Pod is ready to receive
+          # traffic from the Kubernetes Service.
+          # --------------------------------------------------
+          readinessProbe:
+
+            httpGet:
+              path: /
+              port: http
+
+            # Wait 5 seconds before the first check
+            initialDelaySeconds: 5
+
+            # Check every 10 seconds
+            periodSeconds: 10
+
+            # Consider the Pod unavailable after 3 failures
+            failureThreshold: 3
+
+            # Require one successful check
+            successThreshold: 1
+
+          # --------------------------------------------------
+          # Liveness probe
+          #
+          # Determines whether the application is still alive.
+          #
+          # If the application repeatedly fails this probe,
+          # Kubernetes will restart the container.
+          # --------------------------------------------------
+          livenessProbe:
+
+            httpGet:
+              path: /
+              port: http
+
+            # Wait before starting liveness checks
+            initialDelaySeconds: 30
+
+            # Check every 20 seconds
+            periodSeconds: 20
+
+            # Allow two consecutive failures
+            failureThreshold: 3
+
+            # Require one successful check
+            successThreshold: 1
+

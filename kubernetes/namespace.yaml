@@ -1,0 +1,88 @@
+# ==========================================================
+# HYBRID TERRAFORM + CLOUDFORMATION AWS LAB
+# KUBERNETES NAMESPACE
+# ==========================================================
+#
+# File:
+#   kubernetes/namespace.yaml
+#
+# Purpose:
+#   Creates the dedicated Kubernetes namespace used by the
+#   Hybrid IaC lab application.
+#
+# Architecture:
+#
+#   Terraform
+#       |
+#       +--> IAM / supporting AWS infrastructure
+#                |
+#                v
+#          CloudFormation
+#                |
+#                +--> Amazon EKS
+#                         |
+#                         v
+#                    Kubernetes
+#                         |
+#                         +--> Namespace
+#                         +--> ConfigMap
+#                         +--> Deployment
+#                         +--> Service
+#
+# Project:
+#   hybridiaclab
+#
+# Environment:
+#   dev
+#
+# Namespace:
+#   hybridiaclab
+#
+# IMPORTANT:
+#   This namespace is intentionally separate from the
+#   Kubernetes "default" namespace.
+#
+#   All application resources in this lab should be deployed
+#   into this namespace.
+#
+# ==========================================================
+
+apiVersion: v1
+
+# ----------------------------------------------------------
+# Kubernetes resource type
+# ----------------------------------------------------------
+kind: Namespace
+
+metadata:
+
+  # --------------------------------------------------------
+  # Namespace name
+  #
+  # This value MUST match:
+  #
+  #   K8S_NAMESPACE: "hybridiaclab"
+  #
+  # in:
+  #
+  #   .github/workflows/kubernetes.yml
+  # --------------------------------------------------------
+  name: hybridiaclab
+
+  # --------------------------------------------------------
+  # Namespace labels
+  #
+  # Labels make it easier to identify resources belonging
+  # to this project.
+  # --------------------------------------------------------
+  labels:
+
+    # Project identifier
+    app.kubernetes.io/part-of: hybridiaclab
+
+    # Environment identifier
+    app.kubernetes.io/environment: dev
+
+    # Resource management model
+    app.kubernetes.io/managed-by: kubernetes
+

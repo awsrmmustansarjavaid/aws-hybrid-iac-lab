@@ -142,7 +142,7 @@ AWSTemplateFormatVersion: "2010-09-09"
 # Example:
 #
 #   537236558357.dkr.ecr.us-east-1.amazonaws.com/
-#   HybridIaCLab-dev-app:<commit-sha>
+#   hybridiaclab-dev-app:<commit-sha>
 #
 # This matches the ECR repository's IMMUTABLE tag configuration.
 #
@@ -479,8 +479,53 @@ Resources:
             - ""
 
       Parameters:
+      
+        # ----------------------------------------------------------
+        # Project Name
+        # ----------------------------------------------------------
+        # Passes the project name from the parent CloudFormation
+        # stack to the nested/child stack.
+        #
+        # This keeps resource naming and tagging consistent across
+        # the Hybrid IaC AWS DevOps Lab.
+        # ----------------------------------------------------------
         ProjectName: !Ref ProjectName
+
+        # ----------------------------------------------------------
+        # Environment
+        # ----------------------------------------------------------
+        # Passes the deployment environment from the parent
+        # CloudFormation stack to the nested/child stack.
+        #
+        # This allows resources to identify the environment in
+        # which they are deployed, such as dev, test, or prod.
+        # ----------------------------------------------------------
         Environment: !Ref Environment
+
+        OrdersTableName:
+          # ----------------------------------------------------------
+          # DynamoDB Orders Table Name
+          # ----------------------------------------------------------
+          # Retrieves the Orders table name exported as an output
+          # by the DynamoDB nested stack.
+          #
+          # The value is passed to the consuming Lambda/application
+          # stack so the application knows which DynamoDB table to use.
+          # ----------------------------------------------------------
+          !GetAtt DynamoDBStack.Outputs.OrdersTableName
+
+        OrdersTableArn:
+          # ----------------------------------------------------------
+          # DynamoDB Orders Table ARN
+          # ----------------------------------------------------------
+          # Retrieves the Orders table ARN from the DynamoDB nested
+          # stack output.
+          #
+          # The ARN is passed to the consuming stack so that Lambda
+          # IAM permissions can be restricted to the specific Orders
+          # table instead of granting access to all DynamoDB tables.
+          # ----------------------------------------------------------
+          !GetAtt DynamoDBStack.Outputs.OrdersTableArn
 
   # ==========================================================
   # 6. API GATEWAY NESTED STACK
@@ -1061,6 +1106,84 @@ Outputs:
     Value: !GetAtt VPCStack.Outputs.VpcId
 
   # ----------------------------------------------------------
+  # Public Subnet 1
+  # ----------------------------------------------------------
+  #
+  # Re-exposes the PublicSubnet1Id output from the VPC nested
+  # stack at the root MainStack level.
+  #
+  # This is required by the ECS deployment workflow because
+  # docker.yml reads networking information directly from
+  # the root CloudFormation stack.
+  #
+  # Flow:
+  #
+  #   VPCStack
+  #       |
+  #       +--> PublicSubnet1Id
+  #               |
+  #               v
+  #           MainStack
+  #               |
+  #               v
+  #           docker.yml
+  #
+  # ----------------------------------------------------------
+
+  PublicSubnet1Id:
+    Description: Public Subnet 1 created by the VPC nested stack.
+    Value: !GetAtt VPCStack.Outputs.PublicSubnet1Id
+
+
+  # ----------------------------------------------------------
+  # Public Subnet 2
+  # ----------------------------------------------------------
+  #
+  # Re-exposes the PublicSubnet2Id output from the VPC nested
+  # stack at the root MainStack level.
+  #
+  # ECS uses both public subnets for the internet-facing
+  # Application Load Balancer.
+  #
+  # ----------------------------------------------------------
+
+  PublicSubnet2Id:
+    Description: Public Subnet 2 created by the VPC nested stack.
+    Value: !GetAtt VPCStack.Outputs.PublicSubnet2Id
+
+
+  # ----------------------------------------------------------
+  # Private Subnet 1
+  # ----------------------------------------------------------
+  #
+  # Re-exposes the PrivateSubnet1Id output from the VPC nested
+  # stack at the root MainStack level.
+  #
+  # ECS Fargate tasks run in the private subnets.
+  #
+  # ----------------------------------------------------------
+
+  PrivateSubnet1Id:
+    Description: Private Subnet 1 created by the VPC nested stack.
+    Value: !GetAtt VPCStack.Outputs.PrivateSubnet1Id
+
+
+  # ----------------------------------------------------------
+  # Private Subnet 2
+  # ----------------------------------------------------------
+  #
+  # Re-exposes the PrivateSubnet2Id output from the VPC nested
+  # stack at the root MainStack level.
+  #
+  # ECS Fargate tasks run in the private subnets.
+  #
+  # ----------------------------------------------------------
+
+  PrivateSubnet2Id:
+    Description: Private Subnet 2 created by the VPC nested stack.
+    Value: !GetAtt VPCStack.Outputs.PrivateSubnet2Id  
+
+  # ----------------------------------------------------------
   # Application S3 bucket
   # ----------------------------------------------------------
 
@@ -1091,19 +1214,33 @@ Outputs:
   # Example:
   #
   #   537236558357.dkr.ecr.us-east-1.amazonaws.com/
-  #   HybridIaCLab-dev-app
+  #   hybridiaclab-dev-app
   #
   # The image tag should preferably be the Git commit SHA:
   #
-  #   HybridIaCLab-dev-app:${GITHUB_SHA}
+  #   hybridiaclab-dev-app:${GITHUB_SHA}
   #
   # because the ECR repository uses immutable tags.
   #
   # ----------------------------------------------------------
 
-  ECRRepositoryUri:
+  EcrRepositoryUri:
     Description: ECR repository URI created by the ECR nested stack.
-    Value: !GetAtt ECRStack.Outputs.RepositoryUri
+    Value: !GetAtt ECRStack.Outputs.EcrRepositoryUri
+
+  # ----------------------------------------------------------
+  # ECR repository name
+  # ----------------------------------------------------------
+  #
+  # Exposes the ECR repository name created by the ECR
+  # nested stack so CI/CD workflows do not need to
+  # hardcode the repository name.
+  #
+  # ----------------------------------------------------------
+
+  EcrRepositoryName:
+    Description: ECR repository name created by the ECR nested stack.
+    Value: !GetAtt ECRStack.Outputs.EcrRepositoryName  
 
   # ----------------------------------------------------------
   # API Gateway endpoint
