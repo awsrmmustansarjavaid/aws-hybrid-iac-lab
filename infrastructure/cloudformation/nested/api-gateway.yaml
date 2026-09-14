@@ -9,12 +9,12 @@
 #
 # Purpose:
 #
-#   Creates an Amazon API Gateway REST API that exposes:
+#   Creates an Amazon API Gateway REST API with:
 #
 #       POST /orders
 #
-#   API Gateway invokes an AWS Lambda function using
-#   Lambda Proxy Integration.
+#   The POST method uses Lambda Proxy Integration to invoke
+#   the Lambda function specified by LambdaFunctionArn.
 #
 #
 # Architecture:
@@ -30,7 +30,12 @@
 #   AWS Lambda
 #      |
 #      v
-#   Application / Database
+#   Lambda Function Logic
+#
+# Note:
+#
+#   The Lambda function's application/database interactions
+#   are outside the scope of this template.
 #
 #
 # This template is designed for the Hybrid IaC Lab where
@@ -69,24 +74,16 @@
 #   ProjectName=hybridiaclab \
 #   Environment=dev \
 #   LambdaFunctionArn=arn:aws:lambda:us-east-1:123456789012:function:hybridiaclab-dev-Lambda \
-#   --capabilities CAPABILITY_NAMED_IAM \
 #   --region us-east-1
 #
+#   The stack name is chosen by the deployment command and
+#   is not defined inside this CloudFormation template.
 #
 # IMPORTANT:
 #
 # Replace the LambdaFunctionArn value with your real Lambda ARN.
 #
 #
-# NOTE:
-#
-# This template itself does NOT create an IAM Role or IAM User.
-#
-# Therefore CAPABILITY_NAMED_IAM is not technically required
-# for this template alone.
-#
-# It is safe to omit it from the deployment command unless
-# another resource added later requires named IAM resources.
 #
 #
 # ============================================================
@@ -228,13 +225,13 @@ Parameters:
   #
   #   hybridiaclab
   #
-  # Used for API Gateway naming and resource identification.
+  #   Used to construct the API Gateway API name and description.
   #
   # ----------------------------------------------------------
 
   ProjectName:
     Type: String
-    Description: Project name used for API Gateway naming.
+    Description: Project name used to construct the API Gateway API name and description.
 
 
   # ----------------------------------------------------------
@@ -262,10 +259,11 @@ Parameters:
 
   # ----------------------------------------------------------
   # Lambda Function ARN
-  # ----------------------------------------------------------
+  # ----------------------------------------------------------  
+  # The Lambda function ARN is used as:
   #
-  # API Gateway needs the Lambda function ARN so it knows
-  # which Lambda function should receive API requests.
+  #   - The target Lambda function for the API Gateway integration.
+  #   - The Lambda function associated with the invoke permission.
   #
   # Example:
   #
@@ -291,9 +289,14 @@ Resources:
   #
   # Creates the main API Gateway REST API.
   #
-  # Example API name:
+  #   Example when:
   #
-  #   hybridiaclab-dev-API
+  #     ProjectName = hybridiaclab
+  #     Environment = dev
+  #
+  #   API name:
+  #
+  #     hybridiaclab-dev-API
   #
   # ==========================================================
 
@@ -367,11 +370,10 @@ Resources:
       # Parent Resource
       # ------------------------------------------------------
       #
-      # RootResourceId represents:
+      #   RootResourceId is the API Gateway resource ID of the
+      #   API's root resource (/).
       #
-      #   /
-      #
-      # Therefore PathPart "orders" creates:
+      #   Using it as ParentId with PathPart "orders" creates:
       #
       #   /orders
       #
@@ -438,8 +440,8 @@ Resources:
       # Authorization
       # ------------------------------------------------------
       #
-      # NONE means API Gateway does not require an API Gateway
-      # authorizer.
+      # NONE means no API Gateway authorization is configured
+      # for this method.
       #
       # Authentication/authorization can be added later using:
       #
@@ -456,8 +458,9 @@ Resources:
       # LAMBDA PROXY INTEGRATION
       # ======================================================
       #
-      # AWS_PROXY passes the incoming API Gateway request
-      # directly to Lambda.
+      #   AWS_PROXY uses Lambda proxy integration, allowing API
+      #   Gateway to pass the request information to Lambda in the
+      #   API Gateway event format.
       #
       # Lambda receives information such as:
       #
@@ -467,7 +470,14 @@ Resources:
       #   - query parameters
       #   - request body
       #
-      # Lambda must return an API Gateway compatible response.
+      #   Lambda must return a response in the format expected by
+      #   API Gateway Lambda proxy integration.
+      #
+      #   The response normally includes:
+      #
+      #     statusCode
+      #     headers (optional)
+      #     body
       #
       # ======================================================
 
@@ -512,7 +522,8 @@ Resources:
   # LAMBDA INVOKE PERMISSION
   # ==========================================================
   #
-  # API Gateway itself needs permission to invoke Lambda.
+  #   Lambda requires a resource-based permission allowing
+  #   API Gateway to invoke the function.
   #
   # Without this permission:
   #
@@ -550,7 +561,9 @@ Resources:
       # Lambda Function
       # ------------------------------------------------------
       #
-      # The LambdaFunctionArn parameter contains the Lambda ARN.
+      #   LambdaFunctionArn contains the ARN of the Lambda function.
+      #
+      #   The FunctionName property accepts the function ARN here.
       #
       # ------------------------------------------------------
 
@@ -584,7 +597,10 @@ Resources:
       #       *
       #       /POST/orders
       #
-      # The wildcard "*" represents the API Gateway stage.
+      #   The wildcard "*" represents any stage of this API.
+      #
+      #   /POST/orders restricts invocation to the POST /orders
+      #   method.
       #
       # ------------------------------------------------------
 
@@ -598,8 +614,9 @@ Resources:
   # API Gateway requires a deployment before an API stage
   # can serve requests.
   #
-  # CloudFormation creates a deployment after the API method
-  # and Lambda permission exist.
+  #   This template explicitly defines dependencies so the API
+  #   deployment is created after the POST /orders method and
+  #   Lambda invoke permission resources.
   #
   # ==========================================================
 
@@ -610,13 +627,16 @@ Resources:
     # DEPENDENCIES
     # --------------------------------------------------------
     #
-    # The deployment must happen after:
+    #   Explicitly depends on:
     #
-    #   1. POST /orders method
-    #   2. Lambda invoke permission
+    #     1. POST /orders method
+    #     2. Lambda invoke permission
     #
-    # This prevents CloudFormation from attempting to create
-    # the deployment too early.
+    #   The method dependency ensures the deployment resource
+    #   is created after the API method configuration exists.
+    #
+    #   The Lambda permission dependency ensures the permission
+    #   resource is created before the deployment resource.
     #
     # --------------------------------------------------------
 
@@ -639,15 +659,16 @@ Resources:
   # API STAGE
   # ==========================================================
   #
-  # Creates an API Gateway stage.
+  #   Creates the API Gateway stage that points to the
+  #   deployment created by ApiDeployment.
   #
-  # Example:
+  #   Example:
   #
-  #   Environment = dev
+  #     Environment = dev
   #
-  # URL:
+  #   Base URL:
   #
-  #   https://API_ID.execute-api.REGION.amazonaws.com/dev
+  #     https://API_ID.execute-api.REGION.amazonaws.com/dev
   #
   # ==========================================================
 
@@ -724,10 +745,13 @@ Outputs:
   # API BASE ENDPOINT
   # ==========================================================
   #
-  # Example:
+  #   Returns the base URL for the configured API Gateway stage.
   #
-  #   https://abc123.execute-api.us-east-1.amazonaws.com/dev
+  #   Example:
   #
+  #     https://abc123.execute-api.us-east-1.amazonaws.com/dev
+  #
+  #   The /orders path is not included in this output.
   # ==========================================================
 
   ApiEndpoint:
@@ -742,12 +766,12 @@ Outputs:
   # ORDERS ENDPOINT
   # ==========================================================
   #
-  # Complete endpoint:
+  #   Complete POST endpoint:
   #
-  #   POST
+  #     https://API_ID.execute-api.REGION.amazonaws.com/
+  #     ENVIRONMENT/orders
   #
-  #   https://API_ID.execute-api.REGION.amazonaws.com/
-  #   ENVIRONMENT/orders
+  #   This output corresponds to the POST /orders method.
   #
   # ==========================================================
 

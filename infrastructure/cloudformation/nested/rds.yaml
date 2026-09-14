@@ -266,13 +266,15 @@ Resources:
   #
   # No public inbound rule is created here.
   #
-  # The recommended future rule is:
+  # The inbound rule created below allows:
   #
   #   Source:
   #       EC2/Application Security Group
   #
   #   Port:
-  #       3306
+  #       TCP 3306
+  #
+  # This is a security-group-to-security-group rule.
   #
   # NEVER use:
   #

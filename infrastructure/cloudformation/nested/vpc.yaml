@@ -60,8 +60,8 @@ AWSTemplateFormatVersion: "2010-09-09"
 #                         +--------+--------+
 #                         |                 |
 #                         v                 v
-#                    EKS Worker        Other Private
-#                       Nodes            Workloads
+#                    EKS Workloads     Other Private
+#                                      Workloads
 #
 #
 # ============================================================
@@ -115,16 +115,21 @@ AWSTemplateFormatVersion: "2010-09-09"
 # EKS NETWORK DESIGN
 # ============================================================
 #
-# The EKS template places worker nodes in:
+# These private subnets are intended to be used by:
 #
-#   PrivateSubnet1
-#   PrivateSubnet2
+#   - EKS worker nodes
+#   - Private application workloads
 #
-# Worker nodes:
+# This file only creates the subnets; EKS worker nodes are
+# created by the EKS infrastructure that consumes these subnet IDs.
 #
-#   - Do NOT receive public IPv4 addresses.
-#   - Use the private route table.
-#   - Use the NAT Gateway for outbound Internet access.
+# Resources launched in these private subnets do not automatically
+# receive public IPv4 addresses from the subnet configuration.
+#
+# Their outbound Internet traffic uses:
+#
+#   - The private route table.
+#   - The NAT Gateway.
 #
 # Example:
 #
@@ -458,11 +463,11 @@ Resources:
   # Creating an Internet Gateway alone does NOT make a subnet
   # public.
   #
-  # A public subnet requires:
+  # A subnet is considered public when its route table has a route
+  # to an Internet Gateway.
   #
-  #   1. A route table association.
-  #   2. A default route to the Internet Gateway.
-  #   3. Appropriate public addressing and security rules.
+  # Resources in the subnet also need appropriate public IPv4
+  # addressing and security rules to communicate with the Internet.
   #
   # ==========================================================
 
@@ -685,7 +690,7 @@ Resources:
   #
   #   First AZ
   #
-  # Used by:
+  # Intended for:
   #
   #   - EKS worker nodes
   #   - Private application workloads
@@ -766,7 +771,7 @@ Resources:
   #
   #   Second AZ
   #
-  # Used by:
+  # Intended for:
   #
   #   - EKS worker nodes
   #   - Private application workloads
@@ -912,7 +917,7 @@ Resources:
     # --------------------------------------------------------
     #
     # Ensure the Internet Gateway is attached to the VPC before
-    # creating the route.
+    # creating the route that targets it.
     #
 
     DependsOn: VPCGatewayAttachment
@@ -1034,11 +1039,11 @@ Resources:
     # DEPENDS ON
     # --------------------------------------------------------
     #
-    # Make sure the Internet Gateway is attached before the
-    # NAT Gateway is created.
+    # Ensure the Internet Gateway is attached to the VPC before
+    # creating the NAT Gateway.
     #
-    # The public subnet must have a functional path toward the
-    # Internet Gateway.
+    # This establishes the required dependency between the NAT
+    # Gateway and the VPC/Internet Gateway attachment.
     #
 
     DependsOn: VPCGatewayAttachment
@@ -1407,7 +1412,7 @@ Outputs:
   PrivateSubnet1Id:
 
     Description: >
-      ID of Private Subnet 1 used by private workloads
+      ID of Private Subnet 1 intended for private workloads
       including EKS worker nodes.
 
     Value: !Ref PrivateSubnet1
@@ -1420,7 +1425,7 @@ Outputs:
   PrivateSubnet2Id:
 
     Description: >
-      ID of Private Subnet 2 used by private workloads
+      ID of Private Subnet 2 intended for private workloads
       including EKS worker nodes.
 
     Value: !Ref PrivateSubnet2

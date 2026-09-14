@@ -49,15 +49,15 @@ Description: >
 # PARAMETERS
 # ============================================================
 #
-# These parameters are received from the ROOT CloudFormation
-# stack:
+# These parameters are intended to be supplied by the
+# parent/root CloudFormation stack.
 #
-#   infrastructure/cloudformation/main.yaml
-#
-# The root stack passes:
+# Parameters:
 #
 #   ProjectName
 #   Environment
+#
+# They are used for resource naming and tagging.
 #
 # ============================================================
 

@@ -17,7 +17,10 @@
 #   2. IAM Role
 #   3. IAM Instance Profile
 #   4. EC2 Instance
-#   5. Nginx Web Server
+#
+# Software configured:
+#
+#   - Nginx Web Server
 #
 # Architecture:
 #
@@ -25,15 +28,15 @@
 #       |
 #       | HTTP :80
 #       v
-#   +-----------------------+
-#   |    EC2 Instance       |
-#   |    Amazon Linux 2023  |
-#   |                       |
-#   |        Nginx          |
-#   +-----------------------+
+#   Publicly reachable EC2
+#   (when subnet/public-IP
+#    configuration permits)
 #       |
 #       v
-#   Web Application
+#     Nginx
+#       |
+#       v
+#   Web Page
 #
 #
 # SSM Management:
@@ -57,7 +60,12 @@
 #
 #   0.0.0.0/0
 #
-# That means SSH is publicly reachable.
+# That means TCP port 22 is publicly reachable at the
+# security-group level.
+#
+# Successful SSH access still requires the instance to have
+# appropriate network connectivity, a public IP when connecting
+# from the Internet, and a valid SSH authentication method.
 #
 # LAB ONLY:
 #
@@ -121,7 +129,7 @@
 #
 #
 # ============================================================
-# 5. FIND PUBLIC SUBNET
+# 5. LIST SUBNETS
 # ============================================================
 #
 # aws ec2 describe-subnets \
@@ -409,37 +417,38 @@ Parameters:
   #
   # IMPORTANT:
   #
-  # The subnet must have a route to an Internet Gateway if
-  # you want the instance to be publicly reachable.
+  # The subnet must have Internet connectivity through an Internet
+  # Gateway, and the instance must receive a public IP address,
+  # for the web server to be directly reachable from the Internet.
+  #
+  # Public IP assignment is not configured in this template;
+  # it depends on the supplied subnet configuration.
   #
   # ----------------------------------------------------------
 
   PublicSubnetId:
     Type: AWS::EC2::Subnet::Id
-    Description: Public subnet where the EC2 instance will be deployed.
+    Description: Subnet where the EC2 instance will be deployed. Public Internet access depends on the supplied subnet configuration.
 
   # ----------------------------------------------------------
   # AMI ID
   # ----------------------------------------------------------
   #
-  # Terraform dynamically discovers the appropriate Amazon
-  # Linux 2023 AMI for the selected AWS region.
+  # The Amazon Linux 2023 AMI ID is supplied as a CloudFormation
+  # parameter by the calling stack or deployment command.
   #
-  # Terraform passes the discovered AMI ID to the root
-  # CloudFormation stack.
+  # This template does not dynamically discover the AMI.
   #
-  # main.yaml then passes AmiId into this nested stack.
+  # The supplied AMI ID is used as the EC2 ImageId.
   #
-  # This nested stack uses AmiId as the EC2 ImageId.
-  #
-  # This keeps the EC2 template region-independent and avoids
-  # hard-coding an AMI ID.
+  # The template does not hard-code an AMI ID; the caller provides
+  # the appropriate AMI ID for the target AWS region.
   #
   # ----------------------------------------------------------
 
   AmiId:
     Type: AWS::EC2::Image::Id
-    Description: Amazon Linux 2023 AMI ID supplied dynamically by Terraform.
+    Description: Amazon Linux 2023 AMI ID supplied by the calling stack or deployment command.
 
   # ----------------------------------------------------------
   # EC2 Instance Type
@@ -508,19 +517,19 @@ Resources:
         # SSH - TCP 22
         # ----------------------------------------------------
         #
-        # Used for traditional SSH administration.
+        # SSH port is allowed by the security group, but this template
+        # does not configure an EC2 KeyName/key pair.
+        #
+        # SSH access therefore requires an appropriate key/login method
+        # to be configured separately.
         #
         # LAB ONLY:
         #
-        # 0.0.0.0/0 means the whole Internet.
+        # 0.0.0.0/0 means the whole Internet can reach TCP port 22.
         #
-        # Production recommendation:
-        #
-        # Restrict this to your public IP:
-        #
-        #   203.0.113.10/32
-        #
-        # Or remove SSH and use SSM Session Manager.
+        # For this lab, SSM Session Manager is the intended management
+        # method because the instance has the AmazonSSMManagedInstanceCore
+        # policy.              
         #
         # ----------------------------------------------------
 
@@ -739,7 +748,11 @@ Resources:
       # SUBNET
       # ------------------------------------------------------
       #
-      # The instance is placed into the supplied public subnet.
+      # The instance is placed into the subnet supplied through
+      # the PublicSubnetId parameter.
+      #
+      # The subnet must be configured appropriately for public
+      # Internet access if the instance is intended to be public.
       #
       # ------------------------------------------------------
 
@@ -897,7 +910,11 @@ Outputs:
   # PUBLIC IP
   # ==========================================================
   #
-  # Used to access the Nginx web server from the Internet.
+  # Public IPv4 address of the EC2 instance, when one is assigned.
+  #
+  # This can be used to access the Nginx web server from the Internet
+  # when the subnet has Internet routing and the instance has a
+  # public IPv4 address.
   #
   # Example:
   #

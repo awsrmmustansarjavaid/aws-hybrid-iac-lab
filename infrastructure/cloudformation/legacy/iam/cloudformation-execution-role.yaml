@@ -13,7 +13,7 @@
 #
 # Purpose:
 #
-#   Creates the dedicated IAM service role used by AWS
+#   Defines the IAM service role configuration used by AWS
 #   CloudFormation to create, update, and delete the
 #   infrastructure resources defined by the Hybrid IaC Lab.
 #
@@ -25,9 +25,6 @@
 #
 #   hybridiaclab
 #
-# DO NOT use:
-#
-#   hybridiaclab
 #
 # Resource naming should follow:
 #
@@ -244,23 +241,16 @@
 #   --region us-east-1
 #
 # ============================================================
-# 5. DEPLOY EXECUTION ROLE
+# 5. DEPLOYMENT STATUS
 # ============================================================
 #
-# From:
+# This template is reference-only and is NOT deployed by this
+# repository.
 #
-#   infrastructure/cloudformation/iam/
+# The CloudFormation execution role used by this lab is created
+# and managed by Terraform.
 #
-# Run:
-#
-# aws cloudformation deploy `
-#   --template-file cloudformation-execution-role.yaml `
-#   --stack-name hybridiaclab-dev-CFN-ExecutionRole `
-#   --parameter-overrides `
-#     ProjectName=hybridiaclab `
-#     Environment=dev `
-#   --capabilities CAPABILITY_NAMED_IAM `
-#   --region us-east-1
+# Do not deploy this template as a separate CloudFormation stack.
 #
 # ============================================================
 # 6. CHECK STACK
@@ -311,16 +301,21 @@
 #   --policy-name hybridiaclabProvisioning
 #
 # ============================================================
-# 12. USE THE ROLE WITH ROOT CLOUDFORMATION STACK
+# 12. USE THE TERRAFORM-CREATED ROLE WITH ROOT CLOUDFORMATION
 # ============================================================
 #
-# The execution role is NOT automatically selected.
+# The root CloudFormation stack can use the CloudFormation
+# execution role by supplying its ARN through --role-arn.
 #
-# The root CloudFormation stack must be deployed with:
-#
-#   --role-arn
+# In this repository, the execution role is created and managed
+# by Terraform, not by this CloudFormation template.
 #
 # Example:
+#
+#   --role-arn arn:aws:iam::<ACCOUNT_ID>:role/hybridiaclab-dev-CFNExecutionRole
+#
+# Terraform is responsible for providing/configuring this role
+# for the root CloudFormation deployment.
 #
 # aws cloudformation deploy `
 #   --template-file infrastructure/cloudformation/main.yaml `
@@ -351,9 +346,17 @@
 # CLEANUP
 # ============================================================
 #
-# Delete this execution-role stack only after all CloudFormation
-# stacks that use this service role have been deleted or no
-# longer depend on it.
+# This template is reference-only and is not used to create
+# the execution role in this repository.
+#
+# The actual CloudFormation execution role is managed by
+# Terraform.
+#
+# Any cleanup of the real execution role must therefore be
+# performed through the Terraform configuration that manages it.
+#
+# Do not delete the Terraform-managed execution role manually
+# through CloudFormation.
 #
 # ============================================================
 # 14. DELETE EXECUTION ROLE STACK
@@ -698,9 +701,9 @@ Resources:
               #   - CloudFormation template bucket access
               #   - CloudFront origin bucket configuration
               #
-              # CloudFormation also needs read access to the
-              # templates stored in the Terraform-managed
-              # CloudFormation template bucket.
+              # The policy also allows CloudFormation to create, modify,
+              # and delete S3 buckets and objects required by the lab.
+              #
               #
               # =================================================
 

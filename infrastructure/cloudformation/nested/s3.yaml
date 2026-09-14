@@ -25,7 +25,11 @@ AWSTemplateFormatVersion: "2010-09-09"
 #
 #   S3 object ACLs are disabled through BucketOwnerEnforced.
 #
-#   Public ACLs and public bucket policies are blocked.
+#   Public S3 access is restricted through the four
+#   PublicAccessBlockConfiguration settings.
+#
+#   Public ACLs are blocked/ignored and public bucket policies
+#   are prevented from being applied.
 #
 #   Applications or AWS services should access the bucket
 #   through IAM permissions or controlled AWS integrations.
@@ -183,7 +187,7 @@ Resources:
       #
       # BlockPublicPolicy:
       #
-      #   Blocks public bucket policies.
+      #   Prevents bucket policies that would allow public access.
       #
       # IgnorePublicAcls:
       #

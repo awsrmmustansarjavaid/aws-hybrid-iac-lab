@@ -11,8 +11,8 @@
 #
 # Creates the CloudFront CDN layer for the application.
 #
-# CloudFront securely accesses the private S3 application
-# bucket using Origin Access Control (OAC).
+# CloudFront accesses the S3 application bucket using
+# Origin Access Control (OAC).
 #
 #
 # Architecture:
@@ -30,8 +30,8 @@
 # | AWS Signature Version 4
 # v
 # +----------------------+
-# |      Private S3      |
-# | Application Bucket   |
+# |   S3 Application     |
+# |      Bucket          |
 # +----------------------+
 #
 #
@@ -44,10 +44,12 @@
 # |
 # | SigV4 signed request
 # v
-# Private S3 bucket
+# S3 application bucket
 #
 #
-# The S3 bucket is NOT publicly readable.
+# The CloudFront bucket policy does not grant public S3 access.
+#
+# The application bucket itself is managed by the S3 stack.
 #
 # CloudFront is the public application endpoint.
 #
@@ -119,8 +121,8 @@
 # bucket-name.s3-website-REGION.amazonaws.com
 #
 #
-# This is intentional because OAC is being used with a private
-# S3 origin.
+# This is intentional because OAC is being used with an
+# S3 origin instead of an S3 static website endpoint.
 #
 #
 # ============================================================
@@ -130,7 +132,7 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   CloudFront CDN layer for the AWS Hybrid IaC Lab.
   Creates a CloudFront distribution with Origin Access Control
-  for secure access to a private S3 application bucket.
+  for secure access to an S3 application bucket.
 
 # ============================================================
 # PARAMETERS
@@ -146,7 +148,8 @@ Parameters:
   #
   # hybridiaclab
   #
-  # This value is supplied by the parent CloudFormation stack.
+  # This parameter is used to identify the project in CloudFront
+  # resource names and descriptions.
   #
   # ----------------------------------------------------------
 
@@ -179,14 +182,15 @@ Parameters:
   # The S3 bucket is created by the S3 nested stack.
   #
   # This CloudFront stack consumes that bucket as its
-  # private S3 origin.
+  # S3 origin.
   #
   # ----------------------------------------------------------
 
   ApplicationBucketName:
     Type: String
     Description: >
-      Name of the existing private S3 application bucket.
+      Name of the existing S3 application bucket used as the
+      CloudFront origin.
 
 # ============================================================
 # RESOURCES
@@ -240,7 +244,7 @@ Resources:
           !Sub >
             CloudFront Origin Access Control for
             ${ProjectName}-${Environment}
-            private S3 application bucket.
+            S3 application bucket.
 
 
         # ----------------------------------------------------
@@ -260,8 +264,7 @@ Resources:
         #
         # always:
         #
-        # CloudFront signs every request sent to the S3
-        # origin.
+        # CloudFront signs all requests sent to the S3 origin.
         #
         # ----------------------------------------------------
 
@@ -284,7 +287,7 @@ Resources:
   #
   # Creates the public CDN endpoint.
   #
-  # The distribution uses the private S3 bucket as its origin.
+  # The distribution uses the S3 application bucket as its origin.
   #
   # ==========================================================
 
@@ -308,7 +311,7 @@ Resources:
           !Sub >
             CloudFront distribution for
             ${ProjectName}-${Environment}
-            private S3 application.
+            S3 application.
 
 
         # ----------------------------------------------------
@@ -356,7 +359,7 @@ Resources:
 
         Origins:
 
-          - Id: S3WebsiteOrigin
+          - Id: S3Origin
 
             # ------------------------------------------------
             # S3 REGIONAL DOMAIN
@@ -382,8 +385,10 @@ Resources:
             #
             # OAC is used instead of the legacy OAI.
             #
-            # S3OriginConfig is intentionally present with an
-            # empty object for an S3 REST origin.
+            # S3OriginConfig is used because this is an S3 REST origin,
+            # not an S3 static website endpoint.
+            #
+            # OAC provides the authorization mechanism for the origin.
             #
             # ------------------------------------------------
 
@@ -412,7 +417,7 @@ Resources:
           # TARGET ORIGIN
           # --------------------------------------------------
 
-          TargetOriginId: S3WebsiteOrigin
+          TargetOriginId: S3Origin
 
 
           # --------------------------------------------------
@@ -430,10 +435,10 @@ Resources:
           # ALLOWED METHODS
           # --------------------------------------------------
           #
-          # GET and HEAD are required for normal static
-          # website delivery.
+          # GET and HEAD are used for normal object retrieval.
           #
-          # OPTIONS is included for browser/CORS compatibility.
+          # OPTIONS is allowed for HTTP requests that require the
+          # OPTIONS method.
           #
           # --------------------------------------------------
 
@@ -524,12 +529,10 @@ Resources:
         #
         # Uses the default CloudFront certificate.
         #
-        # HTTPS is therefore available through:
+        # HTTPS is available through the default CloudFront
+        # distribution domain:
         #
         #   https://<distribution>.cloudfront.net
-        #
-        # A custom domain can be added later using ACM and
-        # Route 53.
         #
         # ====================================================
 
@@ -619,9 +622,8 @@ Resources:
             # RESTRICT ACCESS TO THIS DISTRIBUTION
             # ------------------------------------------------
             #
-            # The SourceArn condition prevents another
-            # CloudFront distribution from using this bucket
-            # policy.
+            # The SourceArn condition restricts access to requests
+            # originating from this specific CloudFront distribution.
             #
             # ------------------------------------------------
 

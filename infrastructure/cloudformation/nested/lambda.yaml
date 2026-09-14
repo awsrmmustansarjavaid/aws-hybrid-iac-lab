@@ -14,19 +14,17 @@
 #
 # Architecture:
 #
-#   Client
-#      |
-#      v
 #   API Gateway
-#      |
-#      | POST /orders
-#      v
+#        |
+#        | invokes Lambda
+#        v
 #   AWS Lambda
-#      |
-#      +----------------------+
-#      |                      |
-#      v                      v
-#   CloudWatch Logs       DynamoDB
+#        |
+#        v
+#   DynamoDB
+#
+# API Gateway is a separate layer and is not created
+# by this template.
 #
 # This template creates:
 #
@@ -66,9 +64,11 @@
 # This template is designed to work as part of the
 # CloudFormation application layer of the Hybrid IaC lab.
 #
-# Terraform manages the higher-level infrastructure/bootstrap
-# orchestration while CloudFormation manages AWS application
-# resources.
+# This template manages the Lambda application resources
+# through AWS CloudFormation.
+#
+# It is designed to be consumed as part of the lab's
+# broader infrastructure orchestration.
 #
 # Lambda can later be connected to:
 #
@@ -150,8 +150,13 @@
 #   --parameter-overrides `
 #     ProjectName=hybridiaclab `
 #     Environment=dev `
+#     OrdersTableName=<DYNAMODB_TABLE_NAME> `
+#     OrdersTableArn=<DYNAMODB_TABLE_ARN> `
 #   --capabilities CAPABILITY_NAMED_IAM `
 #   --region us-east-1
+#
+# OrdersTableName and OrdersTableArn must reference the
+# DynamoDB Orders table used by this Lambda function.
 #
 # ============================================================
 # 6. CHECK STACK STATUS
@@ -201,8 +206,12 @@
 #
 # Lambda can be tested without API Gateway.
 #
+# AWS CLI v2 requires the raw JSON payload format option
+# when passing JSON directly through --payload.
+#
 # aws lambda invoke `
 #   --function-name hybridiaclab-dev-ApplicationLambda `
+#   --cli-binary-format raw-in-base64-out `
 #   --payload '{}' `
 #   response.json `
 #   --region us-east-1
@@ -215,10 +224,11 @@
 # 12. INVOKE WITH TEST JSON
 # ============================================================
 #
-# Example:
+# Example order request:
 #
 # aws lambda invoke `
 #   --function-name hybridiaclab-dev-ApplicationLambda `
+#   --cli-binary-format raw-in-base64-out `
 #   --payload '{"item":"Coffee","quantity":2}' `
 #   response.json `
 #   --region us-east-1
@@ -451,10 +461,9 @@ Resources:
       # INLINE DYNAMODB POLICY
       # ========================================================
       #
-      # Provides the Lambda function with the DynamoDB actions
-      # required by the application layer.
+      # Provides the Lambda function with DynamoDB permissions.
       #
-      # Current actions:
+      # Current IAM actions:
       #
       #   PutItem
       #   GetItem
@@ -462,7 +471,9 @@ Resources:
       #   Query
       #   Scan
       #
-      # 
+      # The current Lambda code uses PutItem to create orders.
+      # The additional read/update/query/scan permissions are available
+      # for future application functionality.
       #
       # ========================================================
 
@@ -500,11 +511,11 @@ Resources:
                 # ------------------------------------------------
                 #
                 # Lambda access is restricted to the specific
-                # DynamoDB Orders table ARN supplied by the parent
-                # CloudFormation stack.
+                # DynamoDB Orders table ARN supplied to this template.
                 #
                 # This avoids granting Lambda access to unrelated
                 # DynamoDB tables.
+                #                
                 #
                 # ------------------------------------------------
 
@@ -549,16 +560,16 @@ Resources:
       # HANDLER
       # --------------------------------------------------------
       #
-      # CloudFormation stores the inline code as index.py.
+      # The inline Python code defines the handler function:
       #
-      # Therefore:
+      #   def handler(event, context)
       #
-      #   filename = index
-      #   function = handler
-      #
-      # Handler:
+      # The configured Lambda handler is:
       #
       #   index.handler
+      #
+      # This means the handler function is named "handler"
+      # in the "index" module.
       #
       # --------------------------------------------------------
 
@@ -606,9 +617,9 @@ Resources:
 
         Variables:
 
-          # ========================================================
+          # ============================================================
           # DYNAMODB ORDERS TABLE ENVIRONMENT VARIABLE
-          # ========================================================
+          # ============================================================
           #
           # Provides the DynamoDB Orders table name to the Lambda
           # function through an environment variable.
@@ -616,14 +627,14 @@ Resources:
           # The value is populated from the CloudFormation
           # OrdersTableName parameter.
           #
-          # Lambda code can access this value using:
-          #   process.env.ORDERS_TABLE_NAME   # Node.js
-          #   os.environ["ORDERS_TABLE_NAME"] # Python
+          # The Lambda Python code accesses this value using:
+          #
+          #   os.environ["ORDERS_TABLE_NAME"]
           #
           # This avoids hard-coding the DynamoDB table name inside
           # the Lambda application code.
           #
-          # ========================================================
+          # ============================================================
           ORDERS_TABLE_NAME: !Ref OrdersTableName
 
       # ========================================================
@@ -784,14 +795,12 @@ Resources:
 # OUTPUTS
 # ============================================================
 #
-# Outputs expose important Lambda information to:
+# Outputs expose important Lambda information through
+# CloudFormation stack outputs.
 #
-#   - Parent CloudFormation stacks
-#   - API Gateway stack
-#   - Terraform
-#   - GitHub Actions
-#   - AWS CLI
-#   - Manual testing
+# These outputs can be consumed by parent stacks or other
+# deployment/integration tooling that retrieves CloudFormation
+# stack outputs.
 #
 # ============================================================
 

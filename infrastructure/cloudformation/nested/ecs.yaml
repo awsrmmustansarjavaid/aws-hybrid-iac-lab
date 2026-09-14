@@ -76,18 +76,20 @@ AWSTemplateFormatVersion: "2010-09-09"
 #                    +--------+--------+
 #                    |                 |
 #                    v                 v
-#             Private Subnet 1   Private Subnet 2
-#                    |                 |
-#                    v                 v
-#               ECS Task          ECS Task
-#               Fargate           Fargate
-#                    |
-#                    |
-#                    v
-#               NAT Gateway
-#                    |
-#                    v
-#                Internet
+#            Private Subnet 1   Private Subnet 2
+#                    \                 /
+#                     \               /
+#                      \             /
+#                       ECS Service
+#                       DesiredCount: 1
+#                              |
+#                              v
+#                         ECS Task
+#                         Fargate
+#                            |
+#                            v
+#                  VPC outbound connectivity
+#                  (configured outside this template)
 #
 #
 # ============================================================
@@ -109,6 +111,9 @@ AWSTemplateFormatVersion: "2010-09-09"
 #   - No public IP
 #   - AssignPublicIp: DISABLED
 #
+# The supplied subnet IDs are expected to be private subnets
+# with the required routing for ECS task connectivity.
+#
 #
 # IMPORTANT:
 #
@@ -119,9 +124,14 @@ AWSTemplateFormatVersion: "2010-09-09"
 #   - Sending logs to CloudWatch Logs
 #   - Accessing external APIs
 #
-# This lab uses a NAT Gateway for that outbound connectivity.
+# Outbound connectivity is not configured by this template.
+# The supplied private subnets must provide the required
+# outbound connectivity through the VPC infrastructure.
 #
-# VPC endpoints can be introduced later as an optimization.
+# This may be provided through a NAT Gateway or VPC endpoints.
+#
+# The required outbound connectivity is managed by the
+# VPC infrastructure outside this template.
 #
 #
 # ============================================================
@@ -138,7 +148,13 @@ AWSTemplateFormatVersion: "2010-09-09"
 #   PrivateSubnet1
 #   PrivateSubnet2
 #
-# The ALB is therefore deployed across two Availability Zones.
+# The ALB is configured with two supplied subnets.
+# 
+# Multi-AZ ALB placement is achieved when the two supplied
+# subnets are located in different Availability Zones.
+#
+# This template does not enforce that the two subnet IDs
+# belong to different Availability Zones.
 #
 # However:
 #
@@ -256,7 +272,7 @@ AWSTemplateFormatVersion: "2010-09-09"
 #
 #   Repository URI
 #        +
-#   Immutable image tag
+#   Image tag
 #
 #
 # Therefore the ECS Task Definition simply uses:
@@ -269,130 +285,66 @@ AWSTemplateFormatVersion: "2010-09-09"
 # WHY EcrImageUri IS USED
 # ============================================================
 #
-# Your docker.yml deployment passes:
+# EcrImageUri is the only image-related parameter required
+# by this template.
 #
-#   EcrImageUri=$IMAGE_URI
+# It contains the complete container image URI, including:
 #
-# Therefore the ECS template must define:
+#   Repository URI
+#        +
+#   Image tag
 #
-#   EcrImageUri
+# The task definition uses this value directly:
 #
-# as a CloudFormation parameter.
-#
-# The previous ECS template expected two separate parameters:
-#
-#   EcrRepositoryUri
-#   ImageTag
-#
-# That old ECS parameter design did NOT match the current
-# docker.yml deployment contract.
-#
-# IMPORTANT:
-#
-# EcrRepositoryUri is still used by ecr.yaml as the ECR
-# repository URI output.
-#
-# It is NOT an ECS parameter in this template.
-#
-# The ECS template now receives only the complete image URI:
-#
-#   EcrImageUri
-#
-# FINAL CONTRACT:
-#
-#   docker.yml
-#       |
-#       | EcrImageUri=$IMAGE_URI
-#       v
-#   ecs.yaml
-#       |
-#       | EcrImageUri
-#       v
-#   TaskDefinition.Image
-#
+#   Image:
+#     !Ref EcrImageUri
 #
 # ============================================================
-# IMMUTABLE IMAGE TAGGING
+# IMAGE TAGGING
 # ============================================================
 #
-# Instead, GitHub Actions should use an immutable tag such as
-# the Git commit SHA.
+# The complete image URI supplied through EcrImageUri includes
+# the container image tag.
 #
 # Example:
 #
-#   9f4c2e7a8b1d6c5e4f3a2b1c0d9e8f7a6b5c4d3e
+#   537236558357.dkr.ecr.us-east-1.amazonaws.com/
+#   hybridiaclab-dev-app:<image-tag>
 #
-# The exact SHA length depends on how docker.yml constructs
-# the image tag.
+# This template does not enforce a specific image-tag format.
+#
+# ============================================================
+# ECR IMAGE URI
+# ============================================================
+#
+# The ECS template receives the complete ECR image URI through:
+#
+#   EcrImageUri
+#
+# The value includes both the ECR repository URI and image tag.
 #
 # Example:
 #
-#   <GitCommitSHA>
+#   537236558357.dkr.ecr.us-east-1.amazonaws.com/
+#   hybridiaclab-dev-app:<image-tag>
 #
-# Docker image:
+# ============================================================
+# ECS IMAGE FLOW
+# ============================================================
 #
-#   ECR Repository
-#          +
-#   Git SHA
+#   Deployment workflow
+#          |
+#          | Complete image URI
+#          v
+#      EcrImageUri
 #          |
 #          v
-#   EcrImageUri
+#       ecs.yaml
+#          |
+#          v
+#   TaskDefinition.Image
 #
-# Example:
-#
-#   537236558357.dkr.ecr.us-east-1.amazonaws.com/
-#   hybridiaclab-dev-app:abcdef1234567890
-#
-#
-# ============================================================
-# ECR OUTPUT NAME
-# ============================================================
-#
-# The ECR template exposes the repository URI using:
-#
-#   EcrRepositoryUri
-#
-# This is the canonical ECR repository URI output.
-#
-# Example:
-#
-#   EcrRepositoryUri =
-#   537236558357.dkr.ecr.us-east-1.amazonaws.com/
-#   hybridiaclab-dev-app
-#
-# docker.yml receives this repository URI and appends the
-# immutable image tag.
-#
-# Example:
-#
-#   IMAGE_URI=<EcrRepositoryUri>:<GitSHA>
-#
-# The complete IMAGE_URI is then passed to this ECS template
-# as:
-#
-#   EcrImageUri
-#
-# ============================================================
-# FINAL ECR -> ECS IMAGE FLOW
-# ============================================================
-#
-#   ecr.yaml
-#       |
-#       +--> EcrRepositoryUri
-#                 |
-#                 v
-#          GitHub Actions / docker.yml
-#                 |
-#                 +--> :<GitSHA>
-#                 |
-#                 v
-#             EcrImageUri
-#                 |
-#                 v
-#              ecs.yaml
-#                 |
-#                 v
-#          TaskDefinition.Image
+# The template does not create or build the Docker image.
 #
 #
 #
@@ -435,8 +387,8 @@ AWSTemplateFormatVersion: "2010-09-09"
 #       +--> other deployment permissions
 #
 #
-# The GitHub Actions IAM role MUST NOT be used as the ECS
-# task execution role.
+# The GitHub Actions IAM role is intentionally separate from
+# the ECS task execution role.
 #
 #
 # ============================================================
@@ -594,26 +546,25 @@ Parameters:
   # PUBLIC SUBNET 1
   # ----------------------------------------------------------
   #
-  # Used by the internet-facing Application Load Balancer.
+  # Subnet supplied for the internet-facing Application Load Balancer.
   #
   PublicSubnet1Id:
     Type: AWS::EC2::Subnet::Id
 
     Description: >
-      First public subnet used by the Application Load Balancer.
+      First subnet supplied for the Application Load Balancer.
 
   # ----------------------------------------------------------
   # PUBLIC SUBNET 2
   # ----------------------------------------------------------
   #
-  # Used by the internet-facing Application Load Balancer.
+  # Subnet supplied for the internet-facing Application Load Balancer.
   #
   PublicSubnet2Id:
     Type: AWS::EC2::Subnet::Id
 
     Description: >
-      Second public subnet used by the Application Load
-      Balancer.
+      Second subnet supplied for the Application Load Balancer.
 
   # ----------------------------------------------------------
   # PRIVATE SUBNET 1
@@ -625,7 +576,7 @@ Parameters:
     Type: AWS::EC2::Subnet::Id
 
     Description: >
-      First private subnet used by ECS Fargate tasks.
+      First subnet supplied for ECS Fargate tasks.
 
   # ----------------------------------------------------------
   # PRIVATE SUBNET 2
@@ -637,7 +588,7 @@ Parameters:
     Type: AWS::EC2::Subnet::Id
 
     Description: >
-      Second private subnet used by ECS Fargate tasks.
+      Second subnet supplied for ECS Fargate tasks.
 
   # ==========================================================
   # COMPLETE ECR IMAGE URI
@@ -645,36 +596,30 @@ Parameters:
   #
   # IMPORTANT:
   #
-  # This parameter replaces the previous combination:
+  # This parameter is expected to contain the complete container
+  # image URI, including the ECR repository URI and image tag.
   #
-  #   EcrRepositoryUri
-  #   ImageTag
-  #
-  # The complete image URI is supplied by docker.yml.
+  # The template passes this value directly to the ECS task
+  # definition.
   #
   # Example:
   #
   #   537236558357.dkr.ecr.us-east-1.amazonaws.com/
   #   hybridiaclab-dev-app:abcdef1234567890
   #
-  # This exactly matches:
-  #
-  #   EcrImageUri=$IMAGE_URI
-  #
-  # from the deployment workflow.
-  #
+  # ==========================================================
   EcrImageUri:
     Type: String
 
     Description: >
-      Complete immutable Amazon ECR Docker image URI,
-      including the repository URI and image tag.
+      Complete container image URI including the repository URI
+      and image tag.
 
     AllowedPattern: "^[A-Za-z0-9][A-Za-z0-9._:/@-]*$"
 
     ConstraintDescription: >
-      EcrImageUri must contain a valid ECR image URI
-      including its immutable image tag.
+      EcrImageUri must contain only valid characters for the
+      supplied container image URI.
 
 # ============================================================
 # RESOURCES
@@ -843,7 +788,7 @@ Resources:
       # Private ECS tasks need outbound connectivity for
       # operations such as ECR and CloudWatch Logs.
       #
-      # The VPC routing/NAT configuration provides the path.
+      # The VPC infrastructure must provide the required outbound path.
       #
       SecurityGroupEgress:
 
@@ -873,7 +818,7 @@ Resources:
   # APPLICATION LOAD BALANCER
   # ==========================================================
   #
-  # Internet-facing ALB deployed across two public subnets.
+  # Internet-facing ALB deployed across two supplied subnets.
   #
   # ==========================================================
 
@@ -919,7 +864,10 @@ Resources:
       # PUBLIC SUBNETS
       # ------------------------------------------------------
       #
-      # Two public subnets provide multi-AZ ALB placement.
+      # Two subnets are supplied for the ALB.
+      #
+      # Multi-AZ placement occurs when the supplied subnets are
+      # located in different Availability Zones.
       #
       Subnets:
 
@@ -1296,24 +1244,17 @@ Resources:
         - Name: application
 
           # --------------------------------------------------
-          # IMMUTABLE ECR IMAGE
+          #  ECR IMAGE
           # --------------------------------------------------
           #
-          # The COMPLETE image URI is provided by docker.yml.
+          # The complete image URI is supplied through the
+          # EcrImageUri parameter.
           #
           # Example:
           #
           #   537236558357.dkr.ecr.us-east-1.amazonaws.com/
-          #   hybridiaclab-dev-app:abcdef1234567890
-          #
-          # This fixes the previous mismatch between:
-          #
-          #   docker.yml
-          #
-          # and:
-          #
-          #   ecs.yaml
-          #
+          #   hybridiaclab-dev-app:<image-tag>
+          # --------------------------------------------------
           Image:
             !Ref EcrImageUri
 
@@ -1327,8 +1268,8 @@ Resources:
           # PORT MAPPING
           # --------------------------------------------------
           #
-          # Application listens on port 80.
-          #
+          # ECS exposes container port 80 for the application.
+          # --------------------------------------------------
           PortMappings:
 
             - ContainerPort: 80
@@ -1506,8 +1447,13 @@ Resources:
         #
         # MinimumHealthyPercent = 50
         #
-        # ECS may temporarily operate below one healthy task
-        # during deployment according to ECS scheduling rules.
+        # ECS calculates the minimum healthy task count from
+        # the desired count and rounds the result up.
+        #        
+        #
+        # The deployment may therefore need to start the replacement
+        # task before stopping the existing healthy task, depending
+        # on available capacity and deployment conditions.
         #
         MinimumHealthyPercent: 50
 
@@ -1733,18 +1679,19 @@ Outputs:
   # DEPLOYED ECR IMAGE URI
   # ==========================================================
   #
-  # This outputs the exact image URI deployed by ECS.
+  # Complete ECR image URI deployed to ECS.
   #
   # Example:
   #
-  #   repository:abcdef1234567890
+  #   537236558357.dkr.ecr.us-east-1.amazonaws.com/
+  #   hybridiaclab-dev-app:<image-tag>
   #
   # ==========================================================
 
   EcrImageUri:
 
     Description: >
-      Complete immutable ECR image URI deployed to ECS.
+      Complete ECR image URI deployed to ECS.
 
     Value:
       !Ref EcrImageUri

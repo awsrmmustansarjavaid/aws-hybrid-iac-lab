@@ -14,63 +14,31 @@ AWSTemplateFormatVersion: "2010-09-09"
 #
 # IMPORTANT:
 #
-#   This template is the SINGLE OWNER of the ECR repository.
+# This template owns the ECR repository resource.
 #
-#   ECS and EKS do NOT create the repository.
-#   They consume the repository created by this stack.
+# The repository URI, ARN, and name are exposed through
+# CloudFormation outputs for use by other components.
 #
 #
 # ============================================================
 # ARCHITECTURE
 # ============================================================
 #
-#
-# Developer
-#     |
-#     v
 # Application Source Code
-#     |
-#     v
-# Docker Build
 #     |
 #     v
 # Docker Image
 #     |
 #     v
-# GitHub Actions
-#     |
-#     | GitHub OIDC
-#     v
-# AWS IAM GitHub Actions Role
-#     |
-#     v
 # Amazon ECR
 #     |
-#     | Immutable COMMIT_SHA image
-#     |
-#     +--------------------------+
-#     |                          |
-#     v                          v
-# Amazon ECS                Amazon EKS
-# Fargate                   Kubernetes
+#     v
+# ApplicationRepository
 #
+# This template creates and configures the ECR repository.
 #
-# Example:
-#
-#   Git commit
-#       |
-#       v
-#   abcdef1234567890
-#       |
-#       v
-#   Docker image
-#       |
-#       v
-#   hybridiaclab-dev-app:abcdef1234567890
-#       |
-#       v
-#   Amazon ECR
-#
+# The repository URI, ARN, and name are exposed through
+# CloudFormation outputs for use by other components.
 #
 # ============================================================
 # THIS STACK CREATES
@@ -81,51 +49,31 @@ AWSTemplateFormatVersion: "2010-09-09"
 #   3. Immutable image tags
 #   4. AES-256 encryption at rest
 #   5. ECR lifecycle policy
-#   6. Resource tags
+#   6. ECR repository resource tags
 #
 #
 # ============================================================
 # RESOURCE OWNERSHIP
 # ============================================================
 #
-# ECR repository ownership:
+# This template owns the ECR repository resource:
 #
 #   ecr.yaml
 #       |
 #       v
 #   ApplicationRepository
 #
+# The repository URI, ARN, and name are exposed through
+# CloudFormation outputs for use by other components.
 #
-# ECS:
-#
-#   ecs.yaml
-#       |
-#       v
-#   Consumes EcrRepositoryUri
-#
-#
-# EKS:
-#
-#   eks.yaml / Kubernetes manifests
-#       |
-#       v
-#   Consumes the ECR image URI
-#
-#
-# IMPORTANT:
-#
-#   Do NOT create AWS::ECR::Repository inside ecs.yaml.
-#
-#   ecr.yaml owns the ECR repository.
-#
-#   ecs.yaml only consumes the repository/image information.
 #
 #
 # ============================================================
 # ECR NAMING
 # ============================================================
 #
-# Amazon ECR repository names use lowercase characters.
+# Amazon ECR repository names in this template use lowercase
+# letters, numbers, and hyphens.
 #
 # Default project:
 #
@@ -219,8 +167,8 @@ AWSTemplateFormatVersion: "2010-09-09"
 #
 # ScanOnPush is enabled.
 #
-# Newly pushed images are configured for vulnerability scanning
-# when they are pushed to the repository.
+# Newly pushed images are configured to be scanned for
+# vulnerabilities by Amazon ECR.
 #
 # Workflow:
 #
@@ -230,7 +178,7 @@ AWSTemplateFormatVersion: "2010-09-09"
 #   Amazon ECR
 #       |
 #       v
-#   Image vulnerability scanning
+#   ECR image vulnerability scanning
 #
 # IMPORTANT:
 #
@@ -269,8 +217,8 @@ AWSTemplateFormatVersion: "2010-09-09"
 #
 # Without lifecycle management, old images can accumulate.
 #
-# This policy keeps the newest 10 images and expires older
-# images.
+# The lifecycle rule expires images when the repository
+# contains more than 10 images covered by this rule.
 #
 # tagStatus: any
 #
@@ -287,63 +235,22 @@ AWSTemplateFormatVersion: "2010-09-09"
 # IAM DESIGN
 # ============================================================
 #
-# This template intentionally does NOT create IAM permissions
-# for GitHub Actions.
+# This template does not create IAM resources.
 #
-# GitHub Actions should authenticate through:
+# IAM permissions required to access this ECR repository
+# are managed separately from this template.
 #
-#   GitHub
-#      |
-#      v
-#   GitHub OIDC
-#      |
-#      v
-#   GitHubActions IAM Role
-#      |
-#      +--> ECR authentication
-#      +--> ECR image push
-#      +--> CloudFormation deployment
-#
-#
-# ECS uses a DIFFERENT IAM role:
-#
-#   ECS Fargate
-#       |
-#       v
-#   ECS Task Execution Role
-#       |
-#       +--> Pull image from ECR
-#       +--> Send logs to CloudWatch
-#
-#
-# IMPORTANT:
-#
-#   Do NOT use the GitHub Actions OIDC role as the ECS
-#   execution role.
+# ECS task execution permissions are also managed separately.
 #
 #
 # ============================================================
 # ECS TASK ROLE
 # ============================================================
 #
-# This ECR template does NOT create an ECS Task Role.
+# This ECR template does not create ECS task roles.
 #
-# A Task Role is required when the application running inside
-# the ECS container needs to call AWS APIs.
-#
-# Examples:
-#
-#   Container
-#       |
-#       +--> S3
-#       +--> DynamoDB
-#       +--> Secrets Manager
-#       +--> SQS
-#       +--> KMS
-#
-# If application-level AWS permissions are required later,
-# create a dedicated ECS task role with only the required
-# permissions.
+# Application-level AWS permissions for ECS workloads
+# are managed separately from the ECR configuration.
 #
 #
 # ============================================================
@@ -358,27 +265,17 @@ AWSTemplateFormatVersion: "2010-09-09"
 #
 # Example:
 #
-#   537236558357.dkr.ecr.us-east-1.amazonaws.com/
-#   hybridiaclab-dev-app
+#   537236558357.dkr.ecr.us-east-1.amazonaws.com/hybridiaclab-dev-app
 #
 #
 # IMPORTANT:
 #
-# Consumers such as ECS and GitHub Actions should use the
+# Other stacks, services, or CI/CD workflows can use the
 # EcrRepositoryUri output instead of reconstructing the URI
-# manually from:
+# manually.
 #
-#   AWS_ACCOUNT_ID
-#   AWS_REGION
-#   ProjectName
-#   Environment
-#
-#
-# This prevents ECR URI mismatches between:
-#
-#   ecr.yaml
-#   ecs.yaml
-#   GitHub Actions
+# Using the generated output avoids manually constructing
+# the repository URI.
 #
 #
 # ============================================================
@@ -397,13 +294,8 @@ AWSTemplateFormatVersion: "2010-09-09"
 #
 # IMPORTANT:
 #
-#   ECS should reference EcrRepositoryUri.
-#
-#   Do NOT use a different name such as:
-#
-#       RepositoryUri
-#
-#   in the ECS integration.
+#   EcrRepositoryUri is the output provided for consumers
+#   that require the ECR repository URI.
 #
 #
 # ============================================================
@@ -571,9 +463,11 @@ Resources:
       # LIFECYCLE POLICY
       # ======================================================
       #
-      # Keeps the newest 10 images.
+      # Expires images when more than 10 images are present
+      # within the scope of this lifecycle rule.
       #
-      # Older images are automatically expired.
+      # Older images are automatically expired according to
+      # the lifecycle policy.
       #
       # tagStatus: any
       #
@@ -588,7 +482,7 @@ Resources:
             "rules": [
               {
                 "rulePriority": 1,
-                "description": "Keep only the latest 10 container images",
+                "description": "Expire images when more than 10 images are present",
                 "selection": {
                   "tagStatus": "any",
                   "countType": "imageCountMoreThan",
@@ -683,19 +577,15 @@ Outputs:
   #
   # Example:
   #
-  #   537236558357.dkr.ecr.us-east-1.amazonaws.com/
-  #   hybridiaclab-dev-app
+  #    537236558357.dkr.ecr.us-east-1.amazonaws.com/hybridiaclab-dev-app
   #
   # This is the PRIMARY ECR integration value.
   #
-  # GitHub Actions:
+  # The output can be consumed by CI/CD workflows for
+  # Docker image tagging and pushing.
   #
-  #   Uses it as the base repository URI for docker tag/push.
-  #
-  # ECS:
-  #
-  #   Uses it as the base image URI and appends the immutable
-  #   COMMIT_SHA tag.
+  # ECS can consume this repository URI as the image
+  # repository location and append an image tag.
   #
   # Example:
   #
