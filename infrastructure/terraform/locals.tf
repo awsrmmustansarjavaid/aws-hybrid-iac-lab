@@ -51,8 +51,9 @@ locals {
   # This map contains the paths to the CloudFormation
   # templates used by the hybrid IaC lab.
   #
-  # Terraform can reference these paths later when creating
-  # AWS CloudFormation stacks.
+  # These paths are stored in local values so they can be
+  # referenced elsewhere in the Terraform configuration when
+  # CloudFormation templates are needed.
   #
   # The paths are based on:
   #

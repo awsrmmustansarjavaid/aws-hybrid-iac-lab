@@ -11,12 +11,13 @@
 #   hard-coding AWS resource IDs.
 #
 # Current use:
-#   Automatically find the latest available
+#   Automatically find the most recent matching
 #   Amazon Linux 2023 AMI for the configured AWS region.
 #
 # IMPORTANT:
 #   The AMI ID is NOT hard-coded.
-#   Terraform asks AWS for the appropriate AMI.
+# Terraform queries AWS for an AMI matching the
+# configured Amazon Linux 2023 filters.
 # ============================================================
 
 
@@ -24,7 +25,7 @@
 # Amazon Linux 2023 AMI
 # ------------------------------------------------------------
 #
-# Terraform searches AWS EC2 images and selects the newest
+# Terraform searches AWS EC2 images and selects the most recent
 # matching Amazon Linux 2023 image.
 #
 # The AWS region comes from the AWS provider configuration.
@@ -35,7 +36,7 @@
 #       ↓
 #   AWS EC2 AMI search
 #       ↓
-#   Latest matching Amazon Linux 2023 AMI
+#   Most recent matching Amazon Linux 2023 AMI
 #       ↓
 #   data.aws_ami.amazon_linux_2023.id
 #
@@ -43,7 +44,7 @@
 
 data "aws_ami" "amazon_linux_2023" {
 
-  # Select the newest AMI that matches all filters below.
+  # Select the most recent AMI that matches all filters below.
   most_recent = true
 
   # Official Amazon Linux AMI owner account.
@@ -76,11 +77,11 @@ data "aws_ami" "amazon_linux_2023" {
   # CPU architecture
   # ----------------------------------------------------------
   #
-  # This is for normal x86_64 EC2 instances.
+  # This selects x86_64 AMIs.
   #
-  # If your EC2 instance uses ARM/Graviton, we would use
-  # arm64 instead.
+  # ARM/Graviton instances require an ARM64-compatible AMI instead.
   #
+  # ----------------------------------------------------------
 
   filter {
     name   = "architecture"

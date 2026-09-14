@@ -12,7 +12,7 @@
 #   1. Primary AWS provider
 #      - Uses the region from var.aws_region
 #      - Applies common default tags automatically
-#      - Used by normal AWS resources
+#      - Acts as the default AWS provider configuration
 #
 #   2. AWS provider alias: no_default_tags
 #      - Uses the same AWS region
@@ -20,14 +20,16 @@
 #      - Used for resources that should not receive the
 #        provider-level default tags
 #
-# The second provider is required for the GitHub Actions
-# OIDC provider because the current IAM user does not have
-# permission to perform:
+# This provider alias is intended for AWS resources that
+# should not receive the provider-level default tags.
 #
-#     iam:TagOpenIDConnectProvider
+# The GitHub Actions OIDC provider can use this alias when
+# it is declared with:
 #
-# The GitHub OIDC provider does not require tags for
-# GitHub Actions authentication to work.
+#     provider = aws.no_default_tags
+#
+# The resource using this alias is defined elsewhere in
+# the Terraform configuration.
 # ==========================================================
 
 
@@ -94,12 +96,12 @@ provider "aws" {
   #
   # IMPORTANT:
   #
-  # These default tags are intentionally kept on the
-  # primary provider because they are useful for the rest
-  # of the AWS infrastructure.
+  # These default tags are configured on the primary provider
+  # so they are applied to supported resources that use this
+  # provider configuration.
   #
-  # The GitHub OIDC provider will NOT use this provider.
-  # It will use the "no_default_tags" provider below.
+  # Resources that should not receive these default tags can
+  # use the "no_default_tags" provider defined below.
   # --------------------------------------------------------
 
   default_tags {
@@ -178,37 +180,16 @@ provider "aws" {
 # intentionally does NOT define default_tags.
 #
 # This provider is used for AWS resources where applying
-# the provider-level default tags would cause an unwanted
-# IAM tagging API operation.
+# the provider-level default tags is not desired.
 #
-# Current use:
+# Resources can explicitly select this provider using:
 #
-#     aws_iam_openid_connect_provider.github_actions
+#     provider = aws.no_default_tags
 #
-# Why?
+# The GitHub Actions OIDC provider can use this provider
+# when it should not receive the primary provider's
+# default tags.
 #
-# The primary provider automatically adds:
-#
-#     Project
-#     Environment
-#     ManagedBy
-#     Lab
-#
-# to supported resources.
-#
-# For the GitHub Actions OIDC provider, Terraform can then
-# attempt to call:
-#
-#     iam:TagOpenIDConnectProvider
-#
-# The current GitHub CI/CD IAM user does not have that
-# permission.
-#
-# The OIDC provider does NOT need these tags for
-# authentication.
-#
-# Therefore, the OIDC provider will use this provider alias
-# instead.
 # ==========================================================
 
 provider "aws" {
@@ -235,8 +216,10 @@ provider "aws" {
   #
   # Use the same region as the primary AWS provider.
   #
-  # The OIDC provider itself is an IAM/global resource, but
-  # the AWS provider still requires a region configuration.
+  # The OIDC provider itself is an IAM/global resource.
+  #
+  # This provider configuration explicitly uses var.aws_region
+  # for consistency with the primary AWS provider.
   # --------------------------------------------------------
 
   region = var.aws_region

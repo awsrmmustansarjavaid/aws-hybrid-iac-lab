@@ -11,8 +11,8 @@
 # - Finding important AWS resource names/ARNs
 # - Debugging
 # - CI/CD pipelines
-# - Passing information to other Terraform configurations
-# - Quickly locating CloudFormation resources
+# - Making important values available after deployment
+# - Quickly identifying the CloudFormation stack and related resources
 #
 # ============================================================
 
@@ -24,16 +24,11 @@
 # Displays the name of the S3 bucket that stores the
 # CloudFormation templates.
 #
-# The bucket contains files such as:
+# The bucket is intended to store CloudFormation templates,
+# including the main template and nested templates.
 #
-# main.yaml
-# nested/vpc.yaml
-# nested/s3.yaml
-# nested/dynamodb.yaml
-# nested/ecr.yaml
-#
-# This is the bucket Terraform uploads the CloudFormation
-# templates into before creating the CloudFormation stack.
+# This bucket is used to store CloudFormation templates
+# required by the CloudFormation deployment.
 #
 # ============================================================
 
@@ -58,15 +53,15 @@ output "cloudformation_template_bucket" {
 # Main CloudFormation Stack Name
 # ============================================================
 #
-# Displays the name of the main/root CloudFormation stack
-# created by Terraform.
+# Displays the name of the CloudFormation stack
+# managed by Terraform.
 #
 # Terraform creates:
 #
 #     aws_cloudformation_stack.main
 #
-# That stack then orchestrates the nested CloudFormation
-# stacks defined in main.yaml.
+# The stack is managed through the Terraform
+# aws_cloudformation_stack.main resource.
 #
 # ============================================================
 
@@ -89,25 +84,24 @@ output "cloudformation_stack_name" {
 # CloudFormation Execution Role ARN
 # ============================================================
 #
-# Displays the ARN of the IAM role that CloudFormation uses
-# to create and manage AWS resources.
+# Displays the ARN of the IAM role designated for
+# CloudFormation resource management.
 #
 # Architecture:
 #
 # Terraform
 #     |
 #     v
-# CloudFormation
-#     |
-#     | assumes
-#     v
-# CloudFormation Execution Role
+# CloudFormation stack
 #     |
 #     v
-# AWS Resources
+# CloudFormation execution role ARN
+#     |
+#     v
+# IAM role resource
 #
 # The ARN is useful when troubleshooting IAM permission
-# problems or verifying which role CloudFormation is using.
+# problems or identifying the CloudFormation execution role.
 #
 # ============================================================
 

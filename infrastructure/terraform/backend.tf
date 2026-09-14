@@ -61,7 +61,7 @@ terraform {
     #
     # Terraform creates:
     #
-    #   aws-hybrid-iac-lab/dev/terraform.tfstate.tflock
+    #   aws-hybrid-iac-lab/terraform.tfstate.tflock
     #
     # DynamoDB locking is NOT required.
     # --------------------------------------------------------

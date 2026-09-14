@@ -115,7 +115,9 @@
 # Terraform owns:
 #
 #   - The CloudFormation template bucket
-#   - CloudFormation template objects
+#   - Terraform manages/uploads the template objects.
+#      This aws_cloudformation_stack resource consumes the
+#      uploaded root template through template_url.
 #   - IAM resources
 #   - The root CloudFormation stack
 #
@@ -169,10 +171,11 @@ resource "aws_cloudformation_stack" "main" {
   # ROOT CLOUDFORMATION TEMPLATE
   # ==========================================================
   #
-  # Terraform uploads main.yaml into the dedicated
-  # CloudFormation template S3 bucket.
+  # main.yaml is stored in the dedicated CloudFormation
+  # template S3 bucket.
   #
-  # CloudFormation then retrieves main.yaml from that bucket.
+  # This resource tells CloudFormation to retrieve the
+  # root template from that bucket.
   #
   # The root template is responsible for creating and
   # connecting the nested CloudFormation stacks.
@@ -271,10 +274,12 @@ resource "aws_cloudformation_stack" "main" {
     # CLOUDFORMATION TEMPLATE LOCATION
     # ========================================================
     #
-    # Terraform owns the CloudFormation template bucket.
+    # Terraform passes the CloudFormation template bucket
+    # and the template prefix to the root stack.
     #
-    # The root CloudFormation stack receives the bucket name
-    # so that it can locate main.yaml and all nested templates.
+    # TemplatePrefix is intentionally empty because the
+    # CloudFormation templates are referenced from the
+    # bucket root.
     #
     # ========================================================
 
@@ -372,18 +377,14 @@ resource "aws_cloudformation_stack" "main" {
   # DEPENDENCIES
   # ==========================================================
   #
-  # The root CloudFormation stack must only be created after:
+  # The root CloudFormation stack depends on:
   #
-  #   1. All CloudFormation templates have been uploaded.
+  #   1. The CloudFormation template S3 object(s)
+  #   2. The CloudFormation execution-role permissions
   #
-  #   2. The CloudFormation execution role permissions exist.
-  #
-  #
-  # This ensures CloudFormation can:
-  #
-  #   - Download main.yaml
-  #   - Download nested templates
-  #   - Create the required nested resources
+  # This ensures the root template is available and
+  # CloudFormation has the required execution permissions
+  # before the stack is created.
   #
   # ==========================================================
 

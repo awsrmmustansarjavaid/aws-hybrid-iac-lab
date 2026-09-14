@@ -10,8 +10,9 @@ terraform {
   # --------------------------------------------------------
   # Minimum Terraform Version
   # --------------------------------------------------------
-  # Terraform 1.6.0 or newer is required to run this project.
-  # Using a minimum version helps avoid compatibility issues.
+  # Terraform 1.15.7 is required to run this project.
+  # The exact version is enforced to ensure consistent
+  # Terraform behavior across environments.
   # --------------------------------------------------------
   required_version = "= 1.15.7"
 

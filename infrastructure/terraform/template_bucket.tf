@@ -2,7 +2,18 @@
 # CloudFormation Template S3 Bucket
 # ==========================================================
 #
-# Terraform creates and manages this S3 bucket.
+# S3 bucket names must be lowercase.
+#
+# Therefore we explicitly convert local.name_prefix to lowercase
+# before using it in the bucket prefix.
+#
+# Example:
+#
+#   MyProject-Dev
+#
+# becomes:
+#
+#   myproject-dev
 #
 # Purpose:
 #   - Store CloudFormation templates
@@ -11,24 +22,6 @@
 #   - Enable versioning for template history
 #   - Prevent public access
 #   - Encrypt templates at rest
-#
-# IMPORTANT:
-#
-# S3 bucket names have stricter naming rules than normal AWS
-# resource names.
-#
-# S3 bucket names must:
-#   - Be lowercase
-#   - Use only letters, numbers, periods, and hyphens
-#   - Be globally unique
-#   - Start and end with a letter or number
-#
-# Our global local.name_prefix may contain uppercase letters:
-#
-#   hybridiaclab-dev
-#
-# Therefore we convert the prefix to lowercase specifically
-# for the S3 bucket.
 #
 # ==========================================================
 
@@ -45,33 +38,20 @@
 #
 # IMPORTANT:
 #
-# Do NOT use:
-#
-#   bucket_prefix = "${local.name_prefix}-cfn-templates-"
-#
-# because local.name_prefix may contain uppercase characters.
-#
-# Instead we use:
-#
-#   lower(local.name_prefix)
-#
-# which converts:
-#
-#   hybridiaclab-dev
-#
-# into:
-#
-#   hybridiaclab-dev
+# The bucket prefix uses lower(local.name_prefix) to ensure
+# the resulting S3 bucket name complies with lowercase naming
+# requirements.
 #
 # The resulting prefix becomes:
 #
 #   hybridiaclab-dev-cfn-templates-
 #
-# Terraform then adds a unique suffix.
+# Terraform uses this value as the bucket-name prefix and
+# generates a unique suffix for the final bucket name.
 #
 # Example generated bucket name:
 #
-#   hybridiaclab-dev-cfn-templates-759b325cae3783edb2b018c38d
+#   hybridiaclab-dev-cfn-templates-<unique-suffix>
 #
 # ==========================================================
 
@@ -81,19 +61,10 @@ resource "aws_s3_bucket" "cloudformation_templates" {
   # Globally Unique S3 Bucket Name
   # --------------------------------------------------------
   #
-  # lower() is important because S3 bucket names must be
-  # lowercase.
+  # lower() ensures the bucket prefix is lowercase.
   #
-  # local.name_prefix:
-  #
-  #   hybridiaclab-dev
-  #
-  # becomes:
-  #
-  #   hybridiaclab-dev
-  #
-  # Terraform automatically appends a unique suffix because
-  # bucket_prefix is being used.
+  # Terraform generates a unique suffix because bucket_prefix
+  # is being used.
   # --------------------------------------------------------
 
   bucket_prefix = "${lower(local.name_prefix)}-cfn-templates-"
@@ -103,8 +74,8 @@ resource "aws_s3_bucket" "cloudformation_templates" {
   # Force Destroy
   # --------------------------------------------------------
   #
-  # Allows Terraform to delete the bucket even when it
-  # contains objects.
+  # Allows Terraform to delete the bucket even when it contains
+  # objects by deleting the objects during bucket destruction.
   #
   # This is convenient for a learning/lab environment.
   #
@@ -188,7 +159,7 @@ resource "aws_s3_bucket_public_access_block" "cloudformation_templates" {
   # Block Public ACLs
   # --------------------------------------------------------
   #
-  # Prevents public access through newly created ACLs.
+  # Rejects requests that attempt to create public ACLs.
   # --------------------------------------------------------
 
   block_public_acls = true
@@ -198,8 +169,8 @@ resource "aws_s3_bucket_public_access_block" "cloudformation_templates" {
   # Block Public Bucket Policies
   # --------------------------------------------------------
   #
-  # Prevents bucket policies that would make the bucket
-  # publicly accessible.
+  # Blocks public bucket policies from being applied to the
+  # bucket.
   # --------------------------------------------------------
 
   block_public_policy = true
@@ -219,8 +190,9 @@ resource "aws_s3_bucket_public_access_block" "cloudformation_templates" {
   # Restrict Public Buckets
   # --------------------------------------------------------
   #
-  # Restricts access when a bucket could otherwise become
-  # publicly accessible.
+  # Restricts access to a bucket or access point with a public
+  # policy, allowing only authorized principals and AWS service
+  # principals.
   # --------------------------------------------------------
 
   restrict_public_buckets = true

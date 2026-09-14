@@ -42,26 +42,35 @@
 # Terraform is the source of truth for the IAM resources
 # defined in this file.
 #
+# IAM JSON files provide the policy documents for the
+# customer-managed IAM policies created by Terraform.
 #
-# The desired architecture is:
 #
+# Architecture:
 #
-# GitHub Repository
+# Terraform configuration
 #       |
-#       +--> IAM/*.json
+#       +--> IAM resources
 #       |
-#       v
-# Terraform
+#       +--> IAM roles
 #       |
-#       +--> IAM Policies
+#       +--> IAM policy attachments
 #       |
-#       +--> IAM Role
-#       |
-#       +--> Policy Attachments
+#       +--> IAM trust policies
 #       |
 #       v
 # AWS IAM
 #
+#
+# For customer-managed policies:
+#
+# IAM/*.json
+#       |
+#       v
+# Terraform aws_iam_policy
+#       |
+#       v
+# AWS IAM policy
 #
 # ==========================================================
 # IMPORTANT: EXISTING IAM RESOURCES
@@ -70,7 +79,8 @@
 # Some IAM resources in this project were created manually
 # before Terraform management was introduced.
 #
-# Examples:
+# Examples of resources that may have existed in AWS
+# before Terraform management was introduced:
 #
 #     aws-hybrid-iac-lab-GitHubActions
 #
@@ -263,14 +273,11 @@
 # IMPORTANT: OIDC TAGGING
 # ==========================================================
 #
-# The OIDC provider intentionally does NOT define tags.
+# This resource intentionally uses the aws.no_default_tags
+# provider configuration and does not define explicit tags.
 #
-# This prevents Terraform from attempting:
-#
-#     iam:TagOpenIDConnectProvider
-#
-#
-# The provider does not require tags to operate.
+# This prevents provider-level default tags from being applied
+# to the OIDC provider.
 #
 # ==========================================================
 
@@ -370,8 +377,15 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
 #     aws-hybrid-iac-lab-GitHubActions
 #
 #
-# In the current project this role has already been imported
-# into Terraform state.
+# The role must exist in Terraform state before Terraform
+# can manage an already-existing AWS role.
+#
+# Verify the current Terraform state before importing:
+#
+#     terraform state list
+#
+# If the role is not in state and already exists in AWS,
+# import it once.
 #
 # Therefore do NOT import it again unless the state is removed.
 #
@@ -422,6 +436,9 @@ resource "aws_iam_role" "github_actions" {
 # ==========================================================
 #
 # Terraform manages the following customer-managed policies:
+#
+# These policies may already exist in AWS or may be created
+# by Terraform if they do not exist.
 #
 #
 # 1. aws-hybrid-iac-lab-GitHubActionsPolicy
@@ -488,7 +505,7 @@ resource "aws_iam_policy" "github_actions" {
 
     github_actions = {
 
-      # Existing AWS IAM policy name.
+      # AWS IAM customer-managed policy name.
       name = var.github_actions_policy_name
 
       # JSON policy stored in Git.
@@ -502,7 +519,7 @@ resource "aws_iam_policy" "github_actions" {
 
     terraform_backend = {
 
-      # Existing AWS IAM policy name.
+      # AWS IAM customer-managed policy name.
       name = var.terraform_backend_policy_name
 
       # JSON policy stored in Git.
@@ -516,7 +533,7 @@ resource "aws_iam_policy" "github_actions" {
 
     combined_access = {
 
-      # Existing AWS IAM policy name.
+      # AWS IAM customer-managed policy name.
       name = var.github_ci_cd_combined_policy_name
 
       # JSON policy stored in Git.
@@ -644,9 +661,10 @@ resource "aws_iam_role_policy_attachment" "github_actions" {
 #     github-ci-cd-user
 #
 #
-# Existing customer-managed policy:
+# Customer-managed policy:
 #
 #     github-ci-cd-user-combined-access
+#
 #
 #
 # The same customer-managed IAM policy can be attached to
@@ -690,7 +708,10 @@ data "aws_iam_user" "github_ci_cd_user" {
 # USER POLICY ATTACHMENT
 # ==========================================================
 #
-# Terraform manages the existing policy attachment.
+# Terraform manages the policy attachment between the
+# existing IAM user and the customer-managed policy.
+#
+# The IAM user itself is not managed by this file.
 #
 # If the attachment already exists in AWS, import it ONCE.
 #
@@ -940,15 +961,15 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
       # IAM ROLE MANAGEMENT FOR CLOUDFORMATION-MANAGED ROLES
       # ====================================================
       #
-      # CloudFormation creates and manages IAM roles used
-      # by the nested CloudFormation stacks.
+      # CloudFormation may need to create and manage IAM roles
+      # used by resources defined in the CloudFormation templates.
       #
-      # These roles can include:
+      # The permissions are restricted to roles whose names match:
       #
-      #     - Lambda execution roles
-      #     - EC2 instance roles
-      #     - EKS cluster roles
-      #     - EKS node roles
+      #     ${local.name_prefix}-*
+      #
+      # This allows CloudFormation to manage only the lab's
+      # CloudFormation-managed roles following this naming convention.
       #
       # The role ARN pattern:
       #
@@ -998,19 +1019,24 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
       # IAM INSTANCE PROFILE MANAGEMENT FOR EC2
       # ====================================================
       #
-      # The EC2 nested CloudFormation stack creates an
-      # IAM Instance Profile and associates the EC2 IAM
-      # role with that profile.
+      # CloudFormation may need to create and manage an IAM
+      # Instance Profile for EC2 resources.
       #
-      # CloudFormation therefore needs permission to:
+      # This statement grants permission to:
       #
-      #     - Create the instance profile
       #     - Read the instance profile
-      #     - Add the EC2 role to the profile
-      #     - Remove the EC2 role from the profile
+      #     - Add a role to the profile
+      #     - Remove a role from the profile
       #     - Delete the instance profile during cleanup
       #
-      # The resource pattern follows the same lab naming
+      # The iam:CreateInstanceProfile action is also listed here,
+      # but AWS requires this action to use Resource = "*".
+      #
+      # Therefore a separate statement with Resource = "*"
+      # is required to authorize instance-profile creation.
+      #
+      # The resource pattern below is used for the other
+      # instance-profile actions and follows the same lab naming
       # convention used by the CloudFormation-managed roles.
       #
       # ====================================================
@@ -1034,16 +1060,20 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
 
 
       # ====================================================
-      # IAM PASSROLE FOR LAMBDA
+      # IAM PASSROLE FOR CLOUDFORMATION-MANAGED ROLES
       # ====================================================
       #
-      # CloudFormation must be able to pass the Lambda
-      # execution role to the Lambda service.
+      # CloudFormation may need to pass IAM roles to AWS
+      # services when creating or updating resources.
+      #
+      # The permission is restricted to roles matching:
+      #
+      #     ${local.name_prefix}-*
       #
       # ====================================================
 
       {
-        Sid    = "PassLambdaExecutionRole"
+        Sid = "PassCloudFormationManagedRoles"
         Effect = "Allow"
 
         Action = [
@@ -1059,21 +1089,11 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
       # IAM PASSROLE FOR CLOUDFORMATION EXECUTION ROLE
       # ====================================================
       #
-      # CloudFormation is running under:
+      # This allows the CloudFormation execution role to pass
+      # the lab's CloudFormation execution role to AWS services
+      # when required by the CloudFormation architecture.
       #
-      #     ${local.name_prefix}-CloudFormationExecutionRole
-      #
-      # The root/nested CloudFormation architecture passes
-      # this execution role to nested CloudFormation stacks.
-      #
-      # Therefore the CloudFormation execution role itself
-      # must have permission to pass this role.
-      #
-      # Without this permission CloudFormation fails with:
-      #
-      #     iam:PassRole
-      #
-      # on:
+      # The permission is restricted to:
       #
       #     ${local.name_prefix}-CloudFormationExecutionRole
       #
@@ -1134,6 +1154,9 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
 #
 #     3. Attach it to the GitHub Actions role
 #
+#        after the matching attachment entry is also added
+#        to aws_iam_role_policy_attachment.github_actions.
+#
 #
 # ==========================================================
 # EXISTING POLICY MIGRATION
@@ -1156,11 +1179,12 @@ resource "aws_iam_role_policy" "cloudformation_lab_permissions" {
 #
 # Review any differences between:
 #
-#     Git IAM JSON
+#     Git IAM JSON policy document
 #
 # and:
 #
-#     AWS IAM policy
+#     The IAM policy document currently represented
+#     by the AWS policy.
 #
 #
 # Step 4:
