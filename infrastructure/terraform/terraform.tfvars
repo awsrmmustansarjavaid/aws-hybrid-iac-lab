@@ -258,8 +258,8 @@ github_actions_policy_name = "aws-hybrid-iac-lab-GitHubActionsPolicy"
 # Terraform backend access.
 #
 #
-# Depending on the backend architecture, this policy may
-# provide access to:
+# The policy provides access required for Terraform backend
+# operations, including:
 #
 #   - Terraform state S3 bucket
 #   - Terraform state objects
@@ -416,20 +416,7 @@ github_ci_cd_combined_policy_name = "github-ci-cd-user-combined-access"
 # Sensitive values must be stored using GitHub Secrets,
 # AWS Secrets Manager, or another approved secret store.
 #
-# ============================================================
-# DYNAMIC AWS INFORMATION
-# ============================================================
 #
-# Terraform also dynamically retrieves AWS information
-# using Terraform data sources.
-#
-# Currently:
-#
-#   - Amazon Linux 2023 AMI is discovered dynamically
-#     through infrastructure/terraform/data.tf
-#
-# Therefore the AMI ID does not need to be manually
-# configured in this file.
 #
 # ============================================================
 # END OF terraform.tfvars

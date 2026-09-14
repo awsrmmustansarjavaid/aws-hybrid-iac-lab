@@ -868,24 +868,77 @@ Resources:
           - !Ref PrivateSubnet1Id
           - !Ref PrivateSubnet2Id
 
-        # ----------------------------------------------------
-        # API ENDPOINT ACCESS
-        # ----------------------------------------------------
+        # ==========================================================
+        # EKS API ENDPOINT ACCESS
+        # ==========================================================
         #
-        # Public access:
+        # The EKS Kubernetes API endpoint is configured with BOTH
+        # public and private access.
         #
-        #   Allows kubectl access through the public EKS API
-        #   endpoint.
+        # Why is public access enabled?
         #
-        # Private access:
+        # This lab deploys Kubernetes resources through GitHub Actions
+        # using GitHub-hosted runners:
         #
-        #   Allows resources inside the VPC to communicate
-        #   with the Kubernetes API endpoint privately.
+        #   runs-on: ubuntu-latest
         #
-        # Both are enabled for this learning lab.
+        # The workflow executes kubectl commands such as:
         #
-        # ----------------------------------------------------
-
+        #   aws eks update-kubeconfig
+        #   kubectl get nodes
+        #   kubectl apply
+        #   kubectl rollout status
+        #
+        # GitHub-hosted runners execute outside the AWS VPC.
+        # Therefore, the runner needs network access to the EKS
+        # Kubernetes API endpoint through its public endpoint.
+        #
+        # Why is private access also enabled?
+        #
+        # Private access allows clients and resources inside the AWS VPC
+        # to communicate with the Kubernetes API through the private
+        # EKS endpoint.
+        #
+        # Why is PublicAccessCidrs not restricted?
+        #
+        # GitHub-hosted runner IP addresses are dynamic and are not
+        # dedicated to this lab.
+        #
+        # Therefore, configuring a fixed PublicAccessCidrs value such
+        # as a single /32 address could cause future GitHub Actions
+        # deployments to fail when the workflow runs from a different
+        # GitHub-hosted runner IP address.
+        #
+        # SECURITY TRADE-OFF:
+        #
+        # The public EKS API endpoint increases the exposed attack
+        # surface compared with a private-only endpoint.
+        #
+        # This is an intentional and documented security trade-off
+        # for this learning lab so that the existing GitHub-hosted
+        # CI/CD architecture can continue to deploy Kubernetes
+        # resources without a major infrastructure change.
+        #
+        # PRODUCTION RECOMMENDATION:
+        #
+        # Production environments should consider:
+        #
+        #   1. Restricting PublicAccessCidrs to trusted static IP ranges.
+        #
+        #   2. Using a self-hosted GitHub Actions runner inside the
+        #      AWS VPC and disabling public EKS API access.
+        #
+        #   3. Using another VPC-connected CI/CD deployment mechanism.
+        #
+        # CURRENT LAB DECISION:
+        #
+        #   EndpointPublicAccess:  true
+        #   EndpointPrivateAccess: true
+        #
+        # This configuration is intentional for the current learning
+        # lab and should not be treated as a configuration error.
+        #
+        # ==========================================================
         EndpointPublicAccess: true
         EndpointPrivateAccess: true
 

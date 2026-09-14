@@ -436,7 +436,7 @@ jobs:
       # ====================================================
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v5.1.1
         with:
 
           aws-region: ${{ env.AWS_REGION }}

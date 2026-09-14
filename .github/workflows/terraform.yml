@@ -205,7 +205,14 @@ env:
   # ----------------------------------------------------------
 
   TF_WORKING_DIRECTORY: "infrastructure/terraform"
-  TF_VERSION: "latest"
+
+  # --------------------------------------------------------
+  # Pin Terraform to the exact version tested by this lab.
+  # This keeps GitHub Actions reproducible and prevents
+  # unexpected behavior caused by automatic Terraform upgrades.
+  # --------------------------------------------------------
+  TF_VERSION: "1.15.7"
+
   TF_PLAN_FILE: "tfplan"
   TF_IN_AUTOMATION: "true"
   TF_INPUT: "false"
