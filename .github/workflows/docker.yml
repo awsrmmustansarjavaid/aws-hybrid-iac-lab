@@ -66,13 +66,14 @@ name: Docker Build, ECR Push and ECS Deployment
 # GLOBAL ENVIRONMENT VARIABLES
 # ==========================================================
 #
-# These values are available to every step in this job.
+# These environment values are available to every step in this job.
 #
 # GitHub Repository Variables required:
 #
-#   AWS_REGION
 #   AWS_ACCOUNT_ID
 #   AWS_ROLE_ARN
+#
+# AWS_REGION is defined directly in this workflow.
 #
 # AWS authentication uses GitHub OIDC.
 #
@@ -98,8 +99,11 @@ env:
   # AWS ACCOUNT ID
   # --------------------------------------------------------
   #
-  # Used only to verify that GitHub authenticated into the
+  # Used to verify that GitHub authenticated into the
   # expected AWS account.
+  #
+  # It is also displayed in the workflow validation
+  # output and deployment summary.
   #
   # IMPORTANT:
   #
@@ -145,11 +149,12 @@ env:
   # ECR REPOSITORY NAME
   # --------------------------------------------------------
   #
-  # This MUST match the repository created by ecr.yaml.
+  # This value must match the ECR repository name
+  # provisioned for this application.
   #
-  # Expected:
+  # Expected by this workflow:
   #
-  # hybridiaclab-dev-app
+  #   hybridiaclab-dev-app
   #
   # --------------------------------------------------------
 
@@ -519,7 +524,7 @@ jobs:
       #
       # Instead ask AWS for the authoritative repositoryUri.
       #
-      # This also guarantees that the repository exists before
+      # This verifies that the repository exists before
       # the ECS deployment begins.
       #
       # ====================================================
@@ -695,10 +700,13 @@ jobs:
       # ============================================================
       #
       # PURPOSE:
-      #   This performs the same HTTP health check that ECS will
-      #   execute inside the running container.
+      # This performs the same HTTP check used by the ECS
+      # container health check.
       #
-      # ECS HEALTH CHECK:
+      # Execute the same HTTP check configured in ecs.yaml.
+      #
+      # ECS health check command:
+      #
       #   curl -f http://localhost/ || exit 1
       #
       # WHY THIS TEST IS IMPORTANT:
@@ -927,7 +935,7 @@ jobs:
       # 14. GET MAIN CLOUDFORMATION NETWORK OUTPUTS
       # ====================================================
       #
-      # MainStack must expose these outputs:
+      # This workflow expects MainStack to provide these outputs:
       #
       #   VpcId
       #   PublicSubnet1Id
@@ -1159,7 +1167,7 @@ jobs:
 
 
           echo ""
-          echo "All ECS subnets belong to the expected VPC."
+          echo "All required ECS subnets belong to the expected VPC."
           echo "Network validation successful."
           echo "================================================"
 
@@ -1170,9 +1178,12 @@ jobs:
       #
       # IMPORTANT:
       #
-      # ecs.yaml expects ONE image parameter:
+      # ecs.yaml expects one image-related parameter:
       #
       #   EcrImageUri
+      #
+      # The ECS stack also receives project, environment,
+      # VPC, and subnet parameters.
       #
       # The complete image URI is produced by the previous
       # image build/push step:
@@ -1263,13 +1274,12 @@ jobs:
           #
           # This matches:
           #
-          #   Parameters:
-          #     EcrImageUri:
+          # ecs.yaml receives the image through:
           #
-          # and:
+          #   EcrImageUri=$ECR_IMAGE_URI
           #
-          #   Image:
-          #     !Ref EcrImageUri
+          # The ECS template is responsible for using this
+          # parameter in the container definition.
           #
           # ------------------------------------------------
 

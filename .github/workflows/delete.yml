@@ -27,19 +27,17 @@
 # Terraform
 #       |
 #       v
-# Main CloudFormation Stack
+# Terraform-managed Main CloudFormation Stack
 #       |
-#       +--> VPC
-#       +--> EC2
-#       +--> S3
-#       +--> RDS
-#       +--> ECR
-#       +--> EKS
-#       +--> supporting AWS resources
+#       +--> EKS Cluster
+#       |       |
+#       |       +--> Kubernetes application resources
+#       |
+#       +--> Other MainStack resources
 #
-# Terraform owns the Main CloudFormation stack.
+# Terraform manages the Main CloudFormation stack.
 #
-# CloudFormation owns the resources contained inside
+# CloudFormation manages the resources declared in
 # MainStack.
 #
 # ----------------------------------------------------------
@@ -69,7 +67,8 @@
 # KUBERNETES OWNERSHIP
 # ----------------------------------------------------------
 #
-# Kubernetes owns resources inside the EKS cluster.
+# Kubernetes manages namespace-scoped application resources
+# inside the EKS cluster.
 #
 # Kubernetes application resources are cleaned up BEFORE
 # MainStack / EKS deletion.
@@ -82,29 +81,34 @@
 # DELETION ORDER
 # ==========================================================
 #
-# 1. Manual DESTROY confirmation
-# 2. Validate configuration
-# 3. Validate GitHub OIDC configuration
-# 4. Authenticate to AWS using GitHub OIDC
-# 5. Verify AWS account and IAM role
-# 6. Install Terraform
-# 7. Initialize Terraform
-# 8. Display Terraform state
-# 9. Detect EKS Kubernetes version
-# 10. Install compatible kubectl
-# 11. Clean Kubernetes application resources
-# 12. Wait for Kubernetes AWS resource cleanup
-# 13. Delete independent ECS CloudFormation stack
-# 14. Delete ECR images
-# 15. Destroy Terraform-managed MainStack
-# 16. Verify Terraform state
-# 17. Verify MainStack deletion
-# 18. Verify ECS stack deletion
-# 19. Verify ECR repository deletion
-# 20. Verify EKS cluster deletion
-# 21. Optionally delete Terraform backend
-# 22. Perform final infrastructure verification
+# 1.  Checkout repository
+# 2.  Require manual DESTROY confirmation
+# 3.  Validate workflow configuration and required tools
+# 4.  Validate GitHub OIDC configuration
+# 5.  Authenticate to AWS using GitHub OIDC
+# 6.  Verify AWS account and IAM role
+# 7.  Install the required Terraform version
+# 8.  Initialize Terraform and connect to the remote backend
+# 9.  Display current Terraform state
+# 10. Check whether the Terraform-managed MainStack exists
+# 11. Detect the EKS Kubernetes version
+# 12. Install the kubectl version compatible with EKS
+# 13. Clean Kubernetes application resources
+# 14. Wait 30 seconds for Kubernetes-managed AWS resource cleanup
+# 15. Delete the independent ECS CloudFormation stack
+# 16. Delete ECR images before deleting the ECR repository
+# 17. Verify ECR images have been removed
+# 18. Destroy Terraform-managed infrastructure
+# 19. Verify Terraform state after destruction
+# 20. Verify MainStack deletion
+# 21. Verify independent ECS stack deletion
+# 22. Verify ECR repository deletion
+# 23. Verify EKS cluster deletion
+# 24. Optionally delete the Terraform backend S3 bucket
+# 25. Perform final infrastructure verification
 #
+# ==========================================================
+
 # ==========================================================
 # IMPORTANT SAFETY RULE
 # ==========================================================
@@ -254,7 +258,7 @@ env:
 
   TF_WORKING_DIRECTORY: "infrastructure/terraform"
 
-  # Terraform version tested by the current lab.
+  # Terraform version used by this workflow.
   #
   # Pinning the version keeps the deletion workflow
   # reproducible.
@@ -481,8 +485,8 @@ jobs:
           # ------------------------------------------------
           # Validate required commands.
           #
-          # jq and curl are required by the validation and
-          # diagnostic steps.
+          # aws, jq, and curl are required by the validation,
+          # authentication, and diagnostic steps.
           # ------------------------------------------------
 
           for COMMAND in aws jq curl; do
@@ -792,7 +796,8 @@ jobs:
           else
 
             echo ""
-            echo "Main CloudFormation stack does not currently exist."
+            echo "Main CloudFormation stack could not be described."
+            echo "It may not currently exist."
 
           fi
 
@@ -877,15 +882,18 @@ jobs:
       # 13. CLEAN KUBERNETES APPLICATION RESOURCES
       # ====================================================
       #
-      # Kubernetes resources must be cleaned before the EKS
-      # cluster is removed.
+      # Namespace-scoped Kubernetes application resources are
+      # cleaned before the EKS cluster deletion is attempted.
       #
-      # In particular, Kubernetes Services of type
-      # LoadBalancer can create AWS load balancers.
+      # The cleanup targets resources inside:
       #
-      # Deleting them while the Kubernetes API is available
-      # allows the Kubernetes/AWS controllers to process their
-      # deletion correctly.
+      #   $K8S_NAMESPACE
+      #
+      # Cluster-scoped Kubernetes resources are not explicitly
+      # removed by this step.
+      #
+      # If the Kubernetes API is unavailable, cleanup is skipped
+      # and the workflow continues with infrastructure deletion.
       # ====================================================
 
       - name: Cleanup Kubernetes Resources
@@ -1126,11 +1134,15 @@ jobs:
       # 14. WAIT FOR KUBERNETES AWS RESOURCE CLEANUP
       # ====================================================
       #
-      # Kubernetes controllers may need additional time to
-      # remove AWS load balancers and related resources.
+      # Kubernetes controllers may need additional time to process
+      # deletion of AWS resources associated with Kubernetes objects.
       #
-      # This wait is intentionally performed before EKS itself
-      # is deleted.
+      # The workflow waits 30 seconds after Kubernetes cleanup before
+      # continuing with AWS infrastructure deletion.
+      #
+      # This is a fixed delay only; the workflow does not query AWS
+      # to independently confirm that controller-managed resources
+      # have been fully removed.
       # ====================================================
 
       - name: Wait For Kubernetes AWS Resource Cleanup
@@ -1362,7 +1374,11 @@ jobs:
       # CloudFormation then deletes the resources contained
       # inside MainStack.
       #
-      # This includes the infrastructure associated with:
+      # The MainStack deletion removes the resources currently
+      # defined as part of MainStack.
+      #
+      # Depending on the current MainStack template, these may
+      # include:
       #
       #   VPC
       #   EC2
@@ -1371,8 +1387,6 @@ jobs:
       #   ECR
       #   EKS
       #   supporting resources
-      #
-      # depending on the current MainStack template.
       # ====================================================
 
       - name: Terraform Destroy
@@ -1420,7 +1434,13 @@ jobs:
           echo "================================================"
 
       # ====================================================
-      # 19. VERIFY TERRAFORM STATE AFTER DESTROY
+      # 19. CHECK TERRAFORM STATE AFTER DESTROY
+      #
+      # Confirm that Terraform state is empty after destruction.
+      #
+      # A non-empty state or state-read failure is reported as a
+      # warning here; the workflow continues to the AWS resource
+      # verification steps.
       # ====================================================
 
       - name: Verify Terraform State After Destroy
@@ -1881,7 +1901,7 @@ jobs:
 
           echo ""
           echo "----------------------------------------------------------"
-          echo "INFRASTRUCTURE DELETION COMPLETED SUCCESSFULLY"
+          echo "INFRASTRUCTURE DELETION VERIFICATION COMPLETED"
           echo "----------------------------------------------------------"
 
           echo ""

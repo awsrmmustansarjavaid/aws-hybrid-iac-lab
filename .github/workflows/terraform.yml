@@ -11,20 +11,21 @@
 # Purpose:
 #
 #   1. Checkout repository.
-#   2. Run permanent pre-flight validation.
-#   3. Verify GitHub OIDC runtime configuration.
+#   2. Run pre-flight configuration and environment validation.
+#   3. Verify GitHub OIDC token availability and runtime configuration.
 #   4. Diagnose the actual GitHub OIDC JWT claims.
 #   5. Configure AWS credentials using GitHub OIDC.
 #   6. Verify AWS STS identity.
 #   7. Bootstrap/verify Terraform S3 state bucket.
-#   8. Install Terraform.
+#   8. Setup the pinned Terraform version.
 #   9. Initialize Terraform.
 #   10. Check Terraform formatting.
 #   11. Validate Terraform configuration.
-#   12. Diagnose Terraform state safely.
-#   13. Discover the latest Amazon Linux 2023 AMI.
+#   12. Diagnose Terraform state without modifying it.
+#   13. Resolve the AWS-managed current Amazon Linux 2023 AMI.
 #   14. Generate Terraform plan.
-#   15. Apply the exact generated Terraform plan.
+#   15. Invoke the deployment orchestration script to execute the
+#     generated Terraform plan and monitor CloudFormation deployment.
 #
 # ============================================================
 #
@@ -64,10 +65,14 @@
 #
 # ============================================================
 #
-# AWS_ACCOUNT_ID and AWS_ROLE_ARN are intentionally NOT stored
-# directly in the workflow-level environment configuration.
+# AWS_ACCOUNT_ID and AWS_ROLE_ARN are intentionally not hardcoded
+# as literal values in this workflow.
 #
-# They are stored as GitHub Actions REPOSITORY VARIABLES.
+# They are supplied from GitHub Actions repository variables and
+# exposed to the Terraform job at runtime.
+#
+# These values identify the AWS account and IAM role; they are not
+# AWS access credentials.
 #
 # These values are identifiers, not AWS credentials.
 #
@@ -125,7 +130,7 @@
 #   AWS_ACCOUNT_ID
 #
 # Value:
-#   123654789
+#   123456789012
 #
 # ------------------------------------------------------------
 # GITHUB VARIABLE #2
@@ -135,11 +140,34 @@
 #   AWS_ROLE_ARN
 #
 # Value:
-#   arn:aws:iam::your aws id:role/aws-hybrid-iac-lab-GitHubActions
+#   arn:aws:iam::123456789012:role/aws-hybrid-iac-lab-GitHubActions
 #
 # Variable names are CASE-SENSITIVE.
 #
+# IMPORTANT:
+#
+# Replace 123456789012 with your actual 12-digit AWS account ID.
+#
 # ============================================================
+
+# ==========================================================
+# OIDC SUBJECT CLAIM ANALYSIS
+# ==========================================================
+#
+# The following comparison checks whether the token uses the
+# classic GitHub branch-based OIDC subject format:
+#
+#   repo:OWNER/REPOSITORY:ref:refs/heads/BRANCH
+#
+# This is a diagnostic comparison only.
+#
+# It does NOT directly inspect or validate the AWS IAM trust
+# policy.
+#
+# The actual IAM trust policy must match the OIDC subject
+# format issued for this repository.
+#
+# ==========================================================
 
 
 # ============================================================
@@ -186,14 +214,13 @@ env:
   #
   # IMPORTANT:
   #
-  # This MUST match Terraform:
+  # This value must remain aligned with the Terraform project naming
+  # configuration and the CloudFormation stack name expected by the
+  # deployment monitoring system.
   #
-  #   project_name = "hybridiaclab"
+  # Current expected root stack:
   #
-  # Therefore the real CloudFormation root stack is:
-  #
-  #   hybridiaclab-dev-MainStack
-  #
+  #   hybridiaclab-dev-MainStack  
   # ----------------------------------------------------------
 
   PROJECT_NAME: "hybridiaclab"
@@ -294,7 +321,7 @@ jobs:
 
       # ======================================================
       # STEP 2
-      # PERMANENT PRE-FLIGHT VALIDATION
+      # PRE-FLIGHT CONFIGURATION VALIDATION
       # ======================================================
 
       - name: Preflight Configuration Validation
@@ -598,7 +625,7 @@ jobs:
 
       # ======================================================
       # STEP 3
-      # PERMANENT GITHUB OIDC CLAIM DIAGNOSTIC
+      # GITHUB OIDC CLAIM DIAGNOSTIC
       # ======================================================
 
       - name: Diagnose GitHub OIDC Claims
@@ -811,15 +838,16 @@ jobs:
           echo "${SUB}"
 
           echo ""
-          echo "Classic IAM expected sub:"
+          echo "Expected IAM OIDC subject for a branch-based trust policy:"
           echo "${EXPECTED_CLASSIC_SUB}"
 
           if [[ "${SUB}" == "${EXPECTED_CLASSIC_SUB}" ]]; then
             echo ""
-            echo "PASS: OIDC sub matches classic IAM trust policy format."
+            echo "Expected branch-based OIDC subject format:"
+            echo "PASS: OIDC sub matches the expected branch-based subject format."
           else
             echo ""
-            echo "WARNING: OIDC sub does NOT match classic IAM trust policy."
+            echo "WARNING: OIDC sub does not match the expected branch-based IAM trust policy format."
             echo ""
             echo "DO NOT change IAM automatically."
           fi
@@ -974,7 +1002,7 @@ jobs:
 
       # ======================================================
       # STEP 7
-      # BOOTSTRAP TERRAFORM STATE BUCKET
+      # TERRAFORM S3 BACKEND BUCKET BOOTSTRAP USING AWS CLI
       # ======================================================
 
       - name: Bootstrap Terraform State Bucket
@@ -1129,8 +1157,8 @@ jobs:
 
 
       # ======================================================
-      # STEP 8
-      # SETUP TERRAFORM
+      # STEP 8      
+      # Setup the pinned Terraform version
       # ======================================================
 
       - name: Setup Terraform
@@ -1200,6 +1228,7 @@ jobs:
       # ======================================================
       # STEP 12
       # TERRAFORM STATE DIAGNOSTIC
+      # Diagnose Terraform state without modifying it.
       # ======================================================
 
       - name: Terraform State Diagnostic
@@ -1288,7 +1317,7 @@ jobs:
 
             echo ""
             echo "Terraform will create the state after"
-            echo "terraform apply."
+            echo "the deployment orchestration applies the plan."
 
             echo ""
             echo "Terraform state diagnostic completed successfully."
@@ -1308,7 +1337,7 @@ jobs:
 
       # ======================================================
       # STEP 13
-      # DISCOVER AMAZON LINUX 2023 AMI
+      # RESOLVE THE AWS-MANAGED AMAZON LINUX 2023 AMI
       # ======================================================
 
       - name: Discover Amazon Linux 2023 AMI
@@ -1407,7 +1436,7 @@ jobs:
 
 
       # ==========================================================
-      # STEP 15 - TERRAFORM APPLY + LIVE CLOUDFORMATION MONITOR
+      # STEP 15 - DEPLOYMENT ORCHESTRATION + LIVE CLOUDFORMATION MONITOR
       # ==========================================================
 
       - name: Step 15 - Terraform Apply With Live CloudFormation Diagnostics
@@ -1453,7 +1482,7 @@ jobs:
 
 
           # ==========================================================
-          # NEW MONITOR DIRECTORY
+          # DEPLOYMENT MONITOR DIRECTORY
           # ==========================================================
 
           $MonitorDirectory = Join-Path `
@@ -1466,7 +1495,7 @@ jobs:
 
 
           # ==========================================================
-          # OUTPUT DIRECTORY
+          # DEPLOYMENT DIAGNOSTICS OUTPUT DIRECTORY
           # ==========================================================
 
           $OutputDirectory = Join-Path `
@@ -1542,7 +1571,7 @@ jobs:
 
 
           # ==========================================================
-          # DETERMINE ROOT STACK
+          # CONSTRUCT EXPECTED CLOUDFORMATION ROOT STACK NAME
           # ==========================================================
 
           $MainStackName = "${env:PROJECT_NAME}-${env:ENVIRONMENT}-MainStack"
@@ -1558,7 +1587,7 @@ jobs:
 
 
           # ==========================================================
-          # DETERMINE TERRAFORM PLAN
+          # VERIFY TERRAFORM PLAN FILE CONFIGURATION
           # ==========================================================
           #
           # Keep this aligned with your existing workflow.
@@ -1589,7 +1618,7 @@ jobs:
 
 
           # ==========================================================
-          # START PROFESSIONAL DEPLOYMENT ORCHESTRATOR
+          # START DEPLOYMENT MONITORING / ORCHESTRATION SCRIPT
           # ==========================================================
 
           Write-Host ""
@@ -1658,14 +1687,14 @@ jobs:
 
 
           # ==========================================================
-          # TERRAFORM REMAINS AUTHORITATIVE
+          # EXECUTE DEPLOYMENT ORCHESTRATION USING THE GENERATED PLAN
           # ==========================================================
 
           exit $DeploymentExitCode
 
 
       # ==========================================================
-      # STEP 16 - UPLOAD COMPLETE DEPLOYMENT DIAGNOSTICS
+      # STEP 16 - UPLOAD DEPLOYMENT DIAGNOSTICS
       # ==========================================================
 
       - name: Step 16 - Upload Complete Deployment Diagnostics

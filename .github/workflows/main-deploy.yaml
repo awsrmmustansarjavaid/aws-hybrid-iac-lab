@@ -95,8 +95,8 @@ on:
 # JOBS
 # ==========================================================
 #
-# The "jobs" section defines the individual deployment
-# stages of the pipeline.
+# The "jobs" section defines the individual jobs that make
+# up the deployment pipeline.
 #
 # This main workflow calls three reusable workflows:
 #
@@ -113,14 +113,16 @@ jobs:
   # JOB 1 — TERRAFORM + CLOUDFORMATION
   # ========================================================
   #
-  # This is the FIRST deployment stage.
+  # This is the FIRST deployment job in the main workflow.
+  #
   #
   # It calls:
   #
   #   .github/workflows/terraform.yml
   #
-  # Terraform infrastructure must be created or updated
-  # before the application/container deployment begins.
+  # Docker and Kubernetes depend on this Terraform job,
+  # so the infrastructure deployment runs before those
+  # application/container deployment jobs.
   #
   # --------------------------------------------------------
   # IMPORTANT:
@@ -139,8 +141,8 @@ jobs:
     # EXPLICIT GITHUB ACTIONS PERMISSIONS
     # ------------------------------------------------------
     #
-    # These permissions are explicitly assigned to the
-    # Terraform reusable workflow job.
+    # These job-level permissions explicitly provide the
+    # permissions required by the Terraform reusable workflow.
     #
     # id-token: write
     #   Allows the Terraform workflow to request a GitHub
@@ -171,11 +173,15 @@ jobs:
 
 
     # ------------------------------------------------------
-    # Pass the repository's available GitHub Secrets to the
+    # INHERIT GITHUB SECRETS
+    # ------------------------------------------------------
+    #
+    # Pass the caller workflow's available secrets to the
     # reusable Terraform workflow.
     #
-    # This is useful when Terraform requires secrets such as
-    # AWS-related configuration or other protected values.
+    # The reusable workflow can access these inherited secrets
+    # if its configuration requires them.
+    #
     # ------------------------------------------------------
 
     secrets: inherit
@@ -243,7 +249,7 @@ jobs:
   # JOB 3 — KUBERNETES + AMAZON EKS
   # ========================================================
   #
-  # This is the THIRD and FINAL deployment stage.
+  # This is the THIRD deployment job in the main workflow.
   #
   # It calls:
   #
@@ -266,18 +272,14 @@ jobs:
     #
     # Kubernetes depends on BOTH Terraform and Docker.
     #
-    # Deployment flow:
+    # Deployment dependency:
     #
-    #              Terraform
-    #                 │
-    #                 ▼
-    #               Docker
-    #                 │
-    #                 ▼
-    #             Kubernetes
+    #                 Terraform
+    #                 /       \
+    #                ▼         ▼
+    #             Docker ───> Kubernetes
     #
-    # Kubernetes also explicitly depends on Terraform.
-    #
+    # Kubernetes explicitly waits for BOTH Terraform and Docker.        
     # ------------------------------------------------------
 
     needs:

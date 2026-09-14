@@ -14,6 +14,11 @@
 # ARCHITECTURE
 # ==========================================================
 #
+# This workflow assumes the required AWS infrastructure,
+# including the EKS cluster, ECR repository, and IAM role,
+# already exists before this workflow runs.
+#
+#
 # Terraform
 #     |
 #     | IAM + supporting infrastructure
@@ -84,16 +89,20 @@
 #
 # Therefore this workflow does NOT create the EKS cluster.
 #
-# This workflow only:
+# This workflow:
 #
 #   1. Authenticates to AWS using GitHub OIDC
-#   2. Retrieves the ECR repository URI
+#   2. Retrieves ECR repository information from CloudFormation
 #   3. Verifies the ECR image exists
 #   4. Verifies the EKS cluster
-#   5. Configures kubectl
-#   6. Creates/updates Kubernetes resources
-#   7. Updates the application to the immutable Git SHA image
-#   8. Verifies the Kubernetes rollout
+#   5. Verifies the EKS node group
+#   6. Installs kubectl and envsubst
+#   7. Configures kubectl for the EKS cluster
+#   8. Verifies Kubernetes connectivity
+#   9. Validates required Kubernetes manifests
+#  10. Creates/updates Kubernetes resources
+#  11. Renders the deployment with the immutable Git SHA image
+#  12. Verifies Kubernetes resources and rollout
 #
 # ==========================================================
 # GLOBAL PROJECT CONFIGURATION
@@ -141,7 +150,8 @@ env:
   # PROJECT NAME
   # --------------------------------------------------------
   #
-  # Must match the Terraform/CloudFormation project name.
+  # Project name used by this workflow and the lab naming
+  # convention.
   #
   # --------------------------------------------------------
 
@@ -161,11 +171,9 @@ env:
   # AWS REGION
   # --------------------------------------------------------
   #
-  # Stored as a GitHub repository/environment variable.
+  # AWS region used by the workflow.
   #
-  # GitHub variable:
-  #
-  #   AWS_REGION
+  # This value is currently defined directly in this workflow.
   #
   # Example:
   #
@@ -1165,16 +1173,22 @@ jobs:
 # KUBERNETES MANIFEST REQUIREMENTS
 # ==========================================================
 #
-# The following manifests should use:
+# Application resources should use:
 #
 #   namespace: hybridiaclab
 #
-# Files:
+# This applies to:
 #
-#   kubernetes/namespace.yaml
 #   kubernetes/configmap.yaml
 #   kubernetes/deployment.yaml
 #   kubernetes/service.yaml
+#
+# The namespace.yaml manifest defines the:
+#
+#   hybridiaclab
+#
+# namespace itself and should not be treated as an
+# application resource requiring this namespace field.
 #
 # ==========================================================
 # DEPLOYMENT IMAGE REQUIREMENT
@@ -1199,16 +1213,13 @@ jobs:
 # IMPORTANT
 # ==========================================================
 #
-# Kubernetes must NOT contain old project names such as:
+# Kubernetes configuration must not contain obsolete project
+# names such as:
 #
 #   hybrid-iac
-#   hybridiaclab
 #
 # The current project naming standard is:
 #
 #   hybridiaclab
 #
 # ==========================================================
-# END OF WORKFLOW
-# ==========================================================
-
