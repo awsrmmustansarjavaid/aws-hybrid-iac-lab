@@ -14,7 +14,7 @@ set -e
 
 AWS_REGION="${AWS_REGION:-us-east-1}"
 
-PROJECT_NAME="${PROJECT_NAME:-HybridIaCLab}"
+PROJECT_NAME="${PROJECT_NAME:-hybridiaclab}"
 
 ENVIRONMENT="${ENVIRONMENT:-dev}"
 

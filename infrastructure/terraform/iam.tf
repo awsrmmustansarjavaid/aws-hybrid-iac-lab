@@ -383,7 +383,7 @@ resource "aws_iam_role" "github_actions" {
   # Preserve the existing role name.
   # --------------------------------------------------------
 
-  name = "aws-hybrid-iac-lab-GitHubActions"
+  name = var.github_actions_role_name
 
   # --------------------------------------------------------
   # Role description.
@@ -409,7 +409,7 @@ resource "aws_iam_role" "github_actions" {
 
   tags = {
     Name        = "${local.name_prefix}-GitHubActions"
-    Project     = "aws-hybrid-iac-lab"
+    Project = var.project_name
     ManagedBy   = "Terraform"
     Purpose     = "GitHub Actions CI/CD"
     Environment = var.environment
@@ -489,7 +489,7 @@ resource "aws_iam_policy" "github_actions" {
     github_actions = {
 
       # Existing AWS IAM policy name.
-      name = "aws-hybrid-iac-lab-GitHubActionsPolicy"
+      name = var.github_actions_policy_name
 
       # JSON policy stored in Git.
       file = "${path.module}/../../IAM/aws-hybrid-iac-lab-GitHubActionsPolicy.json"
@@ -503,7 +503,7 @@ resource "aws_iam_policy" "github_actions" {
     terraform_backend = {
 
       # Existing AWS IAM policy name.
-      name = "github-actions-terraform-backend-policy"
+      name = var.terraform_backend_policy_name
 
       # JSON policy stored in Git.
       file = "${path.module}/../../IAM/github-actions-terraform-backend-policy.json"
@@ -517,7 +517,7 @@ resource "aws_iam_policy" "github_actions" {
     combined_access = {
 
       # Existing AWS IAM policy name.
-      name = "github-ci-cd-user-combined-access"
+      name = var.github_ci_cd_combined_policy_name
 
       # JSON policy stored in Git.
       file = "${path.module}/../../IAM/github-ci-cd-user-combined-access.json"
@@ -544,7 +544,7 @@ resource "aws_iam_policy" "github_actions" {
   # --------------------------------------------------------
 
   tags = {
-    Project   = "aws-hybrid-iac-lab"
+    Project = var.project_name
     ManagedBy = "Terraform"
   }
 }

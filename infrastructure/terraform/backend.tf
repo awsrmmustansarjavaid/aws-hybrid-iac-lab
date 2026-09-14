@@ -15,7 +15,7 @@
 #   aws-hybrid-iac-lab-terraform-state-537236558357
 #
 # State file:
-#   aws-hybrid-iac-lab/dev/terraform.tfstate
+#   aws-hybrid-iac-lab/terraform.tfstate
 #
 # State locking:
 #   S3 lockfile (.tflock)

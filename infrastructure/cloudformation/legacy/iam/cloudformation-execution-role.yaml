@@ -2,7 +2,11 @@
 # AWS HYBRID IaC LAB
 # CLOUDFORMATION EXECUTION ROLE
 # ============================================================
-#
+# NOTE: This template is NOT deployed anywhere in this repo.
+# The real CloudFormation execution role is created by Terraform
+# (see infrastructure/terraform/iam.tf). This file is kept for
+# reference only — do not deploy it.
+# ============================================================
 # File:
 #
 #   infrastructure/cloudformation/iam/cloudformation-execution-role.yaml

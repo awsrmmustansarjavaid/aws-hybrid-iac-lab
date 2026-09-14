@@ -16,24 +16,21 @@
 # IMPORTANT SECURITY WARNING
 # ============================================================
 #
-# THIS FILE MUST NOT BE COMMITTED TO GITHUB.
+# IMPORTANT SECURITY WARNING
+#
+# This file contains non-secret lab configuration.
+# It may be committed if it contains only non-sensitive configuration values.
+# NEVER place passwords, access keys, tokens, private keys, or other secrets in this file.
+# Sensitive values must be stored using GitHub Secrets, AWS Secrets Manager, or another approved secret store.
 #
 # This file may contain:
 #
 #   - Environment-specific configuration
-#   - AWS resource values
-#   - Database credentials
+#   - AWS configuration values
 #   - IAM naming configuration
 #
-#
-# Recommended .gitignore entries:
-#
-#   terraform.tfvars
-#   *.tfvars
-#   *.tfvars.json
-#
-#
-# The real database password must NEVER be committed.
+# The RDS database password is managed by AWS Secrets Manager
+# and must NEVER be stored or committed in this file.
 #
 #
 # ============================================================
@@ -222,7 +219,7 @@ database_username = "admin"
 #
 # ============================================================
 
-github_actions_role_name = "github-actions-oidc-role"
+github_actions_role_name = "aws-hybrid-iac-lab-GitHubActions"
 
 
 
@@ -303,7 +300,7 @@ github_ci_cd_combined_policy_name = "github-ci-cd-user-combined-access"
 # FINAL VARIABLE CHECKLIST
 # ============================================================
 #
-# The following variables are expected by variables.tf:
+# The following variables are configured in this file:
 #
 #
 # AWS / PROJECT
@@ -313,15 +310,9 @@ github_ci_cd_combined_policy_name = "github-ci-cd-user-combined-access"
 #   [x] environment
 #
 #
-# EXTERNAL APPLICATION INPUTS
-#
-#   [x] ami_id
-#
-#
 # DATABASE
 #
 #   [x] database_username
-#   [x] database_password
 #
 #
 # TERRAFORM-MANAGED IAM
@@ -333,65 +324,112 @@ github_ci_cd_combined_policy_name = "github-ci-cd-user-combined-access"
 #
 #
 # ============================================================
-# VARIABLES INTENTIONALLY REMOVED
+# VALUES AUTOMATICALLY DISCOVERED OR MANAGED ELSEWHERE
 # ============================================================
 #
-# These variables are NOT included because their resources
-# are created by CloudFormation:
+# The following values are intentionally NOT configured in
+# terraform.tfvars.
 #
-#   [x] vpc_id
-#   [x] public_subnet_id
-#   [x] public_subnet_1_id
-#   [x] public_subnet_2_id
-#   [x] private_subnet_1_id
-#   [x] private_subnet_2_id
-#   [x] application_bucket_name
-#   [x] lambda_function_arn
-#   [x] ecr_image_uri
+#
+# EC2 AMI
+#
+#   ami_id
+#
+# The AMI ID is dynamically discovered by Terraform using:
+#
+#   data.aws_ami.amazon_linux_2023.id
+#
+# defined in:
+#
+#   infrastructure/terraform/data.tf
+#
+#
+# RDS DATABASE PASSWORD
+#
+#   database_password
+#
+# The database password is NOT stored in Terraform variables.
+#
+# RDS credentials are managed using AWS Secrets Manager through
+# the CloudFormation RDS configuration.
+#
+#
+# ============================================================
+# CLOUDFORMATION-MANAGED VALUES
+# ============================================================
+#
+# These values are not configured here because their
+# corresponding resources are created by CloudFormation:
+#
+#   vpc_id
+#   public_subnet_id
+#   public_subnet_1_id
+#   public_subnet_2_id
+#   private_subnet_1_id
+#   private_subnet_2_id
+#   application_bucket_name
+#   lambda_function_arn
+#   ecr_image_uri
 #
 #
 # ============================================================
 # IAM VALUES INTENTIONALLY NOT INCLUDED
 # ============================================================
 #
-# These are NOT variables:
+# These values are not configured as input variables:
 #
-#   [x] github_actions_role_arn
-#   [x] github_actions_policy_arn
-#   [x] terraform_backend_policy_arn
-#   [x] iam_policy_directory
+#   github_actions_role_arn
+#   github_actions_policy_arn
+#   terraform_backend_policy_arn
+#   iam_policy_directory
 #
 #
-# Why?
-#
-# Terraform can obtain IAM ARNs directly from resources that
-# it creates.
+# Terraform obtains IAM ARNs directly from the IAM resources
+# that it creates.
 #
 # The IAM policy directory is part of the fixed repository
-# structure and therefore does not need to be an input.
+# structure and therefore does not need to be an input
+# variable.
 #
 #
 # ============================================================
-# FINAL PRE-PLAN CHECKLIST
+# SECURITY CHECK
 # ============================================================
 #
 # Before running:
 #
 #   terraform plan
 #
-# make sure you have replaced:
+# verify that this file contains only non-sensitive
+# configuration values.
 #
-#   [ ] ami_id
-#   [ ] database_password
+# NEVER add:
 #
+#   - Database passwords
+#   - AWS access keys
+#   - Secret access keys
+#   - API tokens
+#   - GitHub tokens
+#   - Private keys
+#   - Other credentials or secrets
 #
-# IAM names may be left at their defaults unless you want
-# different naming.
+# Sensitive values must be stored using GitHub Secrets,
+# AWS Secrets Manager, or another approved secret store.
 #
+# ============================================================
+# DYNAMIC AWS INFORMATION
+# ============================================================
 #
-# NEVER weaken variables.tf validation just to make invalid
-# placeholder values pass.
+# Terraform also dynamically retrieves AWS information
+# using Terraform data sources.
 #
+# Currently:
+#
+#   - Amazon Linux 2023 AMI is discovered dynamically
+#     through infrastructure/terraform/data.tf
+#
+# Therefore the AMI ID does not need to be manually
+# configured in this file.
 #
 # ============================================================
 # END OF terraform.tfvars

@@ -30,12 +30,12 @@ locals {
   #
   # Example:
   #
-  #   project_name = "HybridIaCLab"
+  #   project_name = "hybridiaclab"
   #   environment  = "dev"
   #
   # Result:
   #
-  #   HybridIaCLab-dev
+  #   hybridiaclab-dev
   #
   # This can be used when naming AWS resources so that it is
   # easy to identify which project and environment they
