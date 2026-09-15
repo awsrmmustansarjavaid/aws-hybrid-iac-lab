@@ -55,26 +55,14 @@
 #   - Other Terraform-specific infrastructure
 #
 #
-# CloudFormation creates:
-#
-#   - VPC
-#   - Subnets
-#   - Application S3 bucket
-#   - Lambda
-#   - ECR repository
-#   - DynamoDB
-#   - API Gateway
-#   - CloudFront
-#   - EC2
-#   - ECS
-#   - EKS
-#   - RDS
+# CloudFormation is responsible for the infrastructure
+# defined by the project's CloudFormation root/nested stacks, including
+# the resources configured in those templates.
 #
 #
-# Therefore this example intentionally DOES NOT contain
-# Terraform input variables for CloudFormation-managed
-# resource values such as resource IDs, ARNs, names, or
-# application-specific values.
+# Therefore this example intentionally DOES NOT contain Terraform input
+# variables for CloudFormation-managed resource identifiers and resource
+# values such as resource IDs, ARNs, and resource names.
 #
 #
 # ============================================================
@@ -206,7 +194,7 @@ github_actions_policy_name = "aws-hybrid-iac-lab-GitHubActionsPolicy"
 # ============================================================
 #
 # Name of the customer-managed IAM policy used by the
-# Terraform backend.
+# GitHub Actions Terraform backend.
 #
 # ============================================================
 
@@ -219,8 +207,7 @@ terraform_backend_policy_name = "github-actions-terraform-backend-policy"
 # ============================================================
 #
 # Name of the customer-managed IAM policy containing the
-# combined AWS permissions required by the GitHub CI/CD
-# identity.
+# combined AWS permissions required by GitHub CI/CD.
 #
 # The policy document itself is stored under:
 #
@@ -254,9 +241,9 @@ github_ci_cd_combined_policy_name = "github-ci-cd-user-combined-access"
 # The RDS database password is also not a Terraform input
 # variable because it is managed through AWS Secrets Manager.
 #
-# These values are created or supplied by CloudFormation
-# and/or the application deployment workflow, depending
-# on the resource and deployment stage.
+# These values are created, obtained, or supplied by CloudFormation
+# and/or the application deployment workflow, depending on the
+# resource and deployment stage.
 #
 #
 # Example:
@@ -284,14 +271,18 @@ github_ci_cd_combined_policy_name = "github-ci-cd-user-combined-access"
 #       |
 #       +--> ECR Stack
 #       |
-#       +--> Database Stack
+#       +--> RDS Stack
 #       |
-#       +--> Application Stacks
+#       +--> Application Resources
+#              |
+#              +--> ECS
+#              +--> EKS
+#              +--> API Gateway
+#              +--> CloudFront
 #
 #
-# CloudFormation outputs should be used when another
-# CloudFormation stack or Terraform resource needs values
-# created inside the hierarchy.
+# CloudFormation outputs can be used when another CloudFormation stack
+# or Terraform resource needs values created inside the hierarchy.
 #
 #
 # ============================================================

@@ -50,21 +50,8 @@
 #   - Other Terraform-specific resources
 #
 #
-# CloudFormation manages the application infrastructure,
-# including resources such as:
-#
-#   - VPC
-#   - Subnets
-#   - Application S3 bucket
-#   - Lambda
-#   - ECR repository
-#   - DynamoDB
-#   - API Gateway
-#   - CloudFront
-#   - EC2
-#   - ECS
-#   - EKS
-#   - RDS
+# CloudFormation-managed infrastructure values are not
+# configured directly in this file.
 #
 #
 # Therefore this file intentionally DOES NOT contain:
@@ -86,9 +73,8 @@
 # IAM ARCHITECTURE
 # ============================================================
 #
-# Terraform manages the IAM resources.
-#
-# Therefore this file contains IAM RESOURCE NAME variables:
+# The IAM resource names used by Terraform are configured
+# in this file:
 #
 #   github_actions_role_name
 #   github_actions_policy_name
@@ -113,8 +99,9 @@
 #
 #   iam_policy_directory
 #
-# IAM policy JSON files are located in a fixed repository
-# directory and are referenced directly from iam.tf.
+# The IAM policy directory is part of the fixed repository
+# structure and therefore does not need to be an input
+# variable.
 #
 #
 # ============================================================
@@ -162,12 +149,6 @@ project_name = "hybridiaclab"
 #
 # Deployment environment.
 #
-# Supported values:
-#
-#   dev
-#   test
-#   staging
-#   prod
 #
 # Current lab environment:
 #
@@ -188,7 +169,7 @@ environment = "dev"
 # This value is not treated as highly sensitive in the same
 # way as the database password.
 #
-# Default:
+# Current value:
 #
 #   admin
 #
@@ -202,8 +183,8 @@ database_username = "admin"
 # 5. GITHUB ACTIONS IAM ROLE NAME
 # ============================================================
 #
-# Name of the IAM role assumed by GitHub Actions through
-# GitHub OIDC.
+# Name of the IAM role used by the GitHub Actions AWS
+# authentication configuration.
 #
 #
 # Terraform creates/manages this IAM role.
@@ -227,8 +208,8 @@ github_actions_role_name = "aws-hybrid-iac-lab-GitHubActions"
 # 6. GITHUB ACTIONS IAM POLICY NAME
 # ============================================================
 #
-# Name of the customer-managed IAM policy attached to the
-# GitHub Actions OIDC role.
+# Name of the customer-managed IAM policy used by
+# GitHub Actions for AWS access.
 #
 #
 # Terraform creates/manages this policy.
@@ -350,8 +331,8 @@ github_ci_cd_combined_policy_name = "github-ci-cd-user-combined-access"
 #
 # The database password is NOT stored in Terraform variables.
 #
-# RDS credentials are managed using AWS Secrets Manager through
-# the CloudFormation RDS configuration.
+# The RDS database password is managed using AWS Secrets Manager
+# through the CloudFormation RDS configuration.
 #
 #
 # ============================================================

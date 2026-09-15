@@ -118,9 +118,8 @@
 #   1. AWS configuration
 #   2. Project configuration
 #   3. Environment configuration
-#   4. External compute/application inputs
-#   5. Database credentials
-#   6. Terraform-managed IAM resource names
+#   4. Database username
+#   5. Terraform-managed IAM resource names
 #
 #
 # ============================================================
@@ -247,7 +246,7 @@ variable "environment" {
 
 
 # ============================================================
-# 5. DATABASE USERNAME
+# 4. DATABASE USERNAME
 # ============================================================
 #
 # Database administrator username.
@@ -285,11 +284,10 @@ variable "database_username" {
 
 
 # ============================================================
-# 6. GITHUB ACTIONS IAM ROLE NAME
+# 5. GITHUB ACTIONS IAM ROLE NAME
 # ============================================================
 #
-# Name of the IAM role assumed by GitHub Actions through
-# GitHub OIDC.
+# Name of the IAM role used by GitHub Actions.
 #
 # IMPORTANT:
 #
@@ -313,7 +311,7 @@ variable "database_username" {
 
 variable "github_actions_role_name" {
 
-  description = "Name of the IAM role assumed by GitHub Actions through OIDC."
+  description = "Name of the IAM role used by GitHub Actions."
 
   type = string
 
@@ -335,11 +333,11 @@ variable "github_actions_role_name" {
 
 
 # ============================================================
-# 7. GITHUB ACTIONS IAM POLICY NAME
+# 6. GITHUB ACTIONS IAM POLICY NAME
 # ============================================================
 #
-# Name of the customer-managed IAM policy used by the
-# GitHub Actions OIDC role.
+# Name of the customer-managed IAM policy used by
+# GitHub Actions.
 #
 # Terraform creates the policy.
 #
@@ -357,7 +355,7 @@ variable "github_actions_role_name" {
 
 variable "github_actions_policy_name" {
 
-  description = "Name of the customer-managed IAM policy attached to the GitHub Actions OIDC role."
+  description = "Name of the customer-managed IAM policy used by GitHub Actions."
 
   type = string
 
@@ -379,17 +377,11 @@ variable "github_actions_policy_name" {
 
 
 # ============================================================
-# 8. TERRAFORM BACKEND IAM POLICY NAME
+# 7. TERRAFORM BACKEND IAM POLICY NAME
 # ============================================================
 #
-# Name of the customer-managed IAM policy used for the
-# Terraform backend.
-#
-# Example responsibilities may include:
-#
-#   - S3 state bucket access
-#   - Terraform state object access
-#   - DynamoDB locking, if used
+# Name of the customer-managed IAM policy used for
+# Terraform backend access.
 #
 # The actual permissions remain in the IAM JSON policy file.
 #
@@ -419,7 +411,7 @@ variable "terraform_backend_policy_name" {
 
 
 # ============================================================
-# 9. GITHUB CI/CD COMBINED POLICY NAME
+# 8. GITHUB CI/CD COMBINED POLICY NAME
 # ============================================================
 #
 # Name of the customer-managed IAM policy containing the
@@ -462,7 +454,7 @@ variable "github_ci_cd_combined_policy_name" {
 
 
 # ============================================================
-# 10. IAM POLICY PATHS
+# 9. IAM POLICY PATHS
 # ============================================================
 #
 # NO IAM POLICY DIRECTORY VARIABLE IS REQUIRED.
@@ -496,7 +488,7 @@ variable "github_ci_cd_combined_policy_name" {
 
 
 # ============================================================
-# 11. IAM ROLE ARN / POLICY ARN
+# 10. IAM ROLE ARN / POLICY ARN
 # ============================================================
 #
 # NO IAM ROLE ARN VARIABLE IS REQUIRED.
@@ -546,9 +538,7 @@ variable "github_ci_cd_combined_policy_name" {
 #       |
 #       +--> Environment
 #       |
-#       +--> AMI
-#       |
-#       +--> Database credentials
+#       +--> Database username
 #       |
 #       +--> IAM resource names
 #       |
@@ -562,7 +552,7 @@ variable "github_ci_cd_combined_policy_name" {
 #
 # Terraform
 #     |
-#     | creates/updates CloudFormation root stack
+#     | supplies configuration to the infrastructure deployment
 #     v
 # CloudFormation Root Stack
 #     |
@@ -583,7 +573,7 @@ variable "github_ci_cd_combined_policy_name" {
 # CloudFormation Outputs
 #     |
 #     v
-# Terraform / dependent resources
+# Dependent Terraform resources or services
 #
 #
 # ============================================================
@@ -639,7 +629,7 @@ variable "github_ci_cd_combined_policy_name" {
 #   lambda_function_arn
 #
 #
-# These resources are created by CloudFormation.
+# These values refer to resources created by CloudFormation.
 #
 #
 # Similarly, do NOT add:
@@ -657,18 +647,21 @@ variable "github_ci_cd_combined_policy_name" {
 # ============================================================
 #
 #
-# These values should normally be supplied through:
+# These variables can be overridden through:
 #
 #   terraform.tfvars
 #
-# or:
+#   *.auto.tfvars
 #
-#   TF_VAR_*
+#   CLI arguments
 #
-# environment variables / CI/CD secret mechanisms.
+#   TF_VAR_* environment variables
+#
+# Default values are used when no override is provided.
 #
 #
-# IAM NAME VARIABLES WITH DEFAULTS:
+#
+# IAM NAME VARIABLES:
 #
 #   github_actions_role_name
 #   github_actions_policy_name
@@ -676,6 +669,6 @@ variable "github_ci_cd_combined_policy_name" {
 #   github_ci_cd_combined_policy_name
 #
 # These defaults are naming conventions and can be overridden
-# when a different environment or naming strategy is required.
+# when a different naming strategy is required.
 #
 # ============================================================

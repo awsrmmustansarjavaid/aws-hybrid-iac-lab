@@ -9,7 +9,7 @@
 # ------------------------------------------------------------
 variable "aws_region" {
 
-  description = "AWS region where the Terraform state bucket is created."
+  description = "AWS region used for Terraform resources."
 
   type = string
 

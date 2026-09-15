@@ -11,8 +11,6 @@
 #   configuration because the main Terraform backend bucket
 #   must exist BEFORE terraform init.
 #
-# The GitHub Actions workflow normally handles this bootstrap
-# automatically.
 # ============================================================
 
 terraform {
@@ -50,7 +48,7 @@ resource "aws_s3_bucket" "terraform_state" {
   # ----------------------------------------------------------
   # Safety:
   #
-  # Never automatically destroy the Terraform state bucket.
+  # Prevent Terraform from destroying the Terraform state bucket.
   # ----------------------------------------------------------
   lifecycle {
     prevent_destroy = true
