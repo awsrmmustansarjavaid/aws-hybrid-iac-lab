@@ -35,13 +35,6 @@ GitHub Actions owns the *application plane* (Docker build → ECR push → ECS F
 23. [Roadmap / improvements](#23-roadmap--improvements)
 
 ---
-## AWS Hybrid IaC Lab — Architecture & Design Document
-Companion document to README.md. Where the README explains how to run the lab, this document explains how the lab is built: every directory, every file, how Terraform and CloudFormation cooperate, how GitHub Actions drives both, and what each script does and why it exists.
-
-[Architecture & Design Document](./doc/ARCHITECTURE.md)
-
----
-
 ## 1. What this lab is
 
 Most AWS learning repos pick one IaC tool and stop there. Real companies rarely look like that. They inherit CloudFormation stacks, adopt Terraform later, and end up running both. This lab is a deliberate, working model of that reality.
@@ -309,6 +302,12 @@ aws-hybrid-iac-lab/
 ├── deployment-monitor-systam/        Real-time CFN monitoring + RCA system
 └── report-log/                       Audit output: PASS / WARNING / ERROR / SUMMARY
 ```
+
+---
+## AWS Hybrid IaC Lab — Architecture & Design Document
+Companion document to README.md. Where the README explains how to run the lab, this document explains how the lab is built: every directory, every file, how Terraform and CloudFormation cooperate, how GitHub Actions drives both, and what each script does and why it exists.
+
+[Architecture & Design Document](./doc/ARCHITECTURE.md)
 
 ---
 
