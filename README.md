@@ -35,6 +35,12 @@ GitHub Actions owns the *application plane* (Docker build → ECR push → ECS F
 23. [Roadmap / improvements](#23-roadmap--improvements)
 
 ---
+## AWS Hybrid IaC Lab — Architecture & Design Document
+Companion document to README.md. Where the README explains how to run the lab, this document explains how the lab is built: every directory, every file, how Terraform and CloudFormation cooperate, how GitHub Actions drives both, and what each script does and why it exists.
+
+[Architecture & Design Document](./docs/ARCHITECTURE.md)
+
+---
 
 ## 1. What this lab is
 
