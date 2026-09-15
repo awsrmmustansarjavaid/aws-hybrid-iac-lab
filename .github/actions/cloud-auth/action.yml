@@ -1,0 +1,187 @@
+# ==========================================================
+# CLOUD AUTHENTICATION
+# ==========================================================
+#
+# File:
+#   .github/actions/cloud-auth/action.yml
+#
+# Purpose:
+#
+#   Configure authentication for either:
+#
+#     1. Real AWS
+#        GitHub Actions OIDC -> AWS IAM Role
+#
+#     2. Local Floci
+#        Local dummy credentials -> Floci endpoint
+#
+# The workflow selects the target using:
+#
+#   CLOUD_ENVIRONMENT=aws
+#
+# or:
+#
+#   CLOUD_ENVIRONMENT=floci
+#
+# ==========================================================
+
+name: Cloud Authentication
+
+description: >
+  Configure authentication for either real AWS using GitHub OIDC
+  or local Floci using AWS-compatible local credentials.
+
+inputs:
+
+  environment:
+    description: "Cloud environment: aws or floci"
+    required: true
+
+  aws-region:
+    description: "AWS-compatible region"
+    required: true
+
+  aws-account-id:
+    description: "Expected AWS account ID"
+    required: false
+    default: ""
+
+  aws-role-arn:
+    description: "AWS IAM role ARN used by GitHub OIDC"
+    required: false
+    default: ""
+
+  aws-role-session-name:
+    description: "AWS IAM role session name"
+    required: false
+    default: "GitHubActions"
+
+  aws-oidc-audience:
+    description: "GitHub OIDC audience"
+    required: false
+    default: "sts.amazonaws.com"
+
+  floci-endpoint:
+    description: "Floci AWS-compatible endpoint"
+    required: false
+    default: "http://localhost:4566"
+
+  floci-access-key-id:
+    description: "Local Floci access key"
+    required: false
+    default: "test"
+
+  floci-secret-access-key:
+    description: "Local Floci secret key"
+    required: false
+    default: "test"
+
+runs:
+
+  using: composite
+
+  steps:
+
+    # ======================================================
+    # Validate selected environment
+    # ======================================================
+
+    - name: Validate Cloud Environment
+      shell: bash
+      env:
+        CLOUD_ENVIRONMENT: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+
+        echo "================================================"
+        echo "VALIDATING CLOUD ENVIRONMENT"
+        echo "================================================"
+
+        case "$CLOUD_ENVIRONMENT" in
+          aws)
+            echo "Selected environment: AWS"
+            ;;
+
+          floci)
+            echo "Selected environment: Floci"
+            ;;
+
+          *)
+            echo ""
+            echo "ERROR: Unsupported cloud environment."
+            echo ""
+            echo "Supported values:"
+            echo "  aws"
+            echo "  floci"
+            exit 1
+            ;;
+        esac
+
+        echo "================================================"
+
+    # ======================================================
+    # AWS authentication
+    #
+    # This step is executed only when:
+    #
+    #   environment = aws
+    #
+    # ======================================================
+
+    - name: Configure AWS Credentials Using OIDC
+      if: inputs.environment == 'aws'
+      uses: aws-actions/configure-aws-credentials@v5.1.1
+      with:
+        aws-region: ${{ inputs.aws-region }}
+        role-to-assume: ${{ inputs.aws-role-arn }}
+        role-session-name: ${{ inputs.aws-role-session-name }}
+        audience: ${{ inputs.aws-oidc-audience }}
+        allowed-account-ids: ${{ inputs.aws-account-id }}
+
+    # ======================================================
+    # Floci authentication
+    #
+    # Floci uses the normal AWS API protocol but does not
+    # require AWS IAM/OIDC credentials.
+    #
+    # These values are written to GITHUB_ENV so every later
+    # step in the workflow can use normal AWS CLI commands.
+    # ======================================================
+
+    - name: Configure Floci Credentials
+      if: inputs.environment == 'floci'
+      shell: bash
+      env:
+        FLOCI_ENDPOINT: ${{ inputs.floci-endpoint }}
+        FLOCI_ACCESS_KEY_ID: ${{ inputs.floci-access-key-id }}
+        FLOCI_SECRET_ACCESS_KEY: ${{ inputs.floci-secret-access-key }}
+        AWS_REGION: ${{ inputs.aws-region }}
+      run: |
+        set -euo pipefail
+
+        echo "================================================"
+        echo "CONFIGURING FLOCI"
+        echo "================================================"
+
+        echo "AWS_ENDPOINT_URL=$FLOCI_ENDPOINT" >> "$GITHUB_ENV"
+        echo "AWS_DEFAULT_REGION=$AWS_REGION" >> "$GITHUB_ENV"
+
+        echo "AWS_ACCESS_KEY_ID=$FLOCI_ACCESS_KEY_ID" >> "$GITHUB_ENV"
+        echo "AWS_SECRET_ACCESS_KEY=$FLOCI_SECRET_ACCESS_KEY" >> "$GITHUB_ENV"
+
+        # Explicitly prevent an inherited AWS session token
+        # from accidentally affecting local authentication.
+        echo "AWS_SESSION_TOKEN=" >> "$GITHUB_ENV"
+
+        echo ""
+        echo "Floci endpoint:"
+        echo "$FLOCI_ENDPOINT"
+
+        echo ""
+        echo "AWS-compatible region:"
+        echo "$AWS_REGION"
+
+        echo ""
+        echo "Floci credentials configured."
+
+        echo "================================================"

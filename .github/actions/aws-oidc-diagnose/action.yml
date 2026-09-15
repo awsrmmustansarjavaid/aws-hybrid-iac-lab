@@ -1,0 +1,298 @@
+# ==========================================================
+# AWS GITHUB OIDC DIAGNOSTICS
+# ==========================================================
+#
+# File:
+#   .github/actions/aws-oidc-diagnose/action.yml
+#
+# Purpose:
+#
+#   Diagnose the GitHub Actions OIDC token used to access
+#   real AWS.
+#
+# IMPORTANT:
+#
+#   This action is AWS-only.
+#
+#   It must NOT be executed for Floci because Floci does not
+#   use GitHub OIDC federation.
+#
+# The JWT itself is NEVER printed.
+# Only selected claims are displayed.
+#
+# ==========================================================
+
+name: AWS OIDC Diagnostics
+
+description: >
+  Diagnose and validate GitHub Actions OIDC claims for AWS
+  authentication without printing the JWT itself.
+
+inputs:
+
+  oidc-audience:
+    description: "Expected GitHub OIDC audience"
+    required: false
+    default: "sts.amazonaws.com"
+
+  expected-repository:
+    description: "Expected GitHub repository"
+    required: true
+
+runs:
+
+  using: composite
+
+  steps:
+
+    - name: Diagnose GitHub OIDC Claims
+      shell: bash
+      env:
+        AWS_OIDC_AUDIENCE: ${{ inputs.oidc-audience }}
+        EXPECTED_REPOSITORY: ${{ inputs.expected-repository }}
+      run: |
+        set -euo pipefail
+
+        echo "================================================"
+        echo "GITHUB OIDC DIAGNOSTICS"
+        echo "================================================"
+
+        # ------------------------------------------------
+        # Verify OIDC runtime variables.
+        # ------------------------------------------------
+
+        if [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+          echo ""
+          echo "ERROR: ACTIONS_ID_TOKEN_REQUEST_TOKEN is unavailable."
+          exit 1
+        fi
+
+        if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+          echo ""
+          echo "ERROR: ACTIONS_ID_TOKEN_REQUEST_URL is unavailable."
+          exit 1
+        fi
+
+        # ------------------------------------------------
+        # Display workflow context.
+        # ------------------------------------------------
+
+        echo ""
+        echo "Repository:"
+        echo "$GITHUB_REPOSITORY"
+
+        echo ""
+        echo "Reference:"
+        echo "$GITHUB_REF"
+
+        echo ""
+        echo "Branch:"
+        echo "${GITHUB_REF_NAME:-unknown}"
+
+        echo ""
+        echo "Event:"
+        echo "$GITHUB_EVENT_NAME"
+
+        echo ""
+        echo "Workflow:"
+        echo "$GITHUB_WORKFLOW"
+
+        echo ""
+        echo "Job:"
+        echo "$GITHUB_JOB"
+
+        # ------------------------------------------------
+        # Request the OIDC token.
+        #
+        # The actual token is kept inside the shell and is
+        # never printed.
+        # ------------------------------------------------
+
+        OIDC_TOKEN_RESPONSE=$(curl \
+          --fail \
+          --silent \
+          --show-error \
+          -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+          "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AWS_OIDC_AUDIENCE}")
+
+        OIDC_TOKEN=$(echo "$OIDC_TOKEN_RESPONSE" | jq -r '.value')
+
+        if [ -z "$OIDC_TOKEN" ] || [ "$OIDC_TOKEN" = "null" ]; then
+          echo ""
+          echo "ERROR: GitHub OIDC token was not returned."
+          exit 1
+        fi
+
+        # ------------------------------------------------
+        # Decode only the JWT payload.
+        # ------------------------------------------------
+
+        OIDC_PAYLOAD=$(echo "$OIDC_TOKEN" | cut -d '.' -f2)
+
+        OIDC_PAYLOAD=$(printf '%s' "$OIDC_PAYLOAD" | tr '_-' '/+')
+
+        case $((${#OIDC_PAYLOAD} % 4)) in
+          2)
+            OIDC_PAYLOAD="${OIDC_PAYLOAD}=="
+            ;;
+          3)
+            OIDC_PAYLOAD="${OIDC_PAYLOAD}="
+            ;;
+        esac
+
+        CLAIMS=$(printf '%s' "$OIDC_PAYLOAD" | base64 -d 2>/dev/null || true)
+
+        if [ -z "$CLAIMS" ]; then
+          echo ""
+          echo "ERROR: Unable to decode GitHub OIDC claims."
+          exit 1
+        fi
+
+        # ------------------------------------------------
+        # Extract safe diagnostic claims.
+        # ------------------------------------------------
+
+        ISSUER=$(echo "$CLAIMS" | jq -r '.iss // empty')
+        AUDIENCE=$(echo "$CLAIMS" | jq -r '.aud // empty')
+        SUBJECT=$(echo "$CLAIMS" | jq -r '.sub // empty')
+        REPOSITORY=$(echo "$CLAIMS" | jq -r '.repository // empty')
+        REPOSITORY_ID=$(echo "$CLAIMS" | jq -r '.repository_id // empty')
+        REPOSITORY_OWNER=$(echo "$CLAIMS" | jq -r '.repository_owner // empty')
+        REF=$(echo "$CLAIMS" | jq -r '.ref // empty')
+        REF_TYPE=$(echo "$CLAIMS" | jq -r '.ref_type // empty')
+        EVENT_NAME=$(echo "$CLAIMS" | jq -r '.event_name // empty')
+        WORKFLOW=$(echo "$CLAIMS" | jq -r '.workflow // empty')
+        WORKFLOW_REF=$(echo "$CLAIMS" | jq -r '.workflow_ref // empty')
+        JOB_WORKFLOW_REF=$(echo "$CLAIMS" | jq -r '.job_workflow_ref // empty')
+        ENVIRONMENT=$(echo "$CLAIMS" | jq -r '.environment // empty')
+
+        # ------------------------------------------------
+        # Display claims.
+        #
+        # NEVER display the complete token.
+        # ------------------------------------------------
+
+        echo ""
+        echo "OIDC Issuer:"
+        echo "$ISSUER"
+
+        echo ""
+        echo "OIDC Audience:"
+        echo "$AUDIENCE"
+
+        echo ""
+        echo "OIDC Subject:"
+        echo "$SUBJECT"
+
+        echo ""
+        echo "Repository:"
+        echo "$REPOSITORY"
+
+        echo ""
+        echo "Repository ID:"
+        echo "$REPOSITORY_ID"
+
+        echo ""
+        echo "Repository Owner:"
+        echo "$REPOSITORY_OWNER"
+
+        echo ""
+        echo "Reference:"
+        echo "$REF"
+
+        echo ""
+        echo "Reference Type:"
+        echo "$REF_TYPE"
+
+        echo ""
+        echo "Event:"
+        echo "$EVENT_NAME"
+
+        echo ""
+        echo "Workflow:"
+        echo "$WORKFLOW"
+
+        echo ""
+        echo "Workflow Reference:"
+        echo "$WORKFLOW_REF"
+
+        echo ""
+        echo "Job Workflow Reference:"
+        echo "$JOB_WORKFLOW_REF"
+
+        echo ""
+        echo "Environment:"
+        echo "$ENVIRONMENT"
+
+        # ------------------------------------------------
+        # Validate issuer.
+        # ------------------------------------------------
+
+        if [ "$ISSUER" != "https://token.actions.githubusercontent.com" ]; then
+          echo ""
+          echo "ERROR: Unexpected OIDC issuer."
+          exit 1
+        fi
+
+        # ------------------------------------------------
+        # Validate audience.
+        # ------------------------------------------------
+
+        if [ "$AUDIENCE" != "$AWS_OIDC_AUDIENCE" ]; then
+          echo ""
+          echo "ERROR: Unexpected OIDC audience."
+          echo "Expected: $AWS_OIDC_AUDIENCE"
+          echo "Actual:   $AUDIENCE"
+          exit 1
+        fi
+
+        # ------------------------------------------------
+        # Validate repository.
+        # ------------------------------------------------
+
+        if [ "$REPOSITORY" != "$EXPECTED_REPOSITORY" ]; then
+          echo ""
+          echo "ERROR: Unexpected GitHub repository."
+          echo "Expected: $EXPECTED_REPOSITORY"
+          echo "Actual:   $REPOSITORY"
+          exit 1
+        fi
+
+        # ------------------------------------------------
+        # Validate repository against GitHub runtime.
+        # ------------------------------------------------
+
+        if [ "$REPOSITORY" != "$GITHUB_REPOSITORY" ]; then
+          echo ""
+          echo "ERROR: OIDC repository does not match runtime repository."
+          exit 1
+        fi
+
+        # ------------------------------------------------
+        # Display subject expectation.
+        #
+        # This is diagnostic only.
+        #
+        # GitHub OIDC subject formats can vary depending on
+        # workflow/environment configuration.
+        # ------------------------------------------------
+
+        EXPECTED_CLASSIC_SUB="repo:${GITHUB_REPOSITORY}:ref:${GITHUB_REF}"
+
+        echo ""
+        echo "Classic branch subject expectation:"
+        echo "$EXPECTED_CLASSIC_SUB"
+
+        if [ "$SUBJECT" != "$EXPECTED_CLASSIC_SUB" ]; then
+          echo ""
+          echo "WARNING: OIDC subject differs from the classic"
+          echo "branch-based subject."
+          echo ""
+          echo "This is diagnostic only."
+          echo "Check the IAM trust policy if authentication fails."
+        fi
+
+        echo ""
+        echo "GitHub OIDC diagnostics completed successfully."
+
+        echo "================================================"

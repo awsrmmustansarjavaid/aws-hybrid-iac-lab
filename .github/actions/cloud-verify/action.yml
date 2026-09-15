@@ -1,0 +1,176 @@
+# ==========================================================
+# CLOUD IDENTITY VERIFICATION
+# ==========================================================
+#
+# File:
+#   .github/actions/cloud-verify/action.yml
+#
+# Purpose:
+#
+#   Verify that the workflow is talking to the expected
+#   environment.
+#
+# AWS:
+#   Verify AWS account and IAM role.
+#
+# Floci:
+#   Verify that the local AWS-compatible endpoint responds
+#   and that the expected local account is being used.
+#
+# ==========================================================
+
+name: Cloud Identity Verification
+
+description: >
+  Verify AWS or Floci identity after authentication.
+
+inputs:
+
+  environment:
+    description: "Cloud environment: aws or floci"
+    required: true
+
+  aws-account-id:
+    description: "Expected AWS account ID"
+    required: false
+    default: ""
+
+  aws-expected-role-name:
+    description: "Expected AWS IAM role name"
+    required: false
+    default: ""
+
+  floci-account-id:
+    description: "Expected Floci account ID"
+    required: false
+    default: "000000000000"
+
+runs:
+
+  using: composite
+
+  steps:
+
+    # ======================================================
+    # AWS identity verification
+    # ======================================================
+
+    - name: Verify AWS Identity
+      if: inputs.environment == 'aws'
+      shell: bash
+      env:
+        AWS_ACCOUNT_ID: ${{ inputs.aws-account-id }}
+        AWS_EXPECTED_ROLE_NAME: ${{ inputs.aws-expected-role-name }}
+      run: |
+        set -euo pipefail
+
+        echo "================================================"
+        echo "VERIFYING AWS IDENTITY"
+        echo "================================================"
+
+        IDENTITY=$(aws sts get-caller-identity)
+
+        CALLER_ACCOUNT=$(echo "$IDENTITY" | jq -r '.Account')
+        CALLER_ARN=$(echo "$IDENTITY" | jq -r '.Arn')
+
+        echo ""
+        echo "AWS Account:"
+        echo "$CALLER_ACCOUNT"
+
+        echo ""
+        echo "AWS ARN:"
+        echo "$CALLER_ARN"
+
+        if [ "$CALLER_ACCOUNT" != "$AWS_ACCOUNT_ID" ]; then
+          echo ""
+          echo "ERROR: AWS account mismatch."
+          echo "Expected: $AWS_ACCOUNT_ID"
+          echo "Actual:   $CALLER_ACCOUNT"
+          exit 1
+        fi
+
+        if [[ "$CALLER_ARN" != *"$AWS_EXPECTED_ROLE_NAME"* ]]; then
+          echo ""
+          echo "ERROR: Unexpected AWS IAM role."
+          echo "Expected role name: $AWS_EXPECTED_ROLE_NAME"
+          exit 1
+        fi
+
+        echo ""
+        echo "AWS identity verification successful."
+        echo "================================================"
+
+    # ======================================================
+    # Floci identity verification
+    # ======================================================
+
+    - name: Verify Floci Identity
+      if: inputs.environment == 'floci'
+      shell: bash
+      env:
+        FLOCI_ACCOUNT_ID: ${{ inputs.floci-account-id }}
+      run: |
+        set -euo pipefail
+
+        echo "================================================"
+        echo "VERIFYING FLOCI IDENTITY"
+        echo "================================================"
+
+        echo ""
+        echo "Floci endpoint:"
+        echo "${AWS_ENDPOINT_URL:-not-set}"
+
+        if [ -z "${AWS_ENDPOINT_URL:-}" ]; then
+          echo ""
+          echo "ERROR: AWS_ENDPOINT_URL is not configured."
+          exit 1
+        fi
+
+        # ------------------------------------------------
+        # Check that the local endpoint responds.
+        # ------------------------------------------------
+
+        if ! curl \
+          --fail \
+          --silent \
+          --show-error \
+          "${AWS_ENDPOINT_URL}" \
+          >/dev/null 2>&1; then
+
+          echo ""
+          echo "ERROR: Floci endpoint is unreachable."
+          echo ""
+          echo "Endpoint:"
+          echo "$AWS_ENDPOINT_URL"
+          exit 1
+        fi
+
+        # ------------------------------------------------
+        # STS is intentionally used because the same AWS
+        # CLI interface is used for both AWS and Floci.
+        # ------------------------------------------------
+
+        IDENTITY=$(aws sts get-caller-identity)
+
+        CALLER_ACCOUNT=$(echo "$IDENTITY" | jq -r '.Account')
+        CALLER_ARN=$(echo "$IDENTITY" | jq -r '.Arn')
+
+        echo ""
+        echo "Floci Account:"
+        echo "$CALLER_ACCOUNT"
+
+        echo ""
+        echo "Floci ARN:"
+        echo "$CALLER_ARN"
+
+        if [ "$CALLER_ACCOUNT" != "$FLOCI_ACCOUNT_ID" ]; then
+          echo ""
+          echo "ERROR: Floci account mismatch."
+          echo "Expected: $FLOCI_ACCOUNT_ID"
+          echo "Actual:   $CALLER_ACCOUNT"
+          exit 1
+        fi
+
+        echo ""
+        echo "Floci identity verification successful."
+        echo "================================================"
