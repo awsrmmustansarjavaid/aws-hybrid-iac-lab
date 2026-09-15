@@ -1,3 +1,57 @@
+# Migrating aws-hybrid-iac-lab to Floci (Self-Hosted Runner)
+
+**Goal:** Run the exact same lab against Floci (local AWS emulator) instead of real AWS, using a GitHub Actions self-hosted runner on your laptop so the existing workflow structure stays intact.
+
+**Read this first:** you asked for a minimal change — swap ARNs, account ID, keys. That covers about half of what's actually needed. The other half is structural (OIDC doesn't apply to Floci at all; Terraform needs to be told where "AWS" now lives). Both are small, but they're not ARN swaps — they're new blocks. This document lists every one, with exact file and line references pulled from your repo.
+
+---
+
+## 0. Prerequisites on your laptop
+
+```bash
+# Docker must be running — Floci uses it for EC2, ECS, Lambda, RDS, EKS
+docker --version
+
+# Run Floci (mount the docker socket so EC2/ECS/EKS get real containers, not shallow mocks)
+docker run -d --name floci -p 4566:4566 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -u root floci/floci:latest
+
+# Sanity check
+export AWS_ENDPOINT_URL=http://localhost:4566
+export AWS_DEFAULT_REGION=us-east-1
+export AWS_ACCESS_KEY_ID=test
+export AWS_SECRET_ACCESS_KEY=test
+aws sts get-caller-identity
+# → Account: 000000000000   ← this is Floci's fixed fake account ID, not one you choose
+```
+
+**`000000000000` is the account ID you'll use everywhere** you currently have `537236558357`. It's not a real account you register — it's what Floci always reports.
+
+---
+
+## 1. Register the self-hosted runner
+
+`GitHub repo → Settings → Actions → Runners → New self-hosted runner`. Follow the OS-specific install commands GitHub gives you, then run it as a service so it survives reboots:
+
+```bash
+./config.sh --url https://github.com/<you>/aws-hybrid-iac-lab --token <token> --labels floci-local
+./svc.sh install
+./svc.sh start
+```
+
+### Edit every workflow's `runs-on`
+
+| File | Change |
+|---|---|
+| `.github/workflows/terraform.yml` | `runs-on: ubuntu-latest` → `runs-on: [self-hosted, floci-local]` |
+| `.github/workflows/docker.yml` | same |
+| `.github/workflows/kubernetes.yml` | same |
+| `.github/workflows/delete.yml` | same |
+
+`main-deploy.yaml` itself doesn't need `runs-on` changed if it only orchestrates `workflow_call`s — the called workflows carry their own `runs-on`.
+
+---
 # Migrating `aws-hybrid-iac-lab` to Floci — Professional Approach
 
 Yes. **Your idea is possible, and I recommend doing it.**
